@@ -21,34 +21,55 @@ Blender **4.5.2 LTS** (macOS, Apple M1 16 GB, Metal GPU), headless:
 Options: `--quick` (geometry, rig and previews only; no bake, no export),
 `--tex N` (bake size, default 2048, ship 4096), `--hp-levels N` (detail-mesh
 subdivision, default 2), `--samples N`, `--shots a,b,c`, `--no-render`,
-`--preview-dir PATH`. A full 4K build takes about 22 minutes and
+`--preview-dir PATH`. A full 4K build takes about 24 minutes and
 peaks at about 9 GB of RAM.
 
 ### Pipeline
 
-1. **Body**: metaball ellipsoid chains along a landmark skeleton, giving organic
-   muscle blends at the shoulders, hips and neck. The result is voxel-remeshed
-   (9.5 mm) and lightly smoothed. The lower jaw is a separate piece so the mouth
-   opens cleanly.
+1. **Body**: metaball ellipsoids and chains laid out on a landmark skeleton,
+   with proportions taken from crocodile, monitor lizard and big-cat shoulder
+   references. It has a deep keeled ribcage and sternal keel; pectorals and a
+   heavy deltoid/trapezius mass where the wings anchor; epaxial muscles and
+   glutes; triceps and biceps, forearm extensor and flexor bellies, and wrist
+   tendons; quads, hamstrings, gastrocnemius and an Achilles tendon; and a
+   caudofemoral muscle running into a thick tail base. The neck is thick, with a
+   top muscle, side bands, a jowl and a throat that slopes into the chest. Toes
+   are knuckled. The mesh is voxel-remeshed (9.5 mm) and lightly smoothed. A
+   macro sculpt then pushes ribs out under the flank skin on the game mesh
+   itself, so they show in the silhouette and the bake. The lower jaw is a
+   separate piece so the mouth opens cleanly.
 2. **Parts**: horns with growth ridges, dorsal spines (ray-cast onto the top
    line), cheek spikes, teeth, claws, wing fingers, thumb claws, the tail fin,
    eyes with a corneal bulge and eyelids. These are lofted meshes joined into
    the body.
 3. **Wing membranes**: a Coons patch between the arm, flank and finger 4, plus fans
-   between the fingers, with scalloped trailing edges. They are solidified to 18 mm.
-4. **Game mesh** (`SK_Dragon_Mesh`): triangulated, about 345k triangles.
-5. **High-res detail mesh** (8.3 M triangles, built on the fly and not
+   between the fingers. Trailing edges are deeply scalloped between the finger
+   tips. Each panel sags. Thickness varies: about 30 mm along the bones down to
+   about 6 mm mid-panel (solidify with a distance-to-bone vertex group). The
+   finger bones are knuckled (three joints each). On the detail mesh the
+   membranes also get 4.5 mm raised vessels, skin creases and slack folds near
+   the body. Colour runs darker along the bones and thinner/warmer mid-panel.
+4. **Game mesh** (`SK_Dragon_Mesh`): triangulated, about 350k triangles.
+5. **High-res detail mesh** (8.4 M triangles, built on the fly and not
    exported). Geometry nodes subdivide the game mesh twice and displace it with:
    imbricate (overlapping, rear-raised) scales whose size varies by region;
    rows of keeled dorsal osteoderms; rectangular belly scutes; tiny scales at
    the joints; fine scales and sensory pits on the head; skin folds at the
    throat, armpits, groin, wing roots, elbows and knees; and growth rings and
-   striations on keratin. A procedural skin shader then adds colour on top:
+   keratin detail (irregular growth rings, about 18 lengthwise fibrous grooves,
+   and chipped, worn tips). A procedural skin shader then adds colour on top:
    countershading, per-scale hue drift (a baked hint of iridescence), dirt from
    AO, cavity and folds, wear on plate edges, and a fibrous amber iris with a
    slit pupil.
 6. **Bake**: high-res to game mesh with Cycles (selected-to-active). Passes:
-   base colour, roughness, tangent-space normal, AO and cavity.
+   base colour, roughness, tangent-space normal, AO, plus cavity (body) and a
+   translucency/thickness mask (wing).
+7. **Review renders** use real outdoor HDRIs from Poly Haven (CC0), downloaded
+   to `Data/Downloads/HDRI/`: `kloppenheim_06_puresky` (low sun) and
+   `overcast_soil_puresky` (overcast). The HDRI is rotated per shot so the sun
+   keys from camera-left, the sky fills, and an area light gives a rim. Colour
+   management is AgX, with depth of field on close-ups. There is also a
+   full-body flight-pose hero shot against the sky.
 
 ## Files
 
@@ -60,7 +81,8 @@ peaks at about 9 GB of RAM.
 | `Textures/T_Dragon_Body_N.png` | Normal map, **DirectX (green down), the UE convention**. Leave *Flip Green Channel* off in UE. The OpenGL version is the same map with G inverted. |
 | `Textures/T_Dragon_Body_ARM.png` | R = AO, G = Roughness, B = Metallic (0). Linear (sRGB off in UE). |
 | `Textures/T_Dragon_Body_Cavity.png` | Extra: cavity/curvature (white = flat, dark = creases), for optional material-side grime. |
-| `Textures/T_Dragon_Wing_*.png` | The same four maps for the membrane material. |
+| `Textures/T_Dragon_Wing_D / _N / _ARM.png` | The same three maps for the membrane material. |
+| `Textures/T_Dragon_Wing_Translucency.png` | Linear mask, white = thin membrane that lets light through, dark = bone and thick skin along the fingers and arm, and the vessels. See below for the UE hook-up. |
 | `Previews/*.png` | Review renders (Cycles) of the game mesh with the baked textures. |
 | `build_stats.txt` | Polycount, size and bone list from the last build. |
 
@@ -68,10 +90,21 @@ Material slots: **`M_Dragon_Body`** (body, horns, claws, teeth, eyes, fin) and
 **`M_Dragon_Wing`** (membranes). Both sides of the membrane, and both wings,
 share the wing UV space.
 
-Suggested UE materials. Body: Subsurface Profile, or Default Lit with a little
-subsurface. Eyes: they are in the body UVs, and their roughness is baked very
-low. Wings: Two Sided Foliage with a warm subsurface colour (about #5a2a1a),
-so they glow when back-lit.
+Suggested UE materials:
+
+* **Body (`M_Dragon_Body`)**: Shading Model *Subsurface Profile*, with a warm
+  reddish profile and a small scatter radius (about 1–2 cm at this scale).
+  D → Base Color, N → Normal, ARM: R → Ambient Occlusion, G → Roughness,
+  B → Metallic. The scale caps are baked glossier than the crevices, which gives
+  the sheen. A Fresnel term can add a slight view-dependent sheen. Eyes are in
+  the body UVs; their roughness is baked at about 0.03, so they look wet.
+* **Wings (`M_Dragon_Wing`)**: Shading Model *Two Sided Foliage* and Two Sided
+  on. Plug `T_Dragon_Wing_Translucency` (R) into **Opacity** (in the Subsurface
+  and Two-Sided-Foliage models, Opacity sets how much light scatters through).
+  Also multiply it by a warm colour (about #8a3a22) and plug that into
+  **Subsurface Color**. That way the thin panels glow red-orange against the
+  sun while the bones and vessels stay dark. Blend Mode stays *Opaque*. For the
+  *Subsurface* shading model instead, use the same mask in Opacity.
 
 ## Size and facing
 
@@ -122,9 +155,9 @@ Horns, teeth, claws, spines, eyes and fingers are rigid to one bone.
 
 | Item | Count |
 |---|---|
-| Game mesh (`SK_Dragon_Mesh`, exported) | **345,384 triangles**, 172,938 vertices, one mesh, 2 material slots |
-| of which body skin (voxel remesh) | ~250k tris; jaw 16k; membranes ~41k; horns/spines/teeth/claws/eyes/lids/fingers/fin ~38k |
-| High-res detail mesh (bake source only) | 8,289,216 triangles |
+| Game mesh (`SK_Dragon_Mesh`, exported) | **350,312 triangles**, 175,402 vertices, one mesh, 2 material slots |
+| of which body skin (voxel remesh) | ~250k tris; jaw 16k; membranes ~41k; horns/spines/teeth/claws/eyes/lids/fingers/fin ~43k |
+| High-res detail mesh (bake source only) | 8,407,488 triangles |
 | Bones | 50 (49 deforming with weights; `root` has none) |
 | Max influences per vertex | 4 |
 
@@ -133,27 +166,48 @@ the 4K bakes.
 
 ## Known issues / honest limits
 
-**How close to photoreal:** not there. In close-ups the head and flank read
-convincingly *reptilian*: real scale relief, osteoderm rows, pits, AO/cavity grime, a wet slit-pupil eye. But
-the whole creature still reads as a high-quality game/CG asset, not a creature-feature still. Weakest
-points, worst first:
+**How close to photoreal (second pass):** close-ups of the head and flank under
+real HDRI light now hold up well. You can see scale relief graded by region,
+keeled osteoderms, sensory pits, grime in the creases, a wet slit-pupil eye
+with lids, and visible muscle masses and ribs. The full-body shots read as a
+heavy, plausible animal rather than a tube on stilts. It is still not at
+creature-feature level. A trained eye will see a procedural CG asset.
+Weakest points, worst first:
 
-1. **Form/anatomy.** The body is built from metaball blobs, so the limbs and neck are smooth tubes without
-   real muscle and tendon definition, bony landmarks (scapula, pelvis, ribs, knuckles) or loose skin. A
-   sculpting pass by an artist would gain more than any amount of texture work.
-2. **Wing membranes.** Veins, striations and a two-sided warm translucency exist, but at normal viewing
-   distance the membrane looks like a flat dark sheet. It needs slack/billow wrinkles near the body,
-   thinner trailing edges, and stronger vessel contrast. In UE, use Two Sided Foliage with a subsurface colour.
-3. **Horns and keratin.** These are too uniform and slightly plastic. Where a horn enters the skull there
-   is a small bake seam/artefact (cage rays hitting the skull).
-4. **Topology.** The game mesh is a uniform voxel remesh, triangulated. It deforms acceptably with the
-   procedural weights (see `Previews/dragon_posetest.png` and `dragon_folded.png`), but it has no
-   hand-made edge loops at the joints. Expect some volume loss at extreme elbow and knee bends.
-   Skinning is linear (no corrective shapes).
-5. **UVs.** Body UVs come from Smart UV Project, so there are many islands and many seams. Lofted parts
-   get clean cylindrical UVs. Faint normal-map seams can show under grazing light.
-6. **Single bones per wing finger.** The fingers cannot curl, so membrane folds are planar fans between them.
-7. **Iridescence** is only baked hue variation. True view-dependent sheen would need a Fresnel/thin-film
-   term in the UE material.
-8. The FBX has no animation. The material texture paths in the FBX are relative (`Textures/...`).
-   Assign the PNGs by hand if UE does not pick them up.
+1. **Anatomy is a procedural approximation.** The mass, muscle groups, ribs,
+   tendons and folds are all there, but they are built from blended
+   ellipsoids and a rib displacement, not sculpted anatomy. Muscle insertions,
+   skin sliding over bone, and loose skin bags (dewlap, armpit webbing) are
+   soft and generic. **This cannot really be done procedurally to a
+   photographic standard.** It needs a sculptor (ZBrush or Blender sculpt) on
+   the high-res mesh. The bake pipeline here would carry that sculpt straight
+   through.
+2. **Wing membranes.** These now have scalloped edges, sag, 6–30 mm
+   thickness, knuckled fingers, raised vessels, creases and slack folds, plus a
+   translucency mask. But the vessel network is a warped Voronoi pattern
+   rather than real branching anatomy, and the slack folds are patterned.
+   Back-lit in UE with Two Sided Foliage it reads well. Front-lit, the
+   membrane is still a fairly plain dark surface.
+3. **Belly scutes** come from a regular grid in body-surface coordinates, so
+   on the chest they can read as slightly too-regular stripes.
+4. **Keratin.** Horns have growth rings, fibre grooves, chipped matte tips and
+   skin bosses at the base (no bare seam). Up close the tips are fine, but the
+   horn bases are fairly dark and uniform.
+5. **Topology.** The game mesh is a uniform voxel remesh, triangulated. It
+   deforms acceptably with the procedural weights (see
+   `Previews/dragon_posetest.png`, `dragon_folded.png` and
+   `dragon_hero_flight.png`), but it has no hand-made edge loops at the
+   joints. Expect some volume loss at extreme elbow and knee bends. Skinning is
+   linear, with no corrective shapes. The muscles do not bulge or slide.
+6. **UVs.** Body UVs come from Smart UV Project, so there are many islands and
+   many seams. Lofted parts (horns, spines, claws, teeth, fingers, fin) get
+   clean cylindrical UVs. Faint normal-map seams can show under grazing light.
+7. **Single bones per wing finger** (this is spec: no extra bones). Fingers
+   cannot curl, so folds are planar fans between them.
+8. **Iridescence** is only baked per-scale hue variation. A view-dependent
+   sheen needs a Fresnel term in the UE material.
+9. The FBX has no animation. The material texture paths in the FBX are
+   relative (`Textures/...`). Assign the PNGs by hand if UE does not pick them
+   up. The review renders use Blender stand-ins for UE shading (Principled
+   subsurface plus sheen on the body, a translucent mix on the wings driven by
+   the translucency mask).

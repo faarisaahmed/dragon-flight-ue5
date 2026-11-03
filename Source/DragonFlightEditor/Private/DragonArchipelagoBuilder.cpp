@@ -405,13 +405,57 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialExpressionTextureSampleParameter2D* D = TexParam(M, TEXT("BaseColor"), nullptr, SAMPLERTYPE_Color, -600, -200);
 		UMaterialExpressionTextureSampleParameter2D* N = TexParam(M, TEXT("Normal"), nullptr, SAMPLERTYPE_Normal, -600, 50);
 		UMaterialExpressionTextureSampleParameter2D* A = TexParam(M, TEXT("ARM"), nullptr, SAMPLERTYPE_Masks, -600, 300);
+		// Thickness mask: white = thin panel that glows against the sun, dark = bone, vessels, thick skin.
+		UMaterialExpressionTextureSampleParameter2D* T = TexParam(M, TEXT("Thinness"), nullptr, SAMPLERTYPE_LinearGrayscale, -600, 550);
 		UMaterialExpressionVectorParameter* Through = Expr<UMaterialExpressionVectorParameter>(M, -600, -400);
-		Through->ParameterName = TEXT("Translucency"); Through->DefaultValue = FLinearColor(0.35f, 0.12f, 0.06f);
+		Through->ParameterName = TEXT("Translucency"); Through->DefaultValue = FLinearColor(0.54f, 0.23f, 0.13f); // ~#8a3a22
+		UMaterialExpressionMultiply* Glow = Expr<UMaterialExpressionMultiply>(M, -300, -400);
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Through, TEXT(""), Glow, TEXT("A"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(T, TEXT("R"), Glow, TEXT("B"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(D, TEXT("RGB"), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(N, TEXT("RGB"), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("R"), MP_AmbientOcclusion);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("G"), MP_Roughness);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Through, TEXT(""), MP_SubsurfaceColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Glow, TEXT(""), MP_SubsurfaceColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(T, TEXT("R"), MP_Opacity); // how much light scatters through
+		Finish(M);
+	}
+
+	// --- M_DragonSkin: scaled hide — subsurface, glossy caps, a faint grazing sheen
+	if (UMaterial* M = NewMaterial(TEXT("M_DragonSkin")))
+	{
+		M->bUsedWithSkeletalMesh = true;
+		M->SetShadingModel(MSM_Subsurface);
+		UMaterialExpressionTextureSampleParameter2D* D = TexParam(M, TEXT("BaseColor"), nullptr, SAMPLERTYPE_Color, -700, -250);
+		UMaterialExpressionTextureSampleParameter2D* N = TexParam(M, TEXT("Normal"), nullptr, SAMPLERTYPE_Normal, -700, 0);
+		UMaterialExpressionTextureSampleParameter2D* A = TexParam(M, TEXT("ARM"), nullptr, SAMPLERTYPE_Masks, -700, 250);
+		// Sheen: a faint cool rim at grazing angles, standing in for the iridescence of real scales.
+		UMaterialExpressionCustom* Sheen = Expr<UMaterialExpressionCustom>(M, -350, -250);
+		Sheen->Description = TEXT("Scale sheen");
+		Sheen->OutputType = CMOT_Float3;
+		Sheen->Inputs.Reset();
+		for (const TCHAR* In : { TEXT("Albedo"), TEXT("Amount") }) { FCustomInput I; I.InputName = In; Sheen->Inputs.Add(I); }
+		Sheen->Code = TEXT(
+			"float3 V = normalize(Parameters.CameraVector);\n"
+			"float f = pow(1.0 - saturate(dot(Parameters.WorldNormal, V)), 4.0) * Amount;\n"
+			"return lerp(Albedo, Albedo * 0.7 + float3(0.10, 0.14, 0.20), f);\n");
+		Sheen->PostEditChange();
+		UMaterialExpressionScalarParameter* Amt = Expr<UMaterialExpressionScalarParameter>(M, -700, -400);
+		Amt->ParameterName = TEXT("Sheen"); Amt->DefaultValue = 0.35f;
+		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), Sheen, TEXT("Albedo"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Amt, TEXT(""), Sheen, TEXT("Amount"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sheen, TEXT(""), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(N, TEXT("RGB"), MP_Normal);
+		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("R"), MP_AmbientOcclusion);
+		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("G"), MP_Roughness);
+		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("B"), MP_Metallic);
+		// Warm blood-red scatter, kept faint: this is thick hide, not a lizard's ear.
+		UMaterialExpressionVectorParameter* Sss = Expr<UMaterialExpressionVectorParameter>(M, -350, 300);
+		Sss->ParameterName = TEXT("SubsurfaceTint"); Sss->DefaultValue = FLinearColor(0.45f, 0.10f, 0.05f);
+		UMaterialExpressionScalarParameter* SssAmt = Expr<UMaterialExpressionScalarParameter>(M, -350, 400);
+		SssAmt->ParameterName = TEXT("SubsurfaceAmount"); SssAmt->DefaultValue = 0.18f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sss, TEXT(""), MP_SubsurfaceColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(SssAmt, TEXT(""), MP_Opacity);
 		Finish(M);
 	}
 
@@ -607,7 +651,8 @@ bool FDragonArchipelagoBuilder::ImportDragon()
 	}
 	if (!Mesh) { Log(TEXT("! dragon import produced no SK_Dragon")); return false; }
 
-	UMaterial* Surface = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_Surface.M_Surface")));
+	UMaterial* Surface = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_DragonSkin.M_DragonSkin")));
+	if (!Surface) Surface = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_Surface.M_Surface")));
 	UMaterial* Membrane = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_Membrane.M_Membrane")));
 	for (FSkeletalMaterial& SM : Mesh->GetMaterials())
 	{
@@ -630,6 +675,9 @@ bool FDragonArchipelagoBuilder::ImportDragon()
 		UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, TEXT("BaseColor"), D);
 		if (N) UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, TEXT("Normal"), N);
 		if (A) UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, TEXT("ARM"), A);
+		if (bWing)
+			if (UTexture2D* T = Tex(TEXT("Translucency"), false, true))
+				UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, TEXT("Thinness"), T);
 		UMaterialEditingLibrary::UpdateMaterialInstance(MI);
 		UEditorAssetLibrary::SaveLoadedAsset(MI, false);
 		SM.MaterialInterface = MI;

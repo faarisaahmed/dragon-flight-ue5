@@ -1,6 +1,6 @@
 blender 4.5.2 LTS
-triangles 345384
-vertices 172938
+triangles 350312
+vertices 175402
 length_m 8.600
 span_m 15.096
 bones 50

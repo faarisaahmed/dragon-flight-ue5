@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Downloads the baked heightmaps (too big for git) from this repo's GitHub
-release "world-data-v1" into Data/World/ and unzips them.
+release "world-data-v1" into Data/World/ and unzips them, plus the dragon
+model (release "dragon-v1") into Data/Dragon/.
 
     python Tools/fetch_world.py            # 8129 (default) and 4033
     python Tools/fetch_world.py --max      # also 16321, the sharpest terrain
@@ -19,26 +20,30 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "Data", "World")
 
 
-def via_gh(names):
+DRAGON_TAG = "dragon-v1"
+DATA = os.path.join(ROOT, "Data")
+
+
+def via_gh(names, tag=TAG, out=OUT):
     if not shutil.which("gh"):
         return False
-    args = ["gh", "release", "download", TAG, "-R", REPO, "-D", OUT, "--clobber"]
+    args = ["gh", "release", "download", tag, "-R", REPO, "-D", out, "--clobber"]
     for n in names:
         args += ["-p", n]
     return subprocess.call(args) == 0
 
 
-def via_token(names):
+def via_token(names, tag=TAG, out=OUT):
     tok = os.environ.get("GITHUB_TOKEN")
     if not tok:
         return False
     h = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json", "User-Agent": "fetch_world"}
-    rel = json.load(urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/tags/{TAG}", headers=h)))
+    rel = json.load(urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/tags/{tag}", headers=h)))
     for a in rel["assets"]:
         if a["name"] in names:
             print("downloading", a["name"])
             req = urllib.request.Request(a["url"], headers={**h, "Accept": "application/octet-stream"})
-            with urllib.request.urlopen(req) as r, open(os.path.join(OUT, a["name"]), "wb") as f:
+            with urllib.request.urlopen(req) as r, open(os.path.join(out, a["name"]), "wb") as f:
                 shutil.copyfileobj(r, f, 1 << 20)
     return True
 
@@ -61,6 +66,17 @@ def main():
             os.remove(z)
             print("unpacked", n)
     print("World data ready.")
+    # The dragon (SK_Dragon.fbx + 4K textures) unpacks into Data/Dragon/.
+    if not os.path.exists(os.path.join(DATA, "Dragon", "SK_Dragon.fbx")):
+        z = os.path.join(DATA, "Dragon.zip")
+        if via_gh(["Dragon.zip"], DRAGON_TAG, DATA) or via_token(["Dragon.zip"], DRAGON_TAG, DATA):
+            if os.path.exists(z):
+                with zipfile.ZipFile(z) as f:
+                    f.extractall(DATA)
+                os.remove(z)
+                print("unpacked Dragon.zip")
+        else:
+            print(f"Get Dragon.zip from https://github.com/{REPO}/releases/tag/{DRAGON_TAG} and unzip it into {DATA}")
     return 0
 
 

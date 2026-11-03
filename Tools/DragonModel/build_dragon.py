@@ -130,9 +130,9 @@ J['jaw_end'] = V(0, -3.33, 2.33)
 
 # tail: smooth path, 12 bones, segment length shrinking toward the tip
 TAIL_CTRL = [  # (y, z, half-width, half-height)
-    (0.95, 1.56, 0.33, 0.38),
-    (1.55, 1.44, 0.25, 0.28),
-    (2.20, 1.29, 0.18, 0.205),
+    (0.95, 1.54, 0.38, 0.42),
+    (1.55, 1.43, 0.29, 0.32),
+    (2.20, 1.29, 0.20, 0.225),
     (2.90, 1.14, 0.13, 0.15),
     (3.60, 1.04, 0.095, 0.108),
     (4.30, 0.99, 0.065, 0.072),
@@ -294,31 +294,46 @@ def build_body():
     mb.threshold = THRESH
     ob = link(bpy.data.objects.new('MBBody', mb))
 
-    # Torso: lean, deep chest, tucked waist
+    # Torso: deep keeled ribcage, tucked waist, heavy hips (croc / monitor / big-cat references)
     torso = [  # y, z, W, H
-        (1.20, 1.52, 0.33, 0.35),
-        (0.85, 1.53, 0.40, 0.40),
-        (0.40, 1.52, 0.41, 0.41),
-        (-0.10, 1.50, 0.46, 0.47),
-        (-0.60, 1.48, 0.50, 0.54),
-        (-1.02, 1.53, 0.47, 0.53),
-        (-1.32, 1.66, 0.36, 0.42),
+        (1.25, 1.50, 0.36, 0.38),
+        (0.85, 1.50, 0.43, 0.43),
+        (0.45, 1.48, 0.44, 0.45),
+        (-0.05, 1.44, 0.50, 0.55),
+        (-0.55, 1.40, 0.54, 0.63),
+        (-0.98, 1.44, 0.52, 0.61),
+        (-1.32, 1.60, 0.42, 0.48),
     ]
     mb_chain(mb, [V(0, y, z) for y, z, w, h in torso], [t[2] for t in torso], [t[3] for t in torso], s=3.0)
-    # dorsal ridge muscle along the spine (gives a top line, not a sausage)
-    mb_chain(mb, [V(0, 1.0, 1.82), V(0, 0.3, 1.86), V(0, -0.5, 1.92), V(0, -1.1, 1.98)],
-             [0.16, 0.18, 0.2, 0.17], [0.12, 0.13, 0.14, 0.12], s=3.0)
-    # ribcage flare / pectorals
+    # sternal keel along the bottom of the chest
+    mb_chain(mb, [V(0, -1.32, 1.06), V(0, -0.95, 0.86), V(0, -0.55, 0.80), V(0, -0.15, 0.88), V(0, 0.25, 1.05)],
+             [0.13, 0.17, 0.18, 0.16, 0.12], [0.12, 0.14, 0.14, 0.12, 0.1], s=3.0)
+    # epaxial muscles along the spine (top line) and glutes over the pelvis
+    mb_chain(mb, [V(0, 1.0, 1.82), V(0, 0.3, 1.85), V(0, -0.5, 1.92), V(0, -1.1, 2.0)],
+             [0.2, 0.22, 0.24, 0.22], [0.12, 0.13, 0.14, 0.13], s=3.0)
     for sd in (1, -1):
-        mb_ell(mb, V(0.20 * sd, -1.05, 1.18), (0.22, 0.20, 0.26), s=3.0)
-        mb_ell(mb, V(0.28 * sd, -0.45, 1.45), (0.48, 0.16, 0.36), frame_from((0, 1, 0)), s=3.0)
+        mb_ell(mb, V(0.21 * sd, 0.95, 1.74), (0.32, 0.16, 0.14), frame_from((0, 1, -0.2)), s=3.0)
+        # pectorals: sternum -> shoulder, big-cat style
+        mb_ell(mb, V(0.27 * sd, -1.16, 1.22), (0.34, 0.17, 0.24), frame_from((0.35 * sd, 0.15, 0.6)), s=3.0)
+        # wing anchor: deltoid/trapezius mass on top of the shoulders + supracoracoid bulk in front
+        mb_ell(mb, V(0.24 * sd, -0.90, 1.97), (0.42, 0.22, 0.16), frame_from((0.75 * sd, 0.35, 0.15)), s=3.0)
+        mb_ell(mb, V(0.36 * sd, -1.08, 1.66), (0.26, 0.18, 0.2), frame_from((0.4 * sd, -0.2, 0.6)), s=3.0)
+        # ribcage flank fill
+        mb_ell(mb, V(0.30 * sd, -0.45, 1.38), (0.55, 0.18, 0.42), frame_from((0, 1, 0)), s=3.0)
 
-    # Neck (slightly flattened sideways, heavier underside)
-    neckpts = [V(0, -1.30, 1.78), J['neck_02'], J['neck_03'], J['neck_04'], J['head'] + V(0, -0.05, 0.0)]
-    mb_chain(mb, neckpts, [0.33, 0.235, 0.18, 0.15, 0.14], [0.38, 0.28, 0.22, 0.185, 0.165], s=4.0)
-    # throat underside
-    mb_chain(mb, [V(0, -1.35, 1.55), V(0, -1.75, 1.88), V(0, -2.15, 2.25), V(0, -2.42, 2.40)],
-             [0.18, 0.14, 0.11, 0.09], [0.14, 0.11, 0.09, 0.08], s=4.0)
+    # Neck: thick, with epaxial top muscle, side (sternomastoid-like) bands and a throat sloping into the chest
+    neckpts = [V(0, -1.30, 1.76), J['neck_02'], J['neck_03'], J['neck_04'], J['head'] + V(0, -0.05, 0.0)]
+    mb_chain(mb, neckpts, [0.37, 0.28, 0.21, 0.17, 0.15], [0.44, 0.33, 0.255, 0.205, 0.175], s=4.0)
+    mb_chain(mb, [V(0, -1.25, 2.02), J['neck_02'] + V(0, 0.02, 0.16), J['neck_03'] + V(0, 0.02, 0.13),
+                  J['neck_04'] + V(0, 0.03, 0.11), J['head'] + V(0, 0.06, 0.13)],
+             [0.2, 0.15, 0.12, 0.1, 0.09], [0.1, 0.08, 0.07, 0.06, 0.05], s=3.5)
+    for sd in (1, -1):
+        mb_chain(mb, [V(0.12 * sd, -2.42, 2.40), V(0.15 * sd, -2.05, 2.08), V(0.17 * sd, -1.70, 1.72),
+                      V(0.16 * sd, -1.38, 1.30)], [0.07, 0.085, 0.095, 0.1], [0.07, 0.085, 0.095, 0.1], s=3.0)
+        # jowl under the jaw hinge
+        mb_ell(mb, V(0.10 * sd, -2.50, 2.36), (0.13, 0.085, 0.085), frame_from((0, -1, -0.2)), s=3.5)
+    mb_chain(mb, [V(0, -2.46, 2.33), V(0, -2.15, 2.12), V(0, -1.80, 1.75), V(0, -1.45, 1.30)],
+             [0.11, 0.16, 0.21, 0.26], [0.09, 0.13, 0.17, 0.2], s=3.5)
 
     # Head: long cranium + narrow crocodilian snout (upper jaw only; lower jaw is separate)
     hd = J['head']
@@ -338,42 +353,63 @@ def build_body():
         mb_ell(mb, V(0.175 * sd, -2.76, 2.665), (0.05, 0.04, 0.035), frame_from((0, -1, 0)), s=4.0, neg=True)
     # occipital crest
     mb_ell(mb, V(0, -2.45, 2.74), (0.14, 0.06, 0.07), frame_from((0, -1, 0.5)), s=4.0)
+    # skin bosses the horns grow out of (no bare intersection seam)
+    for sd in (1, -1):
+        mb_ell(mb, V(0.10 * sd, -2.50, 2.74), (0.075, 0.07, 0.05), frame_from((0.3 * sd, 1, 0.3)), s=4.0)
+        mb_ell(mb, V(0.165 * sd, -2.455, 2.58), (0.06, 0.055, 0.05), frame_from((0.4 * sd, 1, 0)), s=4.0)
 
     # Legs
     for sd in (1, -1):
         g = {k: mx(v, sd) for k, v in L.items()}
-        # scapula / shoulder mass and upper arm
-        mb_ell(mb, mx(V(0.33, -0.98, 1.50), sd), (0.32, 0.13, 0.25), frame_from((0, 0.25, 1)), s=3.0)
-        mb_chain(mb, [g['shoulder'], g['elbow']], [0.20, 0.135], [0.21, 0.14], s=4.0)
-        mb_ell(mb, mx(V(0.43, -0.92, 1.12), sd), (0.28, 0.14, 0.15), frame_from(g['elbow'] - g['shoulder']), s=4.0)
-        mb_chain(mb, [g['elbow'], g['wrist']], [0.12, 0.08], [0.13, 0.085], s=4.0)
-        mb_ell(mb, mx(V(0.45, -0.84, 0.62), sd), (0.22, 0.09, 0.095), frame_from(g['wrist'] - g['elbow']), s=4.0)
-        mb_chain(mb, [g['wrist'], g['palm']], [0.08, 0.085], [0.08, 0.06], s=4.0)
-        # front toes
-        for ang, ln in ((-0.42, 0.17), (0.0, 0.21), (0.42, 0.17)):
+        S_, E_, W_, P_ = g['shoulder'], g['elbow'], g['wrist'], g['palm']
+        H_, K_, A_, B_ = g['hip'], g['knee'], g['ankle'], g['ball']
+        back = V(0, 1, 0)
+        # scapula, upper arm with triceps (behind) and biceps (front)
+        mb_ell(mb, mx(V(0.34, -0.98, 1.52), sd), (0.34, 0.14, 0.26), frame_from((0, 0.25, 1)), s=3.0)
+        mb_chain(mb, [S_, E_], [0.24, 0.16], [0.25, 0.17], s=4.0)
+        mb_ell(mb, S_.lerp(E_, 0.45) + back * 0.09 + mx(V(0.02, 0, 0), sd), (0.30, 0.12, 0.13), frame_from(E_ - S_), s=3.5)
+        mb_ell(mb, S_.lerp(E_, 0.4) - back * 0.08, (0.22, 0.09, 0.1), frame_from(E_ - S_), s=3.5)
+        # forearm: extensor/flexor bellies high, tendons low
+        mb_chain(mb, [E_, W_], [0.155, 0.095], [0.165, 0.10], s=4.0)
+        mb_ell(mb, E_.lerp(W_, 0.28) + back * 0.04, (0.24, 0.12, 0.125), frame_from(W_ - E_), s=3.5)
+        mb_ell(mb, E_.lerp(W_, 0.25) - back * 0.05 + mx(V(0.03, 0, 0), sd), (0.18, 0.08, 0.08), frame_from(W_ - E_), s=3.5)
+        for dx in (-0.03, 0.03):
+            mb_chain(mb, [E_.lerp(W_, 0.55) - back * 0.06 + mx(V(dx, 0, 0), sd), W_ - back * 0.055 + mx(V(dx, 0, 0), sd)],
+                     [0.022, 0.018], [0.022, 0.018], s=5.0)
+        mb_ell(mb, W_, (0.09, 0.095, 0.085), s=4.5)
+        mb_chain(mb, [W_, P_], [0.1, 0.105], [0.095, 0.072], s=4.0)
+        for ang, ln in ((-0.45, 0.20), (0.0, 0.25), (0.45, 0.20)):
             d = Vector((math.sin(ang) * sd, -math.cos(ang), 0))
-            tip = g['palm'] + d * ln
-            tip.z = 0.034
-            mb_chain(mb, [g['palm'] + d * 0.02, tip], [0.048, 0.034], [0.04, 0.028], s=5.0)
-        # hind: big thigh
-        mb_ell(mb, mx(V(0.31, 0.80, 1.30), sd), (0.44, 0.20, 0.33), frame_from((0, -0.35, -1)), s=3.0)
-        mb_chain(mb, [g['hip'], g['knee']], [0.25, 0.15], [0.25, 0.15], s=4.0)
-        mb_chain(mb, [g['knee'], g['ankle']], [0.14, 0.085], [0.15, 0.09], s=4.0)
-        mb_ell(mb, mx(V(0.49, 0.70, 0.68), sd), (0.26, 0.11, 0.12), frame_from(g['ankle'] - g['knee']), s=4.0)
-        mb_chain(mb, [g['ankle'], g['ball']], [0.088, 0.09], [0.08, 0.065], s=4.0)
-        for ang, ln in ((-0.45, 0.21), (0.0, 0.26), (0.45, 0.21)):
-            d = Vector((math.sin(ang) * sd, -math.cos(ang), 0))
-            tip = g['ball'] + d * ln
+            tip = P_ + d * ln
             tip.z = 0.036
-            mb_chain(mb, [g['ball'] + d * 0.02, tip], [0.056, 0.038], [0.046, 0.03], s=5.0)
-        # small rear toe (hallux)
-        mb_chain(mb, [g['ball'] + V(0, 0.03, 0.03), g['ball'] + V(-0.04 * sd, 0.15, 0.0)],
-                 [0.035, 0.025], [0.03, 0.022], s=5.0)
+            mid = P_.lerp(tip, 0.55) + V(0, 0, 0.012)
+            mb_chain(mb, [P_ + d * 0.02, mid, tip], [0.052, 0.042, 0.034], [0.044, 0.036, 0.028], s=5.0, smooth=False)
+            mb_ell(mb, mid, (0.035, 0.034, 0.03), s=5.0)   # knuckle
+        # hind: glute/thigh mass, quads (front), hamstrings (back), caudofemoral into the tail
+        mb_ell(mb, mx(V(0.31, 0.80, 1.30), sd), (0.46, 0.22, 0.35), frame_from((0, -0.35, -1)), s=3.0)
+        mb_chain(mb, [H_, K_], [0.27, 0.16], [0.27, 0.16], s=4.0)
+        mb_ell(mb, H_.lerp(K_, 0.55) - back * 0.1 + mx(V(0.03, 0, 0), sd), (0.30, 0.14, 0.15), frame_from(K_ - H_), s=3.5)
+        mb_ell(mb, H_.lerp(K_, 0.4) + back * 0.15, (0.32, 0.13, 0.15), frame_from(K_ - H_ + back * 0.2), s=3.5)
+        mb_chain(mb, [mx(V(0.26, 0.85, 1.22), sd), mx(V(0.18, 1.4, 1.30), sd), mx(V(0.10, 1.95, 1.26), sd)],
+                 [0.17, 0.13, 0.08], [0.17, 0.13, 0.08], s=3.0)
+        # shank: gastrocnemius behind, Achilles tendon to the heel
+        mb_chain(mb, [K_, A_], [0.17, 0.11], [0.18, 0.115], s=4.0)
+        mb_ell(mb, K_.lerp(A_, 0.3) + back * 0.08, (0.24, 0.11, 0.12), frame_from(A_ - K_), s=3.5)
+        mb_chain(mb, [K_.lerp(A_, 0.55) + back * 0.09, A_ + back * 0.07 + V(0, 0, 0.02)], [0.04, 0.03], [0.04, 0.03], s=4.5)
+        mb_ell(mb, A_ + back * 0.03, (0.1, 0.105, 0.095), s=4.5)
+        mb_chain(mb, [A_, B_], [0.11, 0.115], [0.1, 0.078], s=4.0)
+        for ang, ln in ((-0.45, 0.24), (0.0, 0.30), (0.45, 0.24)):
+            d = Vector((math.sin(ang) * sd, -math.cos(ang), 0))
+            tip = B_ + d * ln
+            tip.z = 0.038
+            mid = B_.lerp(tip, 0.5) + V(0, 0, 0.014)
+            mb_chain(mb, [B_ + d * 0.02, mid, tip], [0.06, 0.048, 0.038], [0.05, 0.04, 0.03], s=5.0, smooth=False)
+            mb_ell(mb, mid, (0.04, 0.038, 0.034), s=5.0)
+        mb_chain(mb, [B_ + V(0, 0.03, 0.03), B_ + V(-0.04 * sd, 0.15, 0.0)], [0.038, 0.027], [0.032, 0.024], s=5.0)
 
         # Wing arm (humerus + forearm + metacarpal) with shoulder muscle
         w = {k: mx(v, sd) for k, v in W.items()}
-        mb_ell(mb, mx(V(0.22, -0.88, 1.95), sd), (0.32, 0.17, 0.12), frame_from((0.6, 0.3, 0.1)), s=3.0)
-        mb_chain(mb, [w['shoulder'], w['elbow']], [0.13, 0.075], [0.11, 0.07], s=4.0)
+        mb_chain(mb, [w['shoulder'], w['elbow']], [0.15, 0.085], [0.13, 0.08], s=4.0)
         mb_chain(mb, [w['elbow'], w['wrist']], [0.07, 0.048], [0.06, 0.045], s=5.0)
         mb_ell(mb, w['wrist'], (0.06, 0.06, 0.05), s=5.0)
         mb_chain(mb, [w['wrist'], w['knuckle']], [0.05, 0.045], [0.045, 0.04], s=5.0)
@@ -476,6 +512,8 @@ def loft(name, rings, cap0=True, cap1=True):
         for li, uv in zip(poly.loop_indices, uvs):
             uvl.data[li].uv = uv
     me_.attributes.new('hasuv', 'INT', 'POINT').data.foreach_set('value', [1] * len(me_.vertices))
+    ka = [j / n for i in range(len(R_)) for j in range(n)] + [0.0] * (len(me_.vertices) - len(R_) * n)
+    me_.attributes.new('karound', 'FLOAT', 'POINT').data.foreach_set('value', ka)
     recalc_normals(ob, merge=1e-5)
     return ob
 
@@ -592,9 +630,9 @@ def bone_defs():
 # approximate flesh radius around each bone (for distance-based skinning)
 def bone_radius(name):
     base = name[:-2] if name.endswith(('_l', '_r')) else name
-    R = {'pelvis': 0.38, 'spine_01': 0.42, 'spine_02': 0.47, 'spine_03': 0.5, 'chest': 0.5,
-         'neck_01': 0.3, 'neck_02': 0.24, 'neck_03': 0.2, 'neck_04': 0.17, 'head': 0.17, 'jaw': 0.08,
-         'upperarm': 0.19, 'forearm': 0.11, 'hand': 0.08, 'thigh': 0.26, 'calf': 0.13, 'foot': 0.085,
+    R = {'pelvis': 0.42, 'spine_01': 0.45, 'spine_02': 0.52, 'spine_03': 0.58, 'chest': 0.58,
+         'neck_01': 0.36, 'neck_02': 0.28, 'neck_03': 0.22, 'neck_04': 0.18, 'head': 0.17, 'jaw': 0.08,
+         'upperarm': 0.23, 'forearm': 0.13, 'hand': 0.09, 'thigh': 0.3, 'calf': 0.15, 'foot': 0.095,
          'wing_shoulder': 0.11, 'wing_elbow': 0.06, 'wing_wrist': 0.05}
     if base.startswith('tail_'):
         i = int(base[5:])
@@ -793,8 +831,8 @@ for sd in (1, -1):
 # --- claws on every toe
 for sd, sfx in ((1, '_l'), (-1, '_r')):
     g = {k: mx(v, sd) for k, v in L.items()}
-    for (palm, toes, ln, bone, cr) in ((g['palm'], (-0.42, 0.0, 0.42), (0.17, 0.21, 0.17), 'hand' + sfx, 0.026),
-                                       (g['ball'], (-0.45, 0.0, 0.45), (0.21, 0.26, 0.21), 'foot' + sfx, 0.031)):
+    for (palm, toes, ln, bone, cr) in ((g['palm'], (-0.45, 0.0, 0.45), (0.20, 0.25, 0.20), 'hand' + sfx, 0.029),
+                                       (g['ball'], (-0.45, 0.0, 0.45), (0.24, 0.30, 0.24), 'foot' + sfx, 0.034)):
         for ang, l_ in zip(toes, ln):
             d = Vector((math.sin(ang) * sd, -math.cos(ang), 0))
             tip = palm + d * l_
@@ -819,7 +857,11 @@ for sd, sfx in ((1, '_l'), (-1, '_r')):
         a, b = w['knuckle'], w['tip%d' % k]
         n = 18
         path = [a.lerp(b, t) for t in np.linspace(0, 1, n)]
-        rad = [0.045 * (1 - t) + 0.011 * t + 0.008 * math.exp(-((t - 0.0) / 0.06) ** 2) for t in np.linspace(0, 1, n)]
+        n = 40
+        path = [a.lerp(b, t) for t in np.linspace(0, 1, n)]
+        rad = [0.048 * (1 - t) + 0.012 * t + 0.01 * math.exp(-((t - 0.0) / 0.05) ** 2)
+               + sum(0.011 * (1 - 0.5 * kc) * math.exp(-((t - kc) / 0.025) ** 2) for kc in (0.30, 0.56, 0.78))
+               for t in np.linspace(0, 1, n)]
         rad[-1] = 0.004
         fo = tube('Finger', path, rad, sides=14, prof=(1.0, 0.8))
         set_attrs(fo, 2, BI['wing_finger%d%s' % (k, sfx)])
@@ -892,7 +934,7 @@ def membrane(sd):
         perp = Vector((-(T4 - att).y, (T4 - att).x, 0)).normalized()
         if perp.dot(mid_le - p) < 0:
             perp = -perp
-        return p + perp * (0.13 * (T4 - att).length * math.sin(math.pi * s) ** 1.2)
+        return p + perp * (0.21 * (T4 - att).length * math.sin(math.pi * s) ** 0.9)
 
     def D0(t):
         p = shoulder.lerp(att, t)
@@ -956,7 +998,7 @@ def membrane(sd):
             t = j / NT
             p = (c0 * (1 - t) + c1 * t + d0[j] * (1 - s) + D1(t) * s
                  - (P00 * (1 - s) * (1 - t) + P10 * s * (1 - t) + P01 * (1 - s) * t + P11 * s * t))
-            p.z -= 0.06 * math.sin(math.pi * s) * math.sin(math.pi * t)  # slight billow
+            p.z -= 0.13 * math.sin(math.pi * s) * math.sin(math.pi * t) ** 1.3  # sag / billow
             verts.append(p)
             vw.append(wadd((1 - t, WA(s)), (t, WC(s)), (1 - s, WB(t)), (s, F4),
                            (-(1 - s) * (1 - t), Q00), (-s * (1 - t), Q10), (-(1 - s) * t, Q01), (-s * t, Q11)))
@@ -971,11 +1013,11 @@ def membrane(sd):
         for i in range(WING_NV + 1):
             v = i / WING_NV
             e = Ta.lerp(Tb, v)
-            e = e + (K - e).normalized() * (0.17 * (Tb - Ta).length * math.sin(math.pi * v) ** 1.2)
+            e = e + (K - e).normalized() * (0.28 * (Tb - Ta).length * math.sin(math.pi * v) ** 0.85)
             for j in range(NT + 1):
                 u = j / NT
                 p = K.lerp(e, u)
-                p.z -= 0.05 * math.sin(math.pi * u) * math.sin(math.pi * v)
+                p.z -= 0.10 * math.sin(math.pi * u) ** 0.8 * math.sin(math.pi * v)
                 verts.append(p)
                 fw = wadd((1 - v, {'wing_finger%d%s' % (ka, sfx): 1.0}), (v, {'wing_finger%d%s' % (kb, sfx): 1.0}))
                 k_ = min(1.0, u / 0.1)
@@ -1010,13 +1052,41 @@ def membrane(sd):
         for li in poly.loop_indices:
             co = me.vertices[me.loops[li].vertex_index].co
             uvl.data[li].uv = (0.01 + 0.98 * abs(co.x) / 7.8, 0.01 + 0.98 * (co.y + 1.35) / 4.45)
+    # thickness: ~30 mm along the bones, ~6 mm in the middle of each panel
+    segs = [(shoulder, w['elbow']), (w['elbow'], w['wrist']), (w['wrist'], K), (shoulder, att)] + \
+        [(K, w['tip%d' % k]) for k in range(1, 5)]
+    P = np.array([v.co[:] for v in me.vertices])
+    dmin = np.full(len(P), 9.0)
+    for a_, b_ in segs:
+        a_, b_ = np.array(a_), np.array(b_)
+        ab = b_ - a_
+        t_ = np.clip(((P - a_) @ ab) / (ab @ ab), 0, 1)
+        dmin = np.minimum(dmin, np.linalg.norm(P - (a_ + t_[:, None] * ab), axis=1))
+    thick_w = np.clip(1 - (dmin - 0.02) / 0.35, 0, 1) ** 1.5
+    tg = ob.vertex_groups.new(name='thick')
+    for vi, wt in enumerate(thick_w):
+        tg.add([vi], float(wt), 'REPLACE')
     m = ob.modifiers.new('sol', 'SOLIDIFY')
-    m.thickness = 0.012
+    m.thickness = 0.03
     m.offset = 0.0
     m.use_rim = True
     m.use_even_offset = True
+    m.vertex_group = 'thick'
+    m.thickness_vertex_group = 0.2
     apply_mods(ob)
+    tgi = ob.vertex_groups['thick'].index
+    mthin = []
+    for v in ob.data.vertices:
+        wt = 0.0
+        for g in v.groups:
+            if g.group == tgi:
+                wt = g.weight
+        mthin.append(1.0 - wt)
+    ob.vertex_groups.remove(ob.vertex_groups['thick'])
     set_attrs(ob, 1)
+    if 'mthin' not in ob.data.attributes:
+        ob.data.attributes.new('mthin', 'FLOAT', 'POINT')
+    ob.data.attributes['mthin'].data.foreach_set('value', mthin)
     return ob
 
 
@@ -1209,14 +1279,16 @@ for k in ('elbow', 'wrist', 'knuckle'):
     joints += both(W[k])
 joint = gauss_pts(joints, 0.16)
 scl = np.clip(np.maximum(scl, 0.95 * joint), 0, 1)
+scl = np.where(limbv, np.clip(scl + 0.45 * inner + 0.2, 0, 1), scl)   # fine scales on inner limbs
 # skin folds: armpits, groin, wing roots, inner elbows, back of knees, throat
 folds = []
 for v in both(L['shoulder'] + Vector((0, 0.16, -0.18))) + both(L['hip'] + Vector((0, -0.2, -0.2))) \
         + both(W['shoulder'] + Vector((0.05, 0.1, 0.0))) + both(L['elbow'] + Vector((0, -0.08, 0.02))) \
         + both(L['knee'] + Vector((0, 0.1, -0.02))) + both(L['wrist'] + Vector((0, -0.05, 0))) \
-        + both(L['ankle'] + Vector((0, -0.06, 0))):
+        + both(L['ankle'] + Vector((0, -0.06, 0))) + both(Vector((0.3, -1.35, 1.55)) * k_scale) \
+        + both(L['palm'] + Vector((0, 0.03, 0.05))) + both(L['ball'] + Vector((0, 0.05, 0.06))):
     folds.append(v)
-fold = gauss_pts(folds, 0.17)
+fold = gauss_pts(folds, 0.2)
 neckish = np.isin(near, [BI['neck_01'], BI['neck_02'], BI['neck_03'], BI['neck_04']])
 fold = np.maximum(fold, neckish * np.clip(belly * 1.5 + 0.35, 0, 1) * 0.9)
 fold = np.where(wclass == 0, fold, 0)
@@ -1257,7 +1329,27 @@ vv = ang * rad_local
 vb = (np.pi - np.abs(ang)) * np.sign(ang) * rad_local
 onchain = is_chain[near] & (wclass == 0)
 dorsal = np.clip((1.05 - np.abs(ang)) / 0.35, 0, 1) * onchain * (~headish)
-psize = np.clip(radii[near] * 0.26, 0.03, 0.105)
+psize = np.clip(radii[near] * 0.30, 0.03, 0.125)
+
+# macro sculpt on the game mesh itself (silhouette + bake): ribs under the flank skin
+def sstep(x, a, b):
+    t = np.clip((x - a) / (b - a), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+k_ = k_scale
+ribmask = (onchain & np.isin(near, [BI['chest'], BI['spine_03'], BI['spine_02'], BI['spine_01']])).astype(float)
+ribmask *= sstep(co[:, 1], -1.25 * k_, -1.0 * k_) * (1 - sstep(co[:, 1], 0.05 * k_, 0.35 * k_))
+ribmask *= sstep(np.abs(ang), 0.55, 0.9) * (1 - sstep(np.abs(ang), 2.0, 2.4))
+ribmask = smooth_field(ribmask, 4)
+phase = (co[:, 1] - 0.4 * (co[:, 2] - 1.45 * k_)) / (0.15 * k_)
+ridge = (0.5 + 0.5 * np.cos(2 * np.pi * phase)) ** 2.5
+vnorm = np.zeros(NV * 3)
+me.vertex_normals.foreach_get('vector', vnorm)
+vnorm = vnorm.reshape(-1, 3)
+co = co + vnorm * (ribmask * (ridge - 0.35) * 0.014)[:, None]
+me.vertices.foreach_set('co', co.ravel())
+me.update()
 scute = scute * onchain
 fld = smooth_field(np.stack([belly, scl, fold, scute, flow[:, 0], flow[:, 1], flow[:, 2], uu, dorsal, psize], 1), 12,
                    mask=(wclass == 0))
@@ -1426,8 +1518,8 @@ BACK = lin(66, 78, 92)       # slate blue-grey
 BACK2 = lin(42, 50, 62)      # darker dorsal mottling
 BELLY = lin(150, 110, 68)    # warm bronze
 BELLY2 = lin(118, 82, 48)    # amber-brown
-HORN0 = lin(64, 58, 52)
-HORN1 = lin(176, 164, 136)
+HORN0 = lin(42, 38, 34)
+HORN1 = lin(186, 174, 146)
 EYE = lin(236, 150, 30)
 
 
@@ -1517,10 +1609,10 @@ def build_detail_nodes(level):
         b.l(cv.outputs[0], wn.inputs['Vector'])
         return h, wn.outputs['Value']
 
-    hD, cD = grid(buv[0], buv[1], b.math('MULTIPLY', psize, 0.9), psize, 0.9)
+    hD, cD = grid(buv[0], buv[1], b.math('MULTIPLY', psize, 0.9), psize, 1.4)
     hV, cV = grid(buv[0], buv[2], b.math('MULTIPLY', psize, 0.55), b.math('MULTIPLY', psize, 0.55), 0.0)
     # head: fine irregular scales plus sensory pits
-    hH, cH = layer(pos, 42.0, 0.25)
+    hH, cH = layer(pos, 58.0, 0.25)
     pits = b.vor(pos, 26.0, 'F1')
     pit = b.smooth(pits.outputs['Distance'], 0.12, 0.0)
     wA = b.math('MULTIPLY', scl, 2.0, clamp=True)
@@ -1530,14 +1622,14 @@ def build_detail_nodes(level):
     amp = b.mix(wB, b.mix(wA, 0.009, 0.0058, 'FLOAT'), 0.003, 'FLOAT')
     H = b.mix(dorsal, H, hD, 'FLOAT')
     C = b.mix(dorsal, C, cD, 'FLOAT')
-    amp = b.mix(dorsal, amp, b.math('MULTIPLY', psize, 0.13), 'FLOAT')
+    amp = b.mix(dorsal, amp, b.math('MULTIPLY', psize, 0.16), 'FLOAT')
     sc2 = b.math('MULTIPLY', scute, 1.0)
     H = b.mix(sc2, H, hV, 'FLOAT')
     C = b.mix(sc2, C, cV, 'FLOAT')
-    amp = b.mix(sc2, amp, 0.004, 'FLOAT')
+    amp = b.mix(sc2, amp, 0.0028, 'FLOAT')
     H = b.mix(headm, H, b.math('SUBTRACT', hH, b.math('MULTIPLY', pit, 0.6)), 'FLOAT')
     C = b.mix(headm, C, cH, 'FLOAT')
-    amp = b.mix(headm, amp, 0.0026, 'FLOAT')
+    amp = b.mix(headm, amp, 0.0022, 'FLOAT')
     disp = b.math('MULTIPLY', H, amp)
     # tubercles / pebbling on each scale
     tub = b.noise(pos, 160.0, 2.0, 0.5).outputs['Fac']
@@ -1550,12 +1642,20 @@ def build_detail_nodes(level):
     wv = b.math('POWER', b.math('ADD', wv, 0.5), 4.0)
     nz2 = b.noise(pos, 9.0, 2.0, 0.5).outputs['Fac']
     foldw = b.math('MULTIPLY', b.math('MULTIPLY', fold, wv), b.smooth(nz2, 0.3, 0.6))
-    disp = b.math('SUBTRACT', disp, b.math('MULTIPLY', foldw, 0.0065))
+    disp = b.math('SUBTRACT', disp, b.math('MULTIPLY', foldw, 0.009))
     disp = b.math('MULTIPLY', disp, dmask)
     # keratin: growth rings + longitudinal striation
-    rings = b.math('MULTIPLY', b.math('SINE', b.math('MULTIPLY', tip, 140.0)), 0.0008)
-    stri = b.math('MULTIPLY', b.math('SUBTRACT', b.noise(pos, 90.0, 2.0).outputs['Fac'], 0.5), 0.0012)
-    kdisp = b.math('MULTIPLY', b.math('ADD', rings, stri), b.math('MULTIPLY', kmask, b.math('SUBTRACT', 1.0, tip)))
+    # keratin: irregular growth rings, lengthwise fibrous grooves, chipped worn tips
+    karound = named_attr(b, 'karound')
+    kn1 = b.noise(pos, 6.0, 2.0).outputs['Fac']
+    rings = b.math('MULTIPLY', b.math('SINE', b.math('ADD', b.math('MULTIPLY', tip, 110.0), b.math('MULTIPLY', kn1, 5.0))), 0.0011)
+    kn2 = b.noise(pos, 20.0, 2.0).outputs['Fac']
+    gr = b.math('SINE', b.math('ADD', b.math('MULTIPLY', karound, 2 * math.pi * 18), b.math('MULTIPLY', kn2, 1.5)))
+    grooves = b.math('MULTIPLY', b.math('POWER', b.math('ADD', b.math('MULTIPLY', gr, 0.5), 0.5), 2.0), -0.0009)
+    chip = b.math('MULTIPLY', b.smooth(b.noise(pos, 45.0, 2.0).outputs['Fac'], 0.55, 0.7), b.smooth(tip, 0.7, 0.95))
+    kd = b.math('ADD', b.math('MULTIPLY', b.math('ADD', rings, grooves), b.math('SUBTRACT', 1.0, b.math('MULTIPLY', tip, 0.6))),
+                b.math('MULTIPLY', chip, -0.002))
+    kdisp = b.math('MULTIPLY', kd, kmask)
     disp = b.math('ADD', disp, kdisp)
     # membrane: raised blood vessels + shallow stretch striations (matches the HP_Wing shader pattern)
     memb = named_attr(b, 'memb')
@@ -1571,7 +1671,7 @@ def build_detail_nodes(level):
     b.l(mnz.outputs['Color'], mw.inputs[5])
     mwv = mw.outputs[1]
     mv1 = b.vor(mwv, 1.4, 'DISTANCE_TO_EDGE')
-    vm1 = b.math('SUBTRACT', 1.0, b.smooth(mv1.outputs['Distance'], 0.0, 0.016))
+    vm1 = b.math('SUBTRACT', 1.0, b.smooth(mv1.outputs['Distance'], 0.0, 0.024))
     mv2 = b.vor(b.vm('ADD', mwv, (3.1, 7.7, 0.0)), 4.0, 'DISTANCE_TO_EDGE')
     vm2 = b.math('MULTIPLY', b.math('SUBTRACT', 1.0, b.smooth(mv2.outputs['Distance'], 0.0, 0.02)), 0.5)
     mwave = b.n('ShaderNodeTexWave', wave_type='BANDS', bands_direction='Y', wave_profile='SIN')
@@ -1581,7 +1681,19 @@ def build_detail_nodes(level):
     mwave.inputs['Detail Scale'].default_value = 1.5
     b.l(mwv, mwave.inputs['Vector'])
     mstri = b.smooth(mwave.outputs['Fac'], 0.7, 1.0)
-    mdisp = b.math('SUBTRACT', b.math('MULTIPLY', b.math('MAXIMUM', vm1, vm2), 0.002), b.math('MULTIPLY', mstri, 0.0007))
+    mthin = named_attr(b, 'mthin')
+    mdisp = b.math('SUBTRACT', b.math('MULTIPLY', b.math('MAXIMUM', vm1, vm2), 0.0045), b.math('MULTIPLY', mstri, 0.0009))
+    # slack folds in the inner panel / near the body, fading out toward the wingtip
+    slack = b.n('ShaderNodeTexWave', wave_type='BANDS', bands_direction='X', wave_profile='SIN')
+    slack.inputs['Scale'].default_value = 2.2
+    slack.inputs['Distortion'].default_value = 4.0
+    slack.inputs['Detail'].default_value = 1.0
+    b.l(mvv, slack.inputs['Vector'])
+    sl = b.math('POWER', slack.outputs['Fac'], 3.0)
+    slm = b.math('MULTIPLY', mthin, b.math('SUBTRACT', 1.0, b.smooth(b.math('ABSOLUTE', ps[0]), 1.2, 4.0)))
+    slnz = b.noise(mvv, 1.3, 2.0).outputs['Fac']
+    slack_z = b.math('MULTIPLY', b.math('MULTIPLY', b.math('MULTIPLY', sl, slm), b.smooth(slnz, 0.3, 0.65)), -0.009)
+    slack_z = b.math('MULTIPLY', slack_z, memb)   # applied along world Z so both membrane shells move together
     disp = b.math('ADD', disp, b.math('MULTIPLY', mdisp, memb))
 
     st1 = b.n('GeometryNodeStoreNamedAttribute', data_type='FLOAT', domain='POINT')
@@ -1598,7 +1710,9 @@ def build_detail_nodes(level):
     b.l(foldw, st3.inputs['Value'])
     sp = b.n('GeometryNodeSetPosition')
     b.l(st3.outputs[0], sp.inputs['Geometry'])
-    b.l(b.vm('SCALE', nrm, scale=disp), sp.inputs['Offset'])
+    zoff = b.n('ShaderNodeCombineXYZ')
+    b.l(slack_z, zoff.inputs[2])
+    b.l(b.vm('ADD', b.vm('SCALE', nrm, scale=disp), zoff.outputs[0]), sp.inputs['Offset'])
     b.l(sp.outputs[0], gout.inputs[0])
     return ng
 
@@ -1654,6 +1768,9 @@ def build_hp_body_material(mat):
     kst = b.noise(b.vm('MULTIPLY', oc, (60, 60, 60)), 1.0, 3.0, 0.6).outputs['Fac']
     kcol = b.mix(b.smooth(tip, 0.2, 0.95), HORN0, HORN1)
     kcol = b.mix(b.math('MULTIPLY', kst, 0.35), kcol, lin(70, 58, 44))
+    kar = b.attr('karound').outputs['Fac']
+    kgr = b.math('SINE', b.math('ADD', b.math('MULTIPLY', kar, 2 * math.pi * 18), b.math('MULTIPLY', b.noise(oc, 20.0, 2.0).outputs['Fac'], 1.5)))
+    kcol = b.mix(b.math('MULTIPLY', b.smooth(kgr, 0.2, 1.0), 0.3), kcol, lin(30, 27, 24))   # fibre streaks
     kcol = b.mix(b.math('MULTIPLY', cav, 0.6), kcol, lin(20, 18, 16))
     col = b.mix(mG, col, kcol)
     # tail fin: darker membrane tone
@@ -1678,12 +1795,12 @@ def build_hp_body_material(mat):
     eye = b.smooth(mR, 0.5, 0.9)
     col = b.mix(eye, col, iris)
     # roughness: matte worn scale tops, dirty crevices, glossier belly, polished keratin, wet eyes
-    rough = b.math('ADD', 0.52, b.math('MULTIPLY', b.math('MINIMUM', hgt, 1.2), 0.12))
+    rough = b.math('SUBTRACT', 0.70, b.math('MULTIPLY', b.math('MINIMUM', hgt, 1.2), 0.2))   # glossy caps, matte crevices
     rough = b.math('ADD', rough, b.math('MULTIPLY', dirt, 0.2))
     rough = b.mix(b.math('MULTIPLY', bf, 0.6), rough, 0.42, 'FLOAT')
     rough = b.math('ADD', rough, b.math('MULTIPLY', b.math('SUBTRACT', cell, 0.5), 0.16))
     rough = b.math('ADD', rough, b.math('MULTIPLY', b.math('SUBTRACT', b.noise(oc, 12.0, 2.0).outputs['Fac'], 0.5), 0.12))
-    rough = b.mix(mG, rough, b.math('ADD', 0.36, b.math('MULTIPLY', b.math('SUBTRACT', 1.0, tip), 0.2)), 'FLOAT')
+    rough = b.mix(mG, rough, b.math('ADD', 0.36, b.math('MULTIPLY', b.smooth(tip, 0.7, 1.0), 0.32)), 'FLOAT')  # matte worn tips
     rough = b.mix(eye, rough, 0.03, 'FLOAT')
     # micro detail on top of the displaced geometry
     grain = b.noise(oc, 420.0, 2.0, 0.5).outputs['Fac']
@@ -1740,20 +1857,24 @@ def build_hp_wing_material(mat):
     base = b.mix(b.smooth(mott, 0.3, 0.75), lin(30, 28, 33), lin(54, 45, 45))
     ty = b.smooth(sp[1], 0.3, 2.8)
     base = b.mix(b.math('MULTIPLY', ty, 0.35), base, lin(84, 58, 42))
-    col = b.mix(b.math('MULTIPLY', allv, 0.7), base, lin(58, 26, 24))   # vessels read slightly red-brown
+    mthin = b.attr('mthin').outputs['Fac']
+    base = b.mix(b.math('MULTIPLY', mthin, 0.55), base, lin(92, 58, 42))            # thin = warmer
+    base = b.mix(b.math('MULTIPLY', b.math('SUBTRACT', 1.0, mthin), 0.65), base, lin(17, 18, 23))  # thick = darker
+    col = b.mix(b.math('MULTIPLY', allv, 0.8), base, lin(60, 24, 22))   # vessels read red-brown
     col = b.mix(b.math('MULTIPLY', stri, 0.25), col, lin(16, 17, 22))
     spot = b.noise(v, 22.0, 2.0, 0.5).outputs['Fac']
     col = b.mix(b.math('MULTIPLY', b.smooth(spot, 0.62, 0.75), 0.4), col, lin(20, 21, 26))
     wr = b.noise(v, 45.0, 3.0, 0.6).outputs['Fac']
     sc = b.vor(v, 140.0, 'DISTANCE_TO_EDGE')
     sch = b.smooth(sc.outputs['Distance'], 0.0, 0.25)
-    hh = b.math('ADD', b.math('MULTIPLY', allv, 0.9), b.math('MULTIPLY', stri, 0.35))
+    hh = b.math('ADD', b.math('MULTIPLY', allv, 0.5), b.math('MULTIPLY', stri, 0.2))
     hh = b.math('ADD', hh, b.math('ADD', b.math('MULTIPLY', wr, 0.25), b.math('MULTIPLY', sch, 0.12)))
     bump = b.n('ShaderNodeBump')
     bump.inputs['Distance'].default_value = 0.004
     bump.inputs['Strength'].default_value = 0.55
     b.l(hh, bump.inputs['Height'])
-    rough = b.math('ADD', 0.34, b.math('MULTIPLY', wr, 0.16))
+    rough = b.math('ADD', 0.30, b.math('MULTIPLY', wr, 0.14))
+    rough = b.math('ADD', rough, b.math('MULTIPLY', b.math('SUBTRACT', 1.0, mthin), 0.15))
     rough = b.mix(stri, rough, 0.5, 'FLOAT')
     bsdf = b.n('ShaderNodeBsdfPrincipled')
     b.l(col, bsdf.inputs['Base Color'])
@@ -1763,7 +1884,9 @@ def build_hp_wing_material(mat):
     b.l(bsdf.outputs[0], out.inputs[0])
     em = b.n('ShaderNodeEmission')
     em.name = 'CAVITY_EMIT'
-    b.l(b.math('SUBTRACT', 1.0, b.math('MULTIPLY', b.math('ADD', allv, stri), 0.25), clamp=True), em.inputs['Color'])
+    # translucency / thinness mask (white = thin, lets light through)
+    b.l(b.math('MULTIPLY', b.math('POWER', mthin, 0.8), b.math('SUBTRACT', 1.0, b.math('MULTIPLY', allv, 0.6)), clamp=True),
+        em.inputs['Color'])
     return b
 
 
@@ -1891,9 +2014,10 @@ def do_bake(hp):
         n[..., 1] = 1.0 - n[..., 1]     # OpenGL -> DirectX (UE convention)
         save_png(n, 'T_Dragon_%s_N' % k, True)
         cav = pix(imgs_c[m])[..., 0]
-        save_png(np.stack([cav, cav, cav, np.ones_like(cav)], -1), 'T_Dragon_%s_Cavity' % k, True)
+        save_png(np.stack([cav, cav, cav, np.ones_like(cav)], -1),
+                 'T_Dragon_%s_%s' % (k, 'Cavity' if k == 'Body' else 'Translucency'), True)
         ao = pix(imgs_ao[m])[..., 0]
-        ao = np.clip((0.3 + 0.7 * ao) * (0.75 + 0.25 * cav), 0, 1)
+        ao = np.clip((0.3 + 0.7 * ao) * ((0.75 + 0.25 * cav) if k == 'Body' else 1.0), 0, 1)
         r = pix(imgs_r[m])[..., 0]
         arm = np.stack([ao, r, np.zeros_like(r), np.ones_like(r)], -1)
         save_png(arm, 'T_Dragon_%s_ARM' % k, True)
@@ -1953,19 +2077,26 @@ def final_material(mat, key, translucent=False):
         tint.blend_type = 'MULTIPLY'
         tint.inputs[0].default_value = 1.0
         nt.links.new(d.outputs[0], tint.inputs[6])
-        tint.inputs[7].default_value = (14.0, 5.0, 3.0, 1.0)
+        tint.inputs[7].default_value = (9.0, 4.6, 3.0, 1.0)
         nt.links.new(tint.outputs[2], tr.inputs['Color'])
         nt.links.new(nm.outputs[0], tr.inputs['Normal'])
         mxs = nt.nodes.new('ShaderNodeMixShader')
-        mxs.inputs[0].default_value = 0.4
+        tm = tex('T_Dragon_Wing_Translucency', True, -600)
+        tmm = nt.nodes.new('ShaderNodeMath')
+        tmm.operation = 'MULTIPLY'
+        tmm.inputs[1].default_value = 0.45
+        nt.links.new(tm.outputs[0], tmm.inputs[0])
+        nt.links.new(tmm.outputs[0], mxs.inputs[0])
         nt.links.new(bsdf.outputs[0], mxs.inputs[1])
         nt.links.new(tr.outputs[0], mxs.inputs[2])
         nt.links.new(mxs.outputs[0], out.inputs[0])
         return
     else:
-        bsdf.inputs['Subsurface Weight'].default_value = 0.08
-        bsdf.inputs['Subsurface Radius'].default_value = (1.0, 0.4, 0.25)
-        bsdf.inputs['Subsurface Scale'].default_value = 0.01
+        bsdf.inputs['Subsurface Weight'].default_value = 0.15
+        bsdf.inputs['Subsurface Radius'].default_value = (1.0, 0.35, 0.2)
+        bsdf.inputs['Subsurface Scale'].default_value = 0.025
+        bsdf.inputs['Sheen Weight'].default_value = 0.12
+        bsdf.inputs['Sheen Roughness'].default_value = 0.35
     nt.links.new(bsdf.outputs[0], out.inputs[0])
 
 
@@ -2038,44 +2169,64 @@ mod.object = arm
 log('weights assigned')
 
 # remove helper attributes that are not needed in the game mesh
-for nm in ('wclass', 'rbone', 'tip', 'belly', 'scl', 'mask', 'fold', 'scute', 'dmask', 'flow', 'eyeq', 'dorsal', 'psize', 'bodyuv', 'headm', 'memb', 'hasuv'):
+for nm in ('wclass', 'rbone', 'tip', 'belly', 'scl', 'mask', 'fold', 'scute', 'dmask', 'flow', 'eyeq', 'dorsal', 'psize', 'bodyuv', 'headm', 'memb', 'hasuv', 'mthin', 'karound'):
     if not QUICK and nm in me.attributes:
         me.attributes.remove(me.attributes[nm])
 
 # ---------------------------------------------------------------------------
 # Preview scene
 # ---------------------------------------------------------------------------
+HDRI_DIR = os.path.join(REPO, 'Data', 'Downloads', 'HDRI')
+HDRIS = {'sunset': 'kloppenheim_06_puresky_4k.hdr', 'overcast': 'overcast_soil_puresky_4k.hdr'}
+_HDRI_SUN = {}
+
+
+def hdri_sun_azimuth(img):
+    if img.name in _HDRI_SUN:
+        return _HDRI_SUN[img.name]
+    w, h = img.size
+    px = np.empty(w * h * 4, np.float32)
+    img.pixels.foreach_get(px)
+    lum = px.reshape(h, w, 4)[..., :3].sum(-1)
+    iy, ix = np.unravel_index(np.argmax(lum), lum.shape)
+    u = (ix + 0.5) / w
+    phi = (u - 0.5) * 2 * math.pi
+    az = math.atan2(math.sin(phi), -math.cos(phi))
+    _HDRI_SUN[img.name] = az
+    log('HDRI', img.name, 'sun azimuth %.1f deg, elevation %.1f deg' % (math.degrees(az), ((iy + 0.5) / h - 0.5) * 180))
+    return az
+
+
 def setup_preview_scene():
     world = bpy.data.worlds.new('W')
     scene.world = world
     world.use_nodes = True
-    bg = world.node_tree.nodes['Background']
-    sky = world.node_tree.nodes.new('ShaderNodeTexSky')
-    try:
-        sky.sky_type = 'NISHITA'
-        sky.sun_elevation = math.radians(28)
-        sky.sun_rotation = math.radians(215)
-        sky.sun_disc = False
-        world.node_tree.links.new(sky.outputs[0], bg.inputs[0])
-        bg.inputs[1].default_value = 0.22
-    except Exception:
-        bg.inputs[0].default_value = (0.6, 0.65, 0.75, 1)
-    sun = bpy.data.lights.new('Sun', 'SUN')
-    sun.energy = 3.2
-    sun.angle = math.radians(1.5)
-    sun.color = (1.0, 0.9, 0.78)
-    so = link(bpy.data.objects.new('Sun', sun))
-    so.rotation_euler = (math.radians(62), 0.0, math.radians(-35))
+    nt = world.node_tree
+    bg = nt.nodes['Background']
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    mp = nt.nodes.new('ShaderNodeMapping')
+    mp.name = 'HDRI_MAP'
+    env = nt.nodes.new('ShaderNodeTexEnvironment')
+    env.name = 'HDRI'
+    nt.links.new(tc.outputs['Generated'], mp.inputs['Vector'])
+    nt.links.new(mp.outputs['Vector'], env.inputs['Vector'])
+    nt.links.new(env.outputs['Color'], bg.inputs['Color'])
+    bg.inputs['Strength'].default_value = 1.0
+    # rim light (third point of the key/fill/rim setup; key = HDRI sun, fill = sky)
+    rl = bpy.data.lights.new('Rim', 'AREA')
+    rl.size = 4.0
+    rl.color = (0.85, 0.92, 1.0)
+    link(bpy.data.objects.new('Rim', rl))
     gm = bpy.data.meshes.new('Ground')
-    gm.from_pydata([(-60, -60, 0), (60, -60, 0), (60, 60, 0), (-60, 60, 0)], [], [(0, 1, 2, 3)])
+    gm.from_pydata([(-80, -80, 0), (80, -80, 0), (80, 80, 0), (-80, 80, 0)], [], [(0, 1, 2, 3)])
     go = link(bpy.data.objects.new('Ground', gm))
     gmat = bpy.data.materials.new('Ground')
     b = NB(gmat)
     oc = b.n('ShaderNodeTexCoord').outputs['Object']
     n1 = b.noise(oc, 0.35, 6.0, 0.6).outputs['Fac']
     n2 = b.noise(oc, 6.0, 8.0, 0.65).outputs['Fac']
-    gcol = b.mix(b.smooth(n1, 0.35, 0.7), lin(58, 54, 46), lin(92, 86, 72))
-    gcol = b.mix(b.math('MULTIPLY', b.smooth(n2, 0.45, 0.75), 0.5), gcol, lin(40, 46, 30))
+    gcol = b.mix(b.smooth(n1, 0.35, 0.7), lin(70, 64, 52), lin(104, 96, 80))
+    gcol = b.mix(b.math('MULTIPLY', b.smooth(n2, 0.45, 0.75), 0.6), gcol, lin(52, 60, 36))
     gb = b.n('ShaderNodeBump')
     gb.inputs['Strength'].default_value = 0.6
     gb.inputs['Distance'].default_value = 0.05
@@ -2098,7 +2249,8 @@ def setup_preview_scene():
     return co_, go
 
 
-def shoot(cam, loc, target, name, lens=50, ortho=None, fstop=0):
+def shoot(cam, loc, target, name, lens=50, ortho=None, fstop=0, hdri='sunset', key_offset=55, rim=1.0,
+          ground=True, exposure=0.0):
     cam.location = Vector(loc)
     d = Vector(target) - Vector(loc)
     cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
@@ -2113,6 +2265,21 @@ def shoot(cam, loc, target, name, lens=50, ortho=None, fstop=0):
         cam.data.dof.focus_distance = d.length
         cam.data.dof.aperture_fstop = fstop
     cam.data.clip_end = 500
+    nt = scene.world.node_tree
+    img = bpy.data.images.load(os.path.join(HDRI_DIR, HDRIS[hdri]), check_existing=True)
+    nt.nodes['HDRI'].image = img
+    az_tex = hdri_sun_azimuth(img)
+    a_cam = math.atan2(loc[1] - target[1], loc[0] - target[0])
+    A = a_cam + math.radians(key_offset)
+    nt.nodes['HDRI_MAP'].inputs['Rotation'].default_value = (0, 0, az_tex - A)
+    # rim: behind the subject, opposite the camera, raised
+    rimo = bpy.data.objects['Rim']
+    back_dir = Vector((-d.x, -d.y, 0)).normalized() * -1
+    rimo.location = Vector(target) + back_dir * 7 + Vector((0, 0, 5))
+    rimo.rotation_euler = (Vector(target) - rimo.location).to_track_quat('-Z', 'Y').to_euler()
+    rimo.data.energy = 2500 * rim
+    bpy.data.objects['Ground'].hide_render = not ground
+    scene.view_settings.exposure = exposure
     scene.render.filepath = os.path.join(PREV, name)
     bpy.ops.render.render(write_still=True)
     log('rendered', name)
@@ -2156,31 +2323,50 @@ def want(n):
     return SHOTS is None or n in SHOTS
 
 
+FLIGHT = {
+    'root': (6, 0, 0),
+    'wing_shoulder_X': (14, 0, -6), 'wing_elbow_X': (0, 0, 4), 'wing_wrist_X': (0, 0, -3),
+    'wing_finger1_X': (2, 0, 0), 'wing_finger2_X': (0, 0, 2), 'wing_finger3_X': (0, 0, 3), 'wing_finger4_X': (0, 0, 4),
+    'neck_01': (-18, 0, 0), 'neck_02': (-10, 0, 0), 'neck_03': (-4, 0, 0), 'head': (14, 0, 0),
+    'upperarm_X': (-60, 0, 0), 'forearm_X': (95, 0, 0), 'hand_X': (-35, 0, 0),
+    'thigh_X': (-55, 0, 0), 'calf_X': (-35, 0, 0), 'foot_X': (-55, 0, 0),
+    'tail_01': (10, 0, 0), 'tail_02': (4, 0, 0), 'tail_05': (0, 0, 4), 'tail_08': (0, 0, -5),
+}
+
 if not NO_RENDER:
     cam, ground = setup_preview_scene()
     set_pose({})
     if want('front34'):
-        shoot(cam, (8.8, -11.5, 5.2), (0.6, -0.3, 1.7), 'dragon_front34.png', lens=45)
+        shoot(cam, (8.8, -11.5, 4.2), (0.6, -0.3, 1.6), 'dragon_front34.png', lens=45, fstop=11)
+    if want('front34_overcast'):
+        shoot(cam, (8.8, -11.5, 4.2), (0.6, -0.3, 1.6), 'dragon_front34_overcast.png', lens=45, hdri='overcast', rim=0.4)
     if want('side'):
-        shoot(cam, (30, 0.9, 1.9), (0, 0.9, 1.9), 'dragon_side.png', ortho=10.5)
+        shoot(cam, (30, 0.9, 1.9), (0, 0.9, 1.9), 'dragon_side.png', ortho=10.5, hdri='overcast', rim=0.4)
     if want('top'):
-        shoot(cam, (0, 0.9, 40), (0, 0.9, 0), 'dragon_top.png', ortho=16.5)
+        shoot(cam, (0, 0.9, 40), (0, 0.9, 0), 'dragon_top.png', ortho=16.5, hdri='overcast', rim=0.0)
     if want('head'):
-        shoot(cam, (-2.6, -5.8, 3.4), (0, -2.75, 2.5), 'dragon_head.png', lens=50)
+        shoot(cam, (-2.6, -5.8, 3.0), (0, -2.75, 2.45), 'dragon_head.png', lens=50, fstop=5.6)
     if want('closeup_head'):
         shoot(cam, (1.05, -3.55, 2.85), (0.05, -2.8, 2.55), 'dragon_closeup_head.png', lens=60, fstop=4.0)
+    if want('closeup_head_overcast'):
+        shoot(cam, (1.05, -3.55, 2.85), (0.05, -2.8, 2.55), 'dragon_closeup_head_overcast.png', lens=60, fstop=4.0,
+              hdri='overcast', rim=0.3)
     if want('closeup_flank'):
         shoot(cam, (3.4, -2.6, 1.9), (0.3, -0.2, 1.3), 'dragon_closeup_flank.png', lens=50, fstop=5.6)
     if want('wing_under'):
-        shoot(cam, (4.2, -3.2, 0.7), (3.6, 0.9, 2.15), 'dragon_wing_under.png', lens=32)
+        shoot(cam, (4.2, -3.2, 0.7), (3.6, 0.9, 2.15), 'dragon_wing_under.png', lens=32, key_offset=180)
     if want('folded'):
         set_pose(FOLD)
-        shoot(cam, (-9.5, -10.5, 5.5), (0, 0.3, 1.6), 'dragon_folded.png', lens=45)
+        shoot(cam, (-9.5, -10.5, 4.5), (0, 0.3, 1.5), 'dragon_folded.png', lens=45, fstop=11, key_offset=-55)
     if want('posetest'):
         set_pose(POSE_TEST)
-        shoot(cam, (8, -11, 7), (0, 0.0, 1.6), 'dragon_posetest.png', lens=45)
+        shoot(cam, (8, -11, 7), (0, 0.0, 1.6), 'dragon_posetest.png', lens=45, hdri='overcast', rim=0.4)
+    if want('hero'):
+        set_pose(FLIGHT)
+        shoot(cam, (-8.5, -17.0, -1.2), (0, -0.4, 2.1), 'dragon_hero_flight.png', lens=42, key_offset=70,
+              ground=False, rim=1.4)
     set_pose({})
-    for o in ('Cam', 'Sun', 'Ground'):
+    for o in ('Cam', 'Rim', 'Ground'):
         bpy.data.objects.remove(bpy.data.objects[o])
 
 if QUICK:

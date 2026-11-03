@@ -33,4 +33,4 @@ compiler finds, and see it.
 4. Water polish: river widths/flow, surf on rocks, underwater.
 5. Village and props (Hearthholm), from the web game's layout in World.json.
 6. Story, quests and the rest of the web game's systems (STORY.md etc.), in passes.
-7. A real dragon: the scripted Blender dragon, or a Fab model (see Docs/Dragon.md).
+7. ~~A real dragon~~: done. The scripted Blender dragon v1 (350k tris, 4K) ships as release `dragon-v1`. A Fab model can still be swapped in (see Docs/Dragon.md).
