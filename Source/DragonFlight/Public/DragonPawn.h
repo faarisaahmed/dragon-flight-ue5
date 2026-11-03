@@ -11,7 +11,7 @@ class UPoseableMeshComponent;
 class UDragonStandInComponent;
 class UDragonRigComponent;
 class ADragonPlasma;
-class UAudioComponent;
+class UDragonWindAudio;
 class USkeletalMesh;
 
 /**
@@ -54,7 +54,7 @@ public:
 	/** Drives the real mesh's bones procedurally from the flight state (wings, tail, neck, legs). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UDragonRigComponent> Rig;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UCameraComponent> Camera;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UAudioComponent> WindAudio;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UDragonWindAudio> WindAudio;
 
 	// --- Tuning ----------------------------------------------------------------
 	/** Mouse look sensitivity, radians per mouse count (web: 0.003 rad/px). */

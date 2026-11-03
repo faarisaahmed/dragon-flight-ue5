@@ -7,7 +7,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/PoseableMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
-#include "Components/AudioComponent.h"
+#include "DragonWindAudio.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
@@ -97,9 +97,8 @@ ADragonPawn::ADragonPawn()
 	Camera->bConstrainAspectRatio = false;
 	Camera->PostProcessBlendWeight = 0.f;
 
-	WindAudio = CreateDefaultSubobject<UAudioComponent>(TEXT("WindAudio"));
+	WindAudio = CreateDefaultSubobject<UDragonWindAudio>(TEXT("WindAudio"));
 	WindAudio->SetupAttachment(Feet);
-	WindAudio->bAutoActivate = false;
 
 	PlasmaClass = ADragonPlasma::StaticClass();
 }
@@ -265,6 +264,7 @@ void ADragonPawn::Tick(float DeltaSeconds)
 	MeshPivot->SetRelativeLocation(FVector(0, 0, (-BODY_CENTRE + Heave) * M));
 
 	TickCamera(Dt, In);
+	WindAudio->SetFlight(bGrounded ? 0.f : Flight.GetSpeedRatio(), bGrounded ? 0.f : Flight.GetTurboT(), bGrounded);
 }
 
 void ADragonPawn::TickFlight(float Dt, const FFrameInput& In)
