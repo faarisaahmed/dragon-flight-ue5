@@ -1,0 +1,7 @@
+blender 4.5.2 LTS
+triangles 345384
+vertices 172938
+length_m 8.600
+span_m 15.096
+bones 50
+root pelvis spine_01 spine_02 spine_03 chest neck_01 neck_02 neck_03 neck_04 head jaw tail_01 tail_02 tail_03 tail_04 tail_05 tail_06 tail_07 tail_08 tail_09 tail_10 tail_11 tail_12 upperarm_l forearm_l hand_l thigh_l calf_l foot_l wing_shoulder_l wing_elbow_l wing_wrist_l wing_finger1_l wing_finger2_l wing_finger3_l wing_finger4_l upperarm_r forearm_r hand_r thigh_r calf_r foot_r wing_shoulder_r wing_elbow_r wing_wrist_r wing_finger1_r wing_finger2_r wing_finger3_r wing_finger4_r

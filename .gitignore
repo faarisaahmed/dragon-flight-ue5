@@ -18,3 +18,8 @@ Data/World/Heightmap_*
 Data/Downloads/
 Content/ThirdParty/
 .DS_Store
+
+# Dragon binaries ship as a GitHub release (dragon-vN), fetched by Tools/fetch_world.py
+Data/Dragon/SK_Dragon.*
+Data/Dragon/Textures/
+Data/Dragon/Previews/*_wip*
