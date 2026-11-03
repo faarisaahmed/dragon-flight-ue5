@@ -137,6 +137,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sky") TObjectPtr<UDirectionalLightComponent> Moon;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sky") TObjectPtr<USkyLightComponent> SkyLight;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sky") TObjectPtr<UPostProcessComponent> Post;
+	/** A curtain of rain streaks that follows the camera (M_Rain, made by the builder). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sky") TObjectPtr<class UStaticMeshComponent> RainCurtain;
+	/** Storm lightning: a brief cold flash from a random bearing. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sky") TObjectPtr<UDirectionalLightComponent> Lightning;
 
 	/** Volumetric cloud material. If it exposes Coverage / Density / Cumulus / WindOffset scalars they are driven by the weather. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky|Clouds")
@@ -162,4 +166,8 @@ private:
 	float CloudOffset = 0.f;
 
 	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> CloudMID;
+	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> RainMID;
+	float BoltTimer = 8.f;
+	float BoltT = -1.f;
+	void TickWeatherFX(float DeltaSeconds);
 };

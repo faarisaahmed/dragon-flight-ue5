@@ -28,6 +28,7 @@
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionTime.h"
+#include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionObjectPositionWS.h"
 #include "Engine/Texture2D.h"
 #include "Engine/StaticMesh.h"
@@ -411,6 +412,58 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("R"), MP_AmbientOcclusion);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("G"), MP_Roughness);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Through, TEXT(""), MP_SubsurfaceColor);
+		Finish(M);
+	}
+
+	// --- M_Rain: streaks on a camera-following curtain ------------------------
+	if (UMaterial* M = NewMaterial(TEXT("M_Rain")))
+	{
+		M->BlendMode = BLEND_Translucent;
+		M->SetShadingModel(MSM_Unlit);
+		M->TwoSided = true;
+		M->bUsedWithStaticLighting = false;
+		UMaterialExpressionCustom* Rain = Expr<UMaterialExpressionCustom>(M, -350, 0);
+		Rain->Description = TEXT("Rain streaks");
+		Rain->OutputType = CMOT_Float1;
+		Rain->Inputs.Reset();
+		for (const TCHAR* In : { TEXT("UV"), TEXT("T"), TEXT("Intensity") }) { FCustomInput I; I.InputName = In; Rain->Inputs.Add(I); }
+		Rain->Code = TEXT(
+			"float m = 0;\n"
+			"for (int k = 0; k < 2; k++) {\n"
+			"  float2 uv = UV * (k == 0 ? float2(90, 6) : float2(170, 11));\n"
+			"  float col = floor(uv.x);\n"
+			"  float h = frac(sin(col * 12.9898 + k * 7.1) * 43758.5453);\n"
+			"  float y = frac(uv.y + T * (2.2 + h * 1.4) * (k == 0 ? 1.0 : 1.3) + h * 10.0);\n"
+			"  float streak = smoothstep(0.0, 0.04, y) * (1.0 - smoothstep(0.04, 0.32, y));\n"
+			"  float w = pow(saturate(1.0 - abs(frac(uv.x) - 0.5) * 2.0), 10.0);\n"
+			"  m += streak * w * step(1.0 - Intensity, h) * (k == 0 ? 1.0 : 0.6);\n"
+			"}\n"
+			"return m;\n");
+		Rain->PostEditChange();
+		UMaterialExpressionTextureCoordinate* UV = Expr<UMaterialExpressionTextureCoordinate>(M, -600, -50);
+		UMaterialExpressionTime* Time = Expr<UMaterialExpressionTime>(M, -600, 30);
+		UMaterialExpressionScalarParameter* Int = Expr<UMaterialExpressionScalarParameter>(M, -600, 110);
+		Int->ParameterName = TEXT("Intensity"); Int->DefaultValue = 0.6f;
+		UMaterialExpressionScalarParameter* Night = Expr<UMaterialExpressionScalarParameter>(M, -600, 190);
+		Night->ParameterName = TEXT("Night"); Night->DefaultValue = 0.f;
+		UMaterialEditingLibrary::ConnectMaterialExpressions(UV, TEXT(""), Rain, TEXT("UV"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Time, TEXT(""), Rain, TEXT("T"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Int, TEXT(""), Rain, TEXT("Intensity"));
+		// Opacity = streaks * 0.35; colour = a pale grey that dims at night.
+		UMaterialExpressionMultiply* Op = Expr<UMaterialExpressionMultiply>(M, -150, 80);
+		UMaterialExpressionConstant* K = Expr<UMaterialExpressionConstant>(M, -350, 160);
+		K->R = 0.35f;
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Rain, TEXT(""), Op, TEXT("A"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(K, TEXT(""), Op, TEXT("B"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(Op, TEXT(""), MP_Opacity);
+		UMaterialExpressionCustom* Col = Expr<UMaterialExpressionCustom>(M, -150, -80);
+		Col->OutputType = CMOT_Float3;
+		Col->Inputs.Reset();
+		{ FCustomInput I; I.InputName = TEXT("Night"); Col->Inputs.Add(I); }
+		Col->Code = TEXT("return lerp(float3(0.75, 0.78, 0.82), float3(0.05, 0.06, 0.08), Night);");
+		Col->PostEditChange();
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Night, TEXT(""), Col, TEXT("Night"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(Col, TEXT(""), MP_EmissiveColor);
 		Finish(M);
 	}
 

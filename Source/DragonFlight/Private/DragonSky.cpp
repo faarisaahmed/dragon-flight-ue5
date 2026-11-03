@@ -6,6 +6,10 @@
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/PostProcessComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Kismet/GameplayStatics.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "EngineUtils.h"
@@ -124,6 +128,26 @@ ADragonSky::ADragonSky()
 	SkyLight->SourceType = SLS_CapturedScene;
 	SkyLight->bLowerHemisphereIsBlack = false;
 	SkyLight->LowerHemisphereColor = FLinearColor(0.02f, 0.03f, 0.04f); // the sea under the horizon
+
+	RainCurtain = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("RainCurtain"));
+	RainCurtain->SetupAttachment(Root);
+	RainCurtain->SetUsingAbsoluteLocation(true);
+	RainCurtain->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	RainCurtain->SetCastShadow(false);
+	RainCurtain->SetVisibility(false);
+	RainCurtain->SetRelativeScale3D(FVector(36.f, 36.f, 40.f)); // engine cylinder is 1 m: an 18 m radius, 40 m tall curtain
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cyl(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	if (Cyl.Succeeded()) RainCurtain->SetStaticMesh(Cyl.Object);
+
+	Lightning = CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("Lightning"));
+	Lightning->SetupAttachment(Root);
+	Lightning->SetMobility(EComponentMobility::Movable);
+	Lightning->Intensity = 0.f;
+	Lightning->bUseTemperature = true;
+	Lightning->Temperature = 9500.f;
+	Lightning->SetCastShadows(false);
+	Lightning->bAffectsWorld = true;
+	Lightning->SetVisibility(false);
 
 	Post = CreateDefaultSubobject<UPostProcessComponent>(TEXT("Post"));
 	Post->SetupAttachment(Root);
@@ -254,6 +278,55 @@ void ADragonSky::Tick(float DeltaSeconds)
 	}
 
 	Apply(DeltaSeconds);
+	TickWeatherFX(DeltaSeconds);
+}
+
+void ADragonSky::TickWeatherFX(float DeltaSeconds)
+{
+	UWorld* World = GetWorld();
+	if (!World || !World->IsGameWorld()) return;
+
+	// Rain curtain around the camera.
+	if (!RainMID)
+	{
+		if (UMaterialInterface* M = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/World/Materials/M_Rain.M_Rain")))
+		{
+			RainMID = UMaterialInstanceDynamic::Create(M, this);
+			RainCurtain->SetMaterial(0, RainMID);
+		}
+	}
+	const bool bRain = Live.Rain > 0.02f && RainMID != nullptr;
+	RainCurtain->SetVisibility(bRain);
+	if (bRain)
+	{
+		if (APlayerCameraManager* Cam = UGameplayStatics::GetPlayerCameraManager(this, 0))
+		{
+			RainCurtain->SetWorldLocation(Cam->GetCameraLocation() - FVector(0, 0, 2000.f));
+		}
+		RainMID->SetScalarParameterValue(TEXT("Intensity"), Live.Rain);
+		RainMID->SetScalarParameterValue(TEXT("Night"), 1.f - Smooth(SunElevation, -8.f, 4.f));
+	}
+
+	// Lightning in a storm: a double flicker every 6-20 s.
+	if (Live.Rain > 0.85f && Weather == EDragonWeather::Storm)
+	{
+		BoltTimer -= DeltaSeconds;
+		if (BoltTimer <= 0.f)
+		{
+			BoltTimer = FMath::FRandRange(6.f, 20.f);
+			BoltT = 0.f;
+			Lightning->SetWorldRotation(FRotator(-FMath::FRandRange(25.f, 70.f), FMath::FRandRange(0.f, 360.f), 0.f));
+		}
+	}
+	if (BoltT >= 0.f)
+	{
+		BoltT += DeltaSeconds;
+		// Two strokes: 0-0.08 s and 0.16-0.3 s, then out.
+		const float F = BoltT < 0.08f ? 1.f : (BoltT > 0.16f && BoltT < 0.30f) ? 0.7f * (1.f - (BoltT - 0.16f) / 0.14f) : 0.f;
+		Lightning->SetVisibility(F > 0.f);
+		Lightning->SetIntensity(F * 40.f * FMath::Max(1.f, MoonLux * 20.f));
+		if (BoltT > 0.35f) { BoltT = -1.f; Lightning->SetVisibility(false); }
+	}
 }
 
 void ADragonSky::Apply(float DeltaSeconds)
