@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "InputCoreTypes.h"
 #include "DragonFlightModel.h"
 #include "DragonPawn.generated.h"
 
@@ -11,6 +12,7 @@ class UDragonStandInComponent;
 class UDragonRigComponent;
 class ADragonPlasma;
 class UAudioComponent;
+class USkeletalMesh;
 
 /**
  * The player dragon.
@@ -66,6 +68,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon|Gameplay") bool bCollide = true;
 	/** Uniform scale on the dragon. 1 = life size (8.6 m nose to tail, 15.1 m span). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon") float DragonScale = 1.f;
+	/** Skeletal dragon to use; if empty, /Game/Dragon/SK_Dragon is tried, then the primitive stand-in. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon") TSoftObjectPtr<USkeletalMesh> DragonAsset;
+	/** Yaw (degrees) that turns the imported mesh to face +X. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon") float DragonMeshYaw = 0.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon|Fire") TSubclassOf<ADragonPlasma> PlasmaClass;
 

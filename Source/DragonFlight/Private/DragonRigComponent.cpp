@@ -23,8 +23,9 @@ namespace
 UDragonRigComponent::UDragonRigComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
-	// Defaults: the rig build_dragon.py exports (bones along +Y in Blender's
-	// convention become +X in UE; flap about the bone's forward axis).
+	// Defaults: bone names from build_dragon.py; axes in body space
+	// (X forward, Y right, Z up): wings flap about X and sweep about Z, the
+	// tail and neck sway about Z and pitch about Y, legs swing about Y.
 	ShoulderL = J(TEXT("wing_shoulder_l"), FVector(1, 0, 0), FVector(0, 0, 1), 1.f);
 	ShoulderR = J(TEXT("wing_shoulder_r"), FVector(1, 0, 0), FVector(0, 0, 1), -1.f);
 	ElbowL = J(TEXT("wing_elbow_l"), FVector(1, 0, 0), FVector(0, 0, 1), 1.f);
@@ -43,6 +44,12 @@ UDragonRigComponent::UDragonRigComponent()
 void UDragonRigComponent::Resolve(FDragonRigJoint& Jt) const
 {
 	Jt.Index = Mesh ? Mesh->GetBoneIndex(Jt.Bone) : INDEX_NONE;
+	if (Jt.Index != INDEX_NONE && RefCS.IsValidIndex(Jt.Index))
+	{
+		const FQuat BoneCS = RefCS[Jt.Index].GetRotation();
+		Jt.LocalAxis = BoneCS.UnrotateVector(BodyToComponent.RotateVector(Jt.Axis.GetSafeNormal()));
+		Jt.LocalAxis2 = BoneCS.UnrotateVector(BodyToComponent.RotateVector(Jt.Axis2.GetSafeNormal()));
+	}
 	if (Jt.Index == INDEX_NONE && !Jt.Bone.IsNone())
 	{
 		UE_LOG(LogDragon, Verbose, TEXT("Rig: bone %s not found"), *Jt.Bone.ToString());
@@ -54,7 +61,17 @@ void UDragonRigComponent::Bind(UPoseableMeshComponent* InMesh)
 	Mesh = InMesh;
 	RefPose.Reset();
 	if (!Mesh || !Mesh->GetSkinnedAsset()) return;
-	RefPose = Mesh->GetSkinnedAsset()->GetRefSkeleton().GetRefBonePose();
+	const FReferenceSkeleton& Ref = Mesh->GetSkinnedAsset()->GetRefSkeleton();
+	RefPose = Ref.GetRefBonePose();
+	// Reference pose in component space, to turn body-space axes into bone-local ones.
+	RefCS.SetNum(RefPose.Num());
+	for (int32 i = 0; i < RefPose.Num(); ++i)
+	{
+		const int32 Parent = Ref.GetParentIndex(i);
+		RefCS[i] = Parent == INDEX_NONE ? RefPose[i] : RefPose[i] * RefCS[Parent];
+	}
+	// Body frame -> mesh component frame (the mesh may be yawed to face +X).
+	BodyToComponent = Mesh->GetRelativeRotation().Quaternion().Inverse();
 	for (FDragonRigJoint* Jt : { &ShoulderL, &ShoulderR, &ElbowL, &ElbowR, &WristL, &WristR, &Head }) Resolve(*Jt);
 	for (FDragonRigJoint& Jt : Neck) Resolve(Jt);
 	for (FDragonRigJoint& Jt : TailChain) Resolve(Jt);
@@ -63,9 +80,11 @@ void UDragonRigComponent::Bind(UPoseableMeshComponent* InMesh)
 
 void UDragonRigComponent::Rotate(const FDragonRigJoint& Jt, float Deg1, float Deg2)
 {
+	// VERIFY(5.5): BoneSpaceTransforms is believed public (GENERATED_UCLASS_BODY) and MarkRefreshTransformDirty exported;
+	// if not, use Mesh->SetBoneRotationByName(Bone, Rot, EBoneSpaces::ComponentSpace) with RefCS-derived rotations.
 	if (Jt.Index == INDEX_NONE || !RefPose.IsValidIndex(Jt.Index) || !Mesh->BoneSpaceTransforms.IsValidIndex(Jt.Index)) return;
-	const FQuat Q1(Jt.Axis.GetSafeNormal(), FMath::DegreesToRadians(Deg1 * Jt.Sign));
-	const FQuat Q2(Jt.Axis2.GetSafeNormal(), FMath::DegreesToRadians(Deg2 * Jt.Sign));
+	const FQuat Q1(Jt.LocalAxis, FMath::DegreesToRadians(Deg1 * Jt.Sign));
+	const FQuat Q2(Jt.LocalAxis2, FMath::DegreesToRadians(Deg2 * Jt.Sign));
 	FTransform T = RefPose[Jt.Index];
 	T.SetRotation(T.GetRotation() * Q2 * Q1);
 	Mesh->BoneSpaceTransforms[Jt.Index] = T;

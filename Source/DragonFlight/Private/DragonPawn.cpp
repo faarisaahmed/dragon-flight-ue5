@@ -6,6 +6,7 @@
 #include "DragonPlasma.h"
 #include "Camera/CameraComponent.h"
 #include "Components/PoseableMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "Components/AudioComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
@@ -109,6 +110,13 @@ void ADragonPawn::BeginPlay()
 	PosM = GetActorLocation() / M;
 	PrevPosM = PosM;
 	SetActorScale3D(FVector(DragonScale));
+	if (!DragonMesh->GetSkinnedAsset())
+	{
+		USkeletalMesh* Asset = DragonAsset.IsNull() ? nullptr : DragonAsset.LoadSynchronous();
+		if (!Asset) Asset = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Dragon/SK_Dragon.SK_Dragon"));
+		if (Asset) DragonMesh->SetSkinnedAssetAndUpdate(Asset);
+	}
+	DragonMesh->SetRelativeRotation(FRotator(0.f, DragonMeshYaw, 0.f));
 	const bool bHasMesh = DragonMesh->GetSkinnedAsset() != nullptr;
 	DragonMesh->SetVisibility(bHasMesh);
 	StandIn->SetStandInVisible(!bHasMesh);
@@ -190,8 +198,8 @@ ADragonPawn::FFrameInput ADragonPawn::GatherInput(float Dt)
 	const FVector2D RS = ShapeStick(FVector2D(PC->GetInputAnalogKeyState(EKeys::Gamepad_RightX), PC->GetInputAnalogKeyState(EKeys::Gamepad_RightY)));
 	const float R2 = ShapeTrigger(PC->GetInputAnalogKeyState(EKeys::Gamepad_RightTriggerAxis));
 	const float L2 = ShapeTrigger(PC->GetInputAnalogKeyState(EKeys::Gamepad_LeftTriggerAxis));
-	if (FMath::Abs(LS.Y) > 0.02f) In.Move = FMath::Clamp(In.Move + FMath::Sign(LS.Y) * LS.Y * LS.Y, -1.f, 1.f);
-	In.Turn = FMath::Clamp(In.Turn - LS.X, -1.f, 1.f);
+	if (FMath::Abs(LS.Y) > 0.02f) In.Move = FMath::Clamp(In.Move + (float)(FMath::Sign(LS.Y) * LS.Y * LS.Y), -1.f, 1.f);
+	In.Turn = FMath::Clamp(In.Turn - (float)LS.X, -1.f, 1.f);
 	const float PadV = bPadClimbInvert ? (R2 - L2) : (L2 - R2);
 	In.Vertical = FMath::Clamp(In.Vertical + PadV, -1.f, 1.f);
 	In.bPadUpTakeoff = (bPadClimbInvert ? R2 : L2) > 0.6f;
@@ -316,8 +324,8 @@ void ADragonPawn::FlightFloor(float Dt)
 	}
 	else
 	{
-		const float Len = FMath::Max(V.Size(), 1e-3f);
-		const float Into = FMath::Max(0.f, -FVector::DotProduct(V, N) / Len);
+		const float Len = FMath::Max((float)V.Size(), 1e-3f);
+		const float Into = FMath::Max(0.f, (float)(-FVector::DotProduct(V, N) / Len));
 		if (bFirst && Into > 0.3f) Flight.BleedSpeed(1.f);
 		else
 		{
@@ -540,7 +548,7 @@ void ADragonPawn::TickGround(float Dt, const FFrameInput& In)
 		if (!Dir.IsNearlyZero())
 		{
 			const float Ahead = SolidAtM(PosM.X + Dir.X * 1.75f, PosM.Y + Dir.Y * 1.75f);
-			if (Ahead - GroundZ > STEP_MAX) Hor -= Dir * FMath::Max(0.f, FVector::DotProduct(Hor, Dir));
+			if (Ahead - GroundZ > STEP_MAX) Hor -= Dir * FMath::Max(0.0, FVector::DotProduct(Hor, Dir));
 		}
 		GroundVel = FVector(Hor.X, Hor.Y, 0.f);
 		PosM.X += Hor.X * Dt;
@@ -551,7 +559,7 @@ void ADragonPawn::TickGround(float Dt, const FFrameInput& In)
 		if (PosM.Z - NewGround > 2.5f)
 		{
 			Unsupported += Dt;
-			PosM.Z -= FMath::Min(PosM.Z - NewGround, 9.f * Dt + Unsupported * G * Dt);
+			PosM.Z -= FMath::Min(PosM.Z - NewGround, (double)(9.f * Dt + Unsupported * G * Dt));
 			if (Unsupported > 0.55f) { TakeOff(); return; }
 		}
 		else
@@ -730,7 +738,7 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 	if (CamPosM.Z < MinZ)
 	{
 		CamPosM.Z += (MinZ - CamPosM.Z) * F::Damp(18.f, Dt);
-		CamPosM.Z = FMath::Max(CamPosM.Z, MinZ - 2.5f);
+		CamPosM.Z = FMath::Max(CamPosM.Z, (double)(MinZ - 2.5f));
 	}
 	bCamInit = true;
 

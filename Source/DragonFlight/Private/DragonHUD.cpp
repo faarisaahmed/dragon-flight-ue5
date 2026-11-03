@@ -4,6 +4,7 @@
 #include "DragonSky.h"
 #include "DragonWorldSubsystem.h"
 #include "Engine/Canvas.h"
+#include "CanvasItem.h"
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/GameInstance.h"
@@ -22,7 +23,7 @@ void ADragonHUD::Text(const FString& S, float X, float Y, const FLinearColor& C,
 	if (!Canvas) return;
 	UFont* F = Font ? Font : GEngine->GetMediumFont();
 	float W = 0, H = 0;
-	Canvas->TextSize(F, S, W, H, Scale, Scale);
+	GetTextSize(S, W, H, F, Scale); // AHUD wrapper with float out-params; same measurement as Canvas->TextSize
 	const float PX = bCentre ? X - W * 0.5f : X;
 	FCanvasTextItem Shadow(FVector2D(PX + 1.5f, Y + 1.5f), FText::FromString(S), F, FLinearColor(0, 0, 0, C.A * 0.6f));
 	Shadow.Scale = FVector2D(Scale);

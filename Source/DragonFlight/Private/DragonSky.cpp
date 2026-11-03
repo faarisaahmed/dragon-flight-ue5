@@ -10,6 +10,7 @@
 #include "Materials/MaterialInterface.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
@@ -71,6 +72,12 @@ ADragonSky::ADragonSky()
 	Clouds->TracingMaxDistance = 120.f;  // km — the world is 45 km across and you fly above it
 	Clouds->TracingStartMaxDistance = 400.f;
 	Clouds->bUsePerSampleAtmosphericLightTransmittance = true;
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CloudMat(TEXT("/Engine/EngineSky/VolumetricClouds/m_SimpleVolumetricCloud_Inst.m_SimpleVolumetricCloud_Inst"));
+	if (CloudMat.Succeeded())
+	{
+		CloudMaterial = CloudMat.Object;
+		Clouds->Material = CloudMat.Object;
+	}
 
 	Fog = CreateDefaultSubobject<UExponentialHeightFogComponent>(TEXT("HeightFog"));
 	Fog->SetupAttachment(Root);
@@ -157,6 +164,14 @@ void ADragonSky::BeginPlay()
 	WeatherT = 1.f;
 	WeatherTimer = FMath::FRandRange(240.f, 600.f);
 	Apply(0.f);
+	// Which knobs does the cloud material have? (Logged so the weather can be wired to them.)
+	if (CloudMaterial)
+	{
+		TArray<FMaterialParameterInfo> Infos;
+		TArray<FGuid> Ids;
+		CloudMaterial->GetAllScalarParameterInfo(Infos, Ids);
+		for (const FMaterialParameterInfo& I : Infos) UE_LOG(LogDragon, Log, TEXT("Cloud material scalar: %s"), *I.Name.ToString());
+	}
 }
 
 ADragonSky* ADragonSky::Get(const UObject* WorldContext)

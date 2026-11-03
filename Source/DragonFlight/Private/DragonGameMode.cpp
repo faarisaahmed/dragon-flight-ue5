@@ -118,7 +118,7 @@ void ADragonPlayerController::GoTo(const FString& IslandName)
 		if (I.Name.Contains(IslandName))
 		{
 			FVector At = I.Centre / DragonUnits::M;
-			At.Z = FMath::Max(I.Peak / DragonUnits::M, (float)At.Z) + 150.f;
+			At.Z = FMath::Max(I.Peak / DragonUnits::M, At.Z) + 150.0;
 			P->TeleportToM(At, true);
 			return;
 		}

@@ -97,17 +97,26 @@ bool UDragonWorldSubsystem::Load()
 
 bool UDragonWorldSubsystem::LoadHeightmap()
 {
-	// Smallest raw heightmap present is plenty for gameplay queries (~11 m/sample at 4033).
+	// Use the same heightmap the Landscape was built from (the builder records it in
+	// LandscapeRes.txt) so scattered trees and rocks sit exactly on the drawn ground.
+	// Otherwise prefer 8129 if present, else the smallest.
 	TArray<FString> Found;
 	IFileManager::Get().FindFiles(Found, *(DataDir() / TEXT("Heightmap_*.r16")), true, false);
-	int32 Best = 0;
-	FString BestFile;
+	int32 Want = 0;
+	FString ResText;
+	if (FFileHelper::LoadFileToString(ResText, *(DataDir() / TEXT("LandscapeRes.txt")))) Want = FCString::Atoi(*ResText.TrimStartAndEnd());
+	TArray<int32> Sizes;
 	for (const FString& F : Found)
 	{
 		const int32 N = FCString::Atoi(*F.Mid(10)); // "Heightmap_" is 10 chars
-		if (N > 0 && (Best == 0 || N < Best)) { Best = N; BestFile = F; }
+		if (N > 0) Sizes.Add(N);
 	}
-	if (Best == 0) return false;
+	if (Sizes.Num() == 0) return false;
+	Sizes.Sort();
+	int32 Best = Sizes[0];
+	if (Want > 0 && Sizes.Contains(Want)) Best = Want;
+	else if (Sizes.Contains(8129)) Best = 8129;
+	const FString BestFile = FString::Printf(TEXT("Heightmap_%d.r16"), Best);
 
 	TArray<uint8> Bytes;
 	if (!FFileHelper::LoadFileToArray(Bytes, *(DataDir() / BestFile))) return false;

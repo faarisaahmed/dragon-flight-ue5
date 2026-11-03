@@ -14,14 +14,16 @@ struct FDragonRigJoint
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName Bone;
-	/** Local axis the wing flap / tail sway / leg swing turns about (bone space). */
+	/** Axis the main motion (flap / sway / swing) turns about, in the DRAGON'S BODY space: X forward, Y right, Z up. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector Axis = FVector(1, 0, 0);
-	/** Local axis for the secondary motion (fold / sweep / pitch). */
+	/** Axis for the secondary motion (fold / sweep / pitch), body space. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector Axis2 = FVector(0, 0, 1);
 	/** Multiplier on the motion; flip to -1 for the mirrored side. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float Sign = 1.f;
 
 	int32 Index = INDEX_NONE;
+	FVector LocalAxis = FVector(1, 0, 0);
+	FVector LocalAxis2 = FVector(0, 0, 1);
 };
 
 /**
@@ -31,7 +33,10 @@ struct FDragonRigJoint
  *
  * Bone names and axes are data, so any dragon can be wired up in the Details
  * panel. The defaults match the rig Tools/DragonModel/build_dragon.py makes.
- * Rotations are applied on top of the mesh's reference pose (local space).
+ * Axes are given in the dragon's body frame (X forward, Y right, Z up) and
+ * converted into each bone's own frame from the reference pose, so they do not
+ * depend on how the modelling package oriented its bones. Rotations are applied
+ * on top of the reference pose.
  */
 UCLASS(ClassGroup = (Dragon), meta = (BlueprintSpawnableComponent))
 class DRAGONFLIGHT_API UDragonRigComponent : public UActorComponent
@@ -63,6 +68,8 @@ private:
 
 	UPROPERTY(Transient) TObjectPtr<UPoseableMeshComponent> Mesh;
 	TArray<FTransform> RefPose;
+	TArray<FTransform> RefCS;
+	FQuat BodyToComponent = FQuat::Identity;
 
 	float BeatPhase = 0.f, Beats = 0.f, GlideLeft = 0.f, GlideK = 0.f, NextGlideAfter = 4.f;
 	float FoldT = 0.f, GaitPhase = 0.f, TailPhase = 0.f, Turn = 0.f;
