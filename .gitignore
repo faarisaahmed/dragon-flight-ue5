@@ -1,0 +1,20 @@
+# Unreal generated
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+Build/
+Packaged/
+*.sln
+*.xcworkspace
+*.xcodeproj
+.vs/
+.vscode/
+.idea/
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+# Large baked / downloaded data lives in GitHub Releases or is fetched by Tools/
+Data/World/Heightmap_*
+Data/Downloads/
+Content/ThirdParty/
+.DS_Store
