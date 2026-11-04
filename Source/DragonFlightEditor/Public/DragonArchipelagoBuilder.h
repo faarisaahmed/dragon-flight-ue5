@@ -17,6 +17,8 @@ struct FDragonBuildOptions
 	bool bWater = true;
 	bool bRivers = true;
 	bool bSave = true;
+	/** Only (re)import the dragon; leave textures, models and the map alone. */
+	bool bDragonOnly = false;
 };
 
 /**

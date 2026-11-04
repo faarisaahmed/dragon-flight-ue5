@@ -33,6 +33,7 @@
 #include "Engine/Texture2D.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
+#include "Animation/Skeleton.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerStart.h"
 #include "Landscape.h"
@@ -98,6 +99,24 @@ namespace
 	{
 		UMaterialExpressionTextureObjectParameter* E = Expr<UMaterialExpressionTextureObjectParameter>(M, -1400, Y);
 		E->ParameterName = FName(*Name);
+		// A texture parameter must have a default, of a type matching its sampler, or the
+		// whole material fails to compile (and every instance falls back to the grey grid).
+		if (!Default)
+		{
+			const TCHAR* Which = Type == SAMPLERTYPE_Normal ? TEXT("Normal")
+				: Type == SAMPLERTYPE_Masks ? TEXT("ARM")
+				: Type == SAMPLERTYPE_LinearGrayscale ? TEXT("Gray") : TEXT("Color");
+			const FString Dir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data/Defaults"));
+			const FString DefName = FString::Printf(TEXT("T_Default_%s"), Which);
+			Default = FDragonArchipelagoBuilder::ImportTexture(Dir / (DefName + TEXT(".png")), TEXT("/Game/World/Textures/Defaults"), DefName,
+				Type == SAMPLERTYPE_Normal, Type == SAMPLERTYPE_Masks || Type == SAMPLERTYPE_LinearGrayscale);
+			if (Default && Type == SAMPLERTYPE_LinearGrayscale && Default->CompressionSettings != TC_Grayscale)
+			{
+				Default->CompressionSettings = TC_Grayscale;
+				Default->PostEditChange();
+				UEditorAssetLibrary::SaveLoadedAsset(Default, false);
+			}
+		}
 		E->Texture = Default;
 		E->SamplerType = Type;
 		E->SamplerSource = SSM_Wrap_WorldGroupSettings; // shared samplers: lifts the 16-sampler limit
@@ -108,6 +127,24 @@ namespace
 	{
 		UMaterialExpressionTextureSampleParameter2D* E = Expr<UMaterialExpressionTextureSampleParameter2D>(M, X, Y);
 		E->ParameterName = FName(*Name);
+		// A texture parameter must have a default, of a type matching its sampler, or the
+		// whole material fails to compile (and every instance falls back to the grey grid).
+		if (!Default)
+		{
+			const TCHAR* Which = Type == SAMPLERTYPE_Normal ? TEXT("Normal")
+				: Type == SAMPLERTYPE_Masks ? TEXT("ARM")
+				: Type == SAMPLERTYPE_LinearGrayscale ? TEXT("Gray") : TEXT("Color");
+			const FString Dir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data/Defaults"));
+			const FString DefName = FString::Printf(TEXT("T_Default_%s"), Which);
+			Default = FDragonArchipelagoBuilder::ImportTexture(Dir / (DefName + TEXT(".png")), TEXT("/Game/World/Textures/Defaults"), DefName,
+				Type == SAMPLERTYPE_Normal, Type == SAMPLERTYPE_Masks || Type == SAMPLERTYPE_LinearGrayscale);
+			if (Default && Type == SAMPLERTYPE_LinearGrayscale && Default->CompressionSettings != TC_Grayscale)
+			{
+				Default->CompressionSettings = TC_Grayscale;
+				Default->PostEditChange();
+				UEditorAssetLibrary::SaveLoadedAsset(Default, false);
+			}
+		}
 		E->Texture = Default;
 		E->SamplerType = Type;
 		E->SamplerSource = SSM_Wrap_WorldGroupSettings;
@@ -158,7 +195,17 @@ UTexture2D* FDragonArchipelagoBuilder::ImportTexture(const FString& File, const 
 {
 	if (!FPaths::FileExists(File)) return nullptr;
 	const FString Full = PackagePath / AssetName;
-	if (UTexture2D* Existing = LoadTex(Full + TEXT(".") + AssetName)) return Existing;
+	if (UTexture2D* Existing = LoadTex(Full + TEXT(".") + AssetName))
+	{
+		// Our materials sample these as ordinary textures; virtual ones won't bind.
+		if (Existing->VirtualTextureStreaming)
+		{
+			Existing->VirtualTextureStreaming = false;
+			Existing->PostEditChange();
+			UEditorAssetLibrary::SaveLoadedAsset(Existing, false);
+		}
+		return Existing;
+	}
 
 	UTextureFactory* F = NewObject<UTextureFactory>();
 	F->AddToRoot();
@@ -180,6 +227,7 @@ UTexture2D* FDragonArchipelagoBuilder::ImportTexture(const FString& File, const 
 		Tex->CompressionSettings = TC_Masks;
 		Tex->SRGB = false;
 	}
+	Tex->VirtualTextureStreaming = false;
 	Tex->PostEditChange();
 	FAssetRegistryModule::AssetCreated(Tex);
 	Tex->MarkPackageDirty();
@@ -635,21 +683,56 @@ TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>> FDragonArchipelagoBuilder::Impo
 bool FDragonArchipelagoBuilder::ImportDragon()
 {
 	const FString Dir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data/Dragon"));
+	// The web game's own model (Data/Dragon/SK_Dragon.glb) wins; the scripted FBX is the fallback.
+	const FString Glb = Dir / TEXT("SK_Dragon.glb");
 	const FString Fbx = Dir / TEXT("SK_Dragon.fbx");
-	if (!FPaths::FileExists(Fbx)) { Log(TEXT("no Data/Dragon/SK_Dragon.fbx — the stand-in dragon will be used")); return false; }
+	const bool bGlb = FPaths::FileExists(Glb);
+	const FString Source = bGlb ? Glb : Fbx;
+	if (!FPaths::FileExists(Source)) { Log(TEXT("no Data/Dragon/SK_Dragon.glb or .fbx — the stand-in dragon will be used")); return false; }
 	const FString Dest = TEXT("/Game/Dragon");
 	USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Dragon/SK_Dragon.SK_Dragon"));
+	if (Mesh && !Mesh->GetSkeleton())
+	{
+		Log(TEXT("existing SK_Dragon has no skeleton — reimporting"));
+		Mesh = nullptr;
+	}
 	if (!Mesh)
 	{
 		IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools")).Get();
 		UAutomatedAssetImportData* Data = NewObject<UAutomatedAssetImportData>();
-		Data->Filenames.Add(Fbx);
+		Data->Filenames.Add(Source);
 		Data->DestinationPath = Dest;
 		Data->bReplaceExisting = true;
-		AssetTools.ImportAssetsAutomated(Data);
-		Mesh = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Dragon/SK_Dragon.SK_Dragon"));
+		const TArray<UObject*> Imported = AssetTools.ImportAssetsAutomated(Data);
+		// Interchange names assets after the file's own nodes, and creates the skeleton and
+		// physics asset as separate packages: save every one, and give the mesh our name.
+		for (UObject* O : Imported)
+		{
+			if (!O) continue;
+			Log(FString::Printf(TEXT("  imported %s (%s)"), *O->GetPathName(), *O->GetClass()->GetName()));
+			if (USkeletalMesh* SKM = Cast<USkeletalMesh>(O)) Mesh = SKM;
+		}
+		if (Mesh && Mesh->GetName() != TEXT("SK_Dragon"))
+		{
+			const FString From = Mesh->GetPathName();
+			if (UEditorAssetLibrary::RenameAsset(From, TEXT("/Game/Dragon/SK_Dragon")))
+				Mesh = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Dragon/SK_Dragon.SK_Dragon"));
+		}
+		UEditorAssetLibrary::SaveDirectory(Dest, false, true);
 	}
-	if (!Mesh) { Log(TEXT("! dragon import produced no SK_Dragon")); return false; }
+	if (!Mesh) { Log(TEXT("! dragon import produced no skeletal mesh")); return false; }
+	if (!Mesh->GetSkeleton()) { Log(TEXT("! SK_Dragon has no skeleton after import")); return false; }
+	Log(FString::Printf(TEXT("dragon: %d bones, skeleton %s"), Mesh->GetRefSkeleton().GetNum(), *Mesh->GetSkeleton()->GetPathName()));
+
+	if (bGlb)
+	{
+		// Keep the model's own textures (Interchange made materials from them); just report the slots.
+		for (const FSkeletalMaterial& SM : Mesh->GetMaterials())
+			Log(FString::Printf(TEXT("  slot %s -> %s"), *SM.MaterialSlotName.ToString(), SM.MaterialInterface ? *SM.MaterialInterface->GetPathName() : TEXT("none")));
+		UEditorAssetLibrary::SaveDirectory(Dest, false, true);
+		Log(TEXT("dragon imported (web model)"));
+		return true;
+	}
 
 	UMaterial* Surface = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_DragonSkin.M_DragonSkin")));
 	if (!Surface) Surface = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_Surface.M_Surface")));
@@ -725,13 +808,17 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 		Ocean->SetActorLabel(TEXT("Ocean"));
 		if (UWaterSplineComponent* S = Ocean->GetWaterSpline())
 		{
-			// A square coast well outside the world: the ocean fills everything inside the zone.
+			// An ocean's spline is its *coastline*: the water lies outside it, out to the
+			// zone's edge. The real coasts come from the terrain (water shows wherever the
+			// ground is below the surface), so the spline is just a tiny token "island"
+			// parked beyond the playable world, leaving the whole archipelago as sea.
 			S->ClearSplinePoints(false);
-			const double E = SizeCm * 0.75;
-			S->AddSplinePoint(FVector(-E, -E, 0), ESplineCoordinateSpace::World, false);
-			S->AddSplinePoint(FVector(E, -E, 0), ESplineCoordinateSpace::World, false);
-			S->AddSplinePoint(FVector(E, E, 0), ESplineCoordinateSpace::World, false);
-			S->AddSplinePoint(FVector(-E, E, 0), ESplineCoordinateSpace::World, false);
+			const FVector C(SizeCm * 0.7, SizeCm * 0.7, 0.0);
+			const double E = 5000.0;
+			S->AddSplinePoint(C + FVector(-E, -E, 0), ESplineCoordinateSpace::World, false);
+			S->AddSplinePoint(C + FVector(E, -E, 0), ESplineCoordinateSpace::World, false);
+			S->AddSplinePoint(C + FVector(E, E, 0), ESplineCoordinateSpace::World, false);
+			S->AddSplinePoint(C + FVector(-E, E, 0), ESplineCoordinateSpace::World, false);
 			S->SetClosedLoop(true, true);
 		}
 		if (UWaterBodyComponent* C = Ocean->GetWaterBodyComponent())
@@ -867,6 +954,12 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 bool FDragonArchipelagoBuilder::Build(const FDragonBuildOptions& Options)
 {
 	const double T0 = FPlatformTime::Seconds();
+	if (Options.bDragonOnly)
+	{
+		const bool bOk = ImportDragon();
+		Log(FString::Printf(TEXT("dragon-only done in %.0f s"), FPlatformTime::Seconds() - T0));
+		return bOk;
+	}
 	if (Options.bTextures)
 	{
 		ImportGroundTextures();
