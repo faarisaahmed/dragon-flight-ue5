@@ -157,10 +157,10 @@ ADragonSky::ADragonSky()
 	P.bOverride_AutoExposureMethod = true;           P.AutoExposureMethod = AEM_Histogram;
 	P.bOverride_AutoExposureMinBrightness = true;    P.AutoExposureMinBrightness = -2.5f; // EV100 (extended range)
 	P.bOverride_AutoExposureMaxBrightness = true;    P.AutoExposureMaxBrightness = 16.f;
-	P.bOverride_AutoExposureBias = true;             P.AutoExposureBias = -0.1f;
+	P.bOverride_AutoExposureBias = true;             P.AutoExposureBias = 0.25f;
 	// Meter toward the bright half of the frame, as a photographer exposes for the sunlit
 	// ground: a shadowed mountain filling the frame must not blow the meadow out to white.
-	P.bOverride_AutoExposureLowPercent = true;       P.AutoExposureLowPercent = 55.f;
+	P.bOverride_AutoExposureLowPercent = true;       P.AutoExposureLowPercent = 40.f;
 	P.bOverride_AutoExposureHighPercent = true;      P.AutoExposureHighPercent = 96.f;
 	P.bOverride_AutoExposureSpeedUp = true;          P.AutoExposureSpeedUp = 2.5f;
 	P.bOverride_AutoExposureSpeedDown = true;        P.AutoExposureSpeedDown = 1.2f;
