@@ -316,9 +316,9 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 	// --- M_Surface: opaque PBR for rocks, bark, deadwood -----------------------
 	if (UMaterial* M = NewMaterial(TEXT("M_Surface")))
 	{
-		M->bUsedWithInstancedStaticMeshes = true;
-		M->bUsedWithNanite = true;
-		M->bUsedWithSkeletalMesh = true;
+		M->SetUsageByFlag(MATUSAGE_InstancedStaticMeshes, true);
+		M->SetUsageByFlag(MATUSAGE_Nanite, true);
+		M->SetUsageByFlag(MATUSAGE_SkeletalMesh, true);
 		M->TwoSided = false;
 		UMaterialExpressionTextureSampleParameter2D* D = TexParam(M, TEXT("BaseColor"), nullptr, SAMPLERTYPE_Color, -600, -200);
 		UMaterialExpressionTextureSampleParameter2D* N = TexParam(M, TEXT("Normal"), nullptr, SAMPLERTYPE_Normal, -600, 50);
@@ -339,8 +339,8 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 	// --- M_Foliage: masked, two-sided foliage, wind ---------------------------
 	if (UMaterial* M = NewMaterial(TEXT("M_Foliage")))
 	{
-		M->bUsedWithInstancedStaticMeshes = true;
-		M->bUsedWithNanite = true;
+		M->SetUsageByFlag(MATUSAGE_InstancedStaticMeshes, true);
+		M->SetUsageByFlag(MATUSAGE_Nanite, true);
 		M->TwoSided = true;
 		M->BlendMode = BLEND_Masked;
 		M->SetShadingModel(MSM_TwoSidedFoliage);
@@ -399,7 +399,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 	// --- M_Membrane: wing skin — two-sided, light comes through it -----------
 	if (UMaterial* M = NewMaterial(TEXT("M_Membrane")))
 	{
-		M->bUsedWithSkeletalMesh = true;
+		M->SetUsageByFlag(MATUSAGE_SkeletalMesh, true);
 		M->TwoSided = true;
 		M->SetShadingModel(MSM_TwoSidedFoliage);
 		UMaterialExpressionTextureSampleParameter2D* D = TexParam(M, TEXT("BaseColor"), nullptr, SAMPLERTYPE_Color, -600, -200);
@@ -424,7 +424,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 	// --- M_DragonSkin: scaled hide — subsurface, glossy caps, a faint grazing sheen
 	if (UMaterial* M = NewMaterial(TEXT("M_DragonSkin")))
 	{
-		M->bUsedWithSkeletalMesh = true;
+		M->SetUsageByFlag(MATUSAGE_SkeletalMesh, true);
 		M->SetShadingModel(MSM_Subsurface);
 		UMaterialExpressionTextureSampleParameter2D* D = TexParam(M, TEXT("BaseColor"), nullptr, SAMPLERTYPE_Color, -700, -250);
 		UMaterialExpressionTextureSampleParameter2D* N = TexParam(M, TEXT("Normal"), nullptr, SAMPLERTYPE_Normal, -700, 0);
@@ -465,7 +465,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		M->BlendMode = BLEND_Translucent;
 		M->SetShadingModel(MSM_Unlit);
 		M->TwoSided = true;
-		M->bUsedWithStaticLighting = false;
+		M->SetUsageByFlag(MATUSAGE_StaticLighting, false);
 		UMaterialExpressionCustom* Rain = Expr<UMaterialExpressionCustom>(M, -350, 0);
 		Rain->Description = TEXT("Rain streaks");
 		Rain->OutputType = CMOT_Float1;
@@ -515,7 +515,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 	if (UMaterial* M = NewMaterial(TEXT("M_Plasma")))
 	{
 		M->SetShadingModel(MSM_Unlit);
-		M->bUsedWithStaticLighting = false;
+		M->SetUsageByFlag(MATUSAGE_StaticLighting, false);
 		UMaterialExpressionVectorParameter* C = Expr<UMaterialExpressionVectorParameter>(M, -500, 0);
 		C->ParameterName = TEXT("Colour"); C->DefaultValue = FLinearColor(0.45f, 0.55f, 1.f);
 		UMaterialExpressionScalarParameter* I = Expr<UMaterialExpressionScalarParameter>(M, -500, 150);
