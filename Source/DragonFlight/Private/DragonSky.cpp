@@ -161,6 +161,12 @@ ADragonSky::ADragonSky()
 	P.bOverride_AutoExposureSpeedUp = true;          P.AutoExposureSpeedUp = 2.5f;
 	P.bOverride_AutoExposureSpeedDown = true;        P.AutoExposureSpeedDown = 1.2f;
 	P.bOverride_BloomIntensity = true;               P.BloomIntensity = 0.35f;
+	// A camera's look in cold northern light: white balance a touch cool, local exposure
+	// holding detail in both the bright sky and the dark basalt.
+	P.bOverride_WhiteTemp = true;                    P.WhiteTemp = 6900.f;
+	P.bOverride_LocalExposureHighlightContrastScale = true; P.LocalExposureHighlightContrastScale = 0.75f;
+	P.bOverride_LocalExposureShadowContrastScale = true;    P.LocalExposureShadowContrastScale = 0.85f;
+	P.bOverride_ColorSaturation = true;              P.ColorSaturation = FVector4(1.04, 1.04, 1.04, 1.0);
 	P.bOverride_VignetteIntensity = true;            P.VignetteIntensity = 0.25f;
 	P.bOverride_FilmGrainIntensity = true;           P.FilmGrainIntensity = 0.05f;
 	P.bOverride_MotionBlurAmount = true;             P.MotionBlurAmount = 0.35f;

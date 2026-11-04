@@ -273,6 +273,20 @@ void FDragonArchipelagoBuilder::ImportGroundTextures()
 	for (const TCHAR* L : GroundLayers) ImportSet(L, false);
 	for (const TCHAR* L : FarLayers) ImportSet(L, true);
 
+	// Drainage from the erosion bake: wet gully floors in M_Archipelago.
+	{
+		const FString FFile = UDragonWorldSubsystem::DataDir() / TEXT("Flow_4096.png");
+		if (UTexture2D* FT = ImportTexture(FFile, TEXT("/Game/World/Data"), TEXT("T_Flow"), false, true))
+		{
+			if (FT->CompressionSettings != TC_Grayscale)
+			{
+				FT->CompressionSettings = TC_Grayscale; FT->SRGB = false;
+				FT->AddressX = TA_Clamp; FT->AddressY = TA_Clamp;
+				FT->PostEditChange();
+				UEditorAssetLibrary::SaveLoadedAsset(FT, false);
+			}
+		}
+	}
 	// The heightmap as a texture, for water depth (shore foam, colour) in M_Sea.
 	{
 		const FString HFile = UDragonWorldSubsystem::DataDir() / TEXT("Heightmap_4033.png");
@@ -328,7 +342,7 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 	Cu->AdditionalOutputs.Reset();
 	auto AddIn = [&](const TCHAR* Name) { FCustomInput I; I.InputName = Name; Cu->Inputs.Add(I); };
 	AddIn(TEXT("P")); AddIn(TEXT("Nv")); AddIn(TEXT("Cam")); AddIn(TEXT("WS")); AddIn(TEXT("SnowLine"));
-	AddIn(TEXT("MaskA")); AddIn(TEXT("MaskB"));
+	AddIn(TEXT("MaskA")); AddIn(TEXT("MaskB")); AddIn(TEXT("FlowMask"));
 	for (const TCHAR* L : GroundLayers) { AddIn(*FString::Printf(TEXT("%sD"), L)); AddIn(*FString::Printf(TEXT("%sN"), L)); AddIn(*FString::Printf(TEXT("%sA"), L)); }
 	for (const TCHAR* L : FarLayers) AddIn(*FString::Printf(TEXT("%sD"), L));
 	{ FCustomOutput O; O.OutputName = TEXT("NormalWS"); O.OutputType = CMOT_Float3; Cu->AdditionalOutputs.Add(O); }
@@ -370,6 +384,7 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 	};
 	Connect(TEXT("MaskA"), TEXT("/Game/World/Data/T_Masks.T_Masks"), SAMPLERTYPE_LinearColor);
 	Connect(TEXT("MaskB"), TEXT("/Game/World/Data/T_Masks2.T_Masks2"), SAMPLERTYPE_LinearColor);
+	Connect(TEXT("FlowMask"), TEXT("/Game/World/Data/T_Flow.T_Flow"), SAMPLERTYPE_LinearGrayscale);
 	for (const TCHAR* L : GroundLayers)
 	{
 		const FString K(L);
@@ -1188,7 +1203,8 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 		Landscape->RegisterAllComponents();
 		// Nanite landscape where the platform has it (M2+ Macs, DX12 SM6 PCs): full-resolution
 		// geometry at every distance instead of LOD popping, which is what lets 5 m cliffs read.
-		// (Commandlets have no GPU to ask, so this is unconditional; platforms without Nanite fall back.)
+		// (Opt-in with -LandscapeNanite: the one-shot mesh build needs ~16 GB at 8129^2.)
+		if (Options.bLandscapeNanite)
 		{
 			// bEnableNanite is protected; set it through reflection like the editor's details panel.
 			if (FBoolProperty* P = FindFProperty<FBoolProperty>(ALandscapeProxy::StaticClass(), TEXT("bEnableNanite")))

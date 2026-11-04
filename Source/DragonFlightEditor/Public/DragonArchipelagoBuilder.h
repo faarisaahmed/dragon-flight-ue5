@@ -21,6 +21,8 @@ struct FDragonBuildOptions
 	bool bSave = true;
 	/** Only (re)import the dragon; leave textures, models and the map alone. */
 	bool bDragonOnly = false;
+	/** Build a Nanite representation of the landscape. At 8129^2 this needs ~16 GB in one go: off by default (24 GB machines thrash). */
+	bool bLandscapeNanite = false;
 };
 
 /**

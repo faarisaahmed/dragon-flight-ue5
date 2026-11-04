@@ -8,7 +8,7 @@
 // Inputs (see the builder): P (abs world pos, cm), Nv (vertex normal, world),
 // Cam (camera pos, cm), WS (world size, m), SnowLine (m), and texture objects
 // <Layer>D / <Layer>N / <Layer>A for Cliff Scree Grass Heath Forest Sand
-// Shingle Snow Mud, plus FarRockD FarGrassD FarSnowD, MaskA, MaskB.
+// Shingle Snow Mud, plus FarRockD FarGrassD FarSnowD, MaskA, MaskB, FlowMask.
 // Outputs: return = base colour; NormalWS, Rough, AO.
 static const TCHAR* GLandscapeHLSL = TEXT(R"HLSL(
 float3 pm = P * 0.01;
@@ -16,6 +16,7 @@ float3 N = normalize(Nv);
 float2 muv = pm.xy / WS + 0.5;
 float4 mk = Texture2DSample(MaskA, MaskASampler, muv);
 float3 mk2 = Texture2DSample(MaskB, MaskBSampler, muv).rgb;
+float flow = Texture2DSample(FlowMask, FlowMaskSampler, muv).r;   // drainage: gully floors, streams
 float dist = length(P - Cam) * 0.01;
 float h = pm.z;
 float slope = saturate((1.0 - N.z) * 2.6);
@@ -102,6 +103,10 @@ float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 	C = lerp(C, farC, ff);
 }
 
+// Water-fed ground: gully floors and stream lines darker, mossier and damper.
+float wet = smoothstep(0.35, 0.85, flow) * (1.0 - sn) * (1.0 - wCliff / wSum * 0.6) * step(1.0, h);
+C = lerp(C, C * float3(0.62, 0.72, 0.55), wet * 0.75);
+R *= 1.0 - wet * 0.35;
 NormalWS = normalize(Nw + N * 0.001);
 Rough = saturate(R);
 AmbOcc = saturate(AO);
