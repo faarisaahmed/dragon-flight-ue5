@@ -19,5 +19,6 @@ int32 UBuildArchipelagoCommandlet::Main(const FString& Params)
 	O.bWater = !FParse::Param(*Params, TEXT("NoWater"));
 	O.bDragonOnly = FParse::Param(*Params, TEXT("DragonOnly"));
 	O.bLandscapeNanite = FParse::Param(*Params, TEXT("LandscapeNanite"));
+	O.bVillageOnly = FParse::Param(*Params, TEXT("VillageOnly"));
 	return FDragonArchipelagoBuilder::Build(O) ? 0 : 1;
 }

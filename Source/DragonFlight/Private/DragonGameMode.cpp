@@ -1,5 +1,7 @@
 #include "DragonGameMode.h"
 #include "DragonPhotoDirector.h"
+#include "DragonVillage.h"
+#include "EngineUtils.h"
 #include "Misc/CommandLine.h"
 #include "DragonFlight.h"
 #include "DragonPawn.h"
@@ -43,6 +45,11 @@ void ADragonGameMode::StartPlay()
 	if (!ADragonSky::Get(this))
 	{
 		GetWorld()->SpawnActor<ADragonSky>();
+	}
+	// The villages, from the world bake's house plots (unless the map already has them).
+	if (!TActorIterator<ADragonVillage>(GetWorld()))
+	{
+		GetWorld()->SpawnActor<ADragonVillage>();
 	}
 	// Unattended screenshots (-AutoShot): see ADragonPhotoDirector.
 	if (FParse::Param(FCommandLine::Get(), TEXT("AutoShot")))

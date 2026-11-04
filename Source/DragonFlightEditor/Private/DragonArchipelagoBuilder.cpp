@@ -7,6 +7,7 @@
 #include "Editor.h"
 #include "FileHelpers.h"
 #include "EditorAssetLibrary.h"
+#include "PhysicsEngine/BodySetup.h"
 #include "MaterialEditingLibrary.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
@@ -1017,6 +1018,64 @@ TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>> FDragonArchipelagoBuilder::Impo
 // ===========================================================================
 // Dragon
 // ===========================================================================
+int32 FDragonArchipelagoBuilder::ImportVillage()
+{
+	const FString Src = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data/Village"));
+	TArray<FString> Files;
+	IFileManager::Get().FindFiles(Files, *(Src / TEXT("*.glb")), true, false);
+	if (Files.Num() == 0) { Log(TEXT("no Data/Village/*.glb — no village kit")); return 0; }
+	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools")).Get();
+	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+	int32 Count = 0;
+	for (const FString& F : Files)
+	{
+		const FString Base = FPaths::GetBaseFilename(F);
+		const FString Dest = TEXT("/Game/World/Village/") + Base;
+		// Fresh each run, so a regenerated kit replaces the old one completely.
+		if (UEditorAssetLibrary::DoesDirectoryExist(Dest)) UEditorAssetLibrary::DeleteDirectory(Dest);
+		UAutomatedAssetImportData* Data = NewObject<UAutomatedAssetImportData>();
+		Data->Filenames.Add(Src / F);
+		Data->DestinationPath = Dest;
+		Data->bReplaceExisting = true;
+		AssetTools.ImportAssetsAutomated(Data);
+		Registry.ScanPathsSynchronous({ Dest }, true);
+		TArray<FAssetData> Found;
+		Registry.GetAssetsByPath(FName(*Dest), Found, true);
+		TArray<UStaticMesh*> Meshes;
+		for (const FAssetData& A : Found) if (UStaticMesh* M = Cast<UStaticMesh>(A.GetAsset())) Meshes.Add(M);
+		for (UStaticMesh* Mesh : Meshes)
+		{
+			for (FStaticMaterial& SM : Mesh->GetStaticMaterials())
+			{
+				UMaterial* M = SM.MaterialInterface ? SM.MaterialInterface->GetMaterial() : nullptr;
+				if (!M || M->GetPathName().StartsWith(TEXT("/Engine/"))) continue;
+				if (!M->GetUsageByFlag(MATUSAGE_InstancedStaticMeshes) || !M->GetUsageByFlag(MATUSAGE_Nanite))
+				{
+					M->SetUsageByFlag(MATUSAGE_InstancedStaticMeshes, true);
+					M->SetUsageByFlag(MATUSAGE_Nanite, true);
+					M->PostEditChange();
+					UEditorAssetLibrary::SaveLoadedAsset(M, false);
+				}
+			}
+			FMeshNaniteSettings NS = Mesh->GetNaniteSettings();
+			NS.bEnabled = true;
+			Mesh->SetNaniteSettings(NS);
+			// Walk on it, land on its roof: the render mesh is the collision.
+			if (UBodySetup* BS = Mesh->GetBodySetup()) BS->CollisionTraceFlag = CTF_UseComplexAsSimple;
+			Mesh->Build(false);
+			Mesh->PostEditChange();
+			UEditorAssetLibrary::SaveLoadedAsset(Mesh, false);
+		}
+		// One mesh per building, named for its file (the village actor reads kind_variant from it).
+		if (Meshes.Num() == 1 && Meshes[0]->GetName() != Base)
+			UEditorAssetLibrary::RenameAsset(Meshes[0]->GetPathName(), Dest / Base);
+		UEditorAssetLibrary::SaveDirectory(Dest, false, true);
+		Log(FString::Printf(TEXT("village %s: %d mesh(es)"), *Base, Meshes.Num()));
+		Count += Meshes.Num() > 0;
+	}
+	return Count;
+}
+
 bool FDragonArchipelagoBuilder::ImportDragon()
 {
 	const FString Dir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data/Dragon"));
@@ -1380,6 +1439,12 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 bool FDragonArchipelagoBuilder::Build(const FDragonBuildOptions& Options)
 {
 	const double T0 = FPlatformTime::Seconds();
+	if (Options.bVillageOnly)
+	{
+		const int32 N = ImportVillage();
+		Log(FString::Printf(TEXT("village-only: %d buildings imported in %.0f s"), N, FPlatformTime::Seconds() - T0));
+		return N > 0;
+	}
 	if (Options.bDragonOnly)
 	{
 		CreateMasterMaterials(); // the skin and membrane parents the instances hang off
@@ -1394,7 +1459,7 @@ bool FDragonArchipelagoBuilder::Build(const FDragonBuildOptions& Options)
 		CreateMasterMaterials();
 	}
 	TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>> Meshes;
-	if (Options.bModels) { Meshes = ImportModels(); ImportDragon(); }
+	if (Options.bModels) { Meshes = ImportModels(); ImportDragon(); ImportVillage(); }
 	else
 	{
 		// Reuse what's already imported.
