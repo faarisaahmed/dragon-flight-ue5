@@ -24,3 +24,7 @@ Data/Dragon/SK_Dragon.*
 Data/Dragon/Textures/
 Data/Dragon/Previews/*_wip*
 Data/Dragon/Previews/
+
+# dev crops from the world bake tools
+Data/World/CliffPreview/crop_*
+Data/World/ErosionPreview/crop_*

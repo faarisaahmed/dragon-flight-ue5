@@ -15,6 +15,8 @@
 //         Flow_4096.png             8-bit grey "flow / wetness" (see below)
 //         ErosionPreview/*.png      hillshade before/after crops
 //         World.json                gains an "erosion" block describing this run
+//         Heightmap_<res>_eroded.r16, Flow_4096_eroded.png: copies of the above
+//                                   that cliffs.mjs (run next) starts from
 //
 // Pipeline (all on the 8129 grid unless noted):
 //   0. seed     a few tenths of a metre of fine ridged noise on land, so water
@@ -53,13 +55,9 @@ import { fileURLToPath } from "node:url";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
-import zlib from "node:zlib";
+import { S, ZSCALE, enc, dec, hash2, fbm, ridged, smooth, writePNG, buildProtection } from "./lib.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const S = 45000;                // world size, metres
-const ZSCALE = 400;
-const enc = (m) => { const v = Math.round((m * 100) / ZSCALE * 128) + 32768; return v < 0 ? 0 : v > 65535 ? 65535 : v; };
-const dec = (v) => (v - 32768) * ZSCALE / 128 / 100;
 
 // ---------------------------------------------------------------------------
 // Parameters. Heights in metres, slopes as tangents, distances in cells of the
@@ -84,39 +82,6 @@ export const PARAMS = {
   seaFade: [-14, -1],                                // change fades out below this depth
   pinMargin: 0.3,                                    // metres off the waterline when pinned
 };
-
-// ---------------------------------------------------------------------------
-// Noise (shared by main and workers).
-// ---------------------------------------------------------------------------
-function hash2(ix, iy, seed) {
-  let h = (Math.imul(ix, 0x27d4eb2d) ^ Math.imul(iy, 0x165667b1) ^ Math.imul(seed, 0x9e3779b1)) >>> 0;
-  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-  return (h ^ (h >>> 16)) >>> 0;
-}
-const GX = new Float32Array(16), GY = new Float32Array(16);
-for (let k = 0; k < 16; k++) { GX[k] = Math.cos(k * Math.PI / 8); GY[k] = Math.sin(k * Math.PI / 8); }
-function gnoise(x, y, seed) {   // gradient noise, about -1..1
-  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
-  const u = fx * fx * fx * (fx * (fx * 6 - 15) + 10), v = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
-  const h00 = hash2(ix, iy, seed) & 15, h10 = hash2(ix + 1, iy, seed) & 15;
-  const h01 = hash2(ix, iy + 1, seed) & 15, h11 = hash2(ix + 1, iy + 1, seed) & 15;
-  const n00 = GX[h00] * fx + GY[h00] * fy, n10 = GX[h10] * (fx - 1) + GY[h10] * fy;
-  const n01 = GX[h01] * fx + GY[h01] * (fy - 1), n11 = GX[h11] * (fx - 1) + GY[h11] * (fy - 1);
-  const a = n00 + (n10 - n00) * u, b = n01 + (n11 - n01) * u;
-  return (a + (b - a) * v) * 1.4;
-}
-function fbm(x, y, oct, seed) {
-  let s = 0, a = 1, w = 0;
-  for (let o = 0; o < oct; o++) { s += a * gnoise(x, y, seed + o * 101); w += a; a *= 0.5; x *= 2.03; y *= 2.03; }
-  return s / w;
-}
-function ridged(x, y, oct, seed) {
-  let s = 0, a = 1, w = 0;
-  for (let o = 0; o < oct; o++) { s += a * (1 - Math.abs(gnoise(x, y, seed + o * 131))); w += a; a *= 0.5; x *= 2.07; y *= 2.07; }
-  return s / w;   // 0..1, sharp crests
-}
-const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 
 // ---------------------------------------------------------------------------
 // Worker side.
@@ -467,61 +432,6 @@ function streamPower(L, E, W, n, cell, p) {
 }
 
 // ---------------------------------------------------------------------------
-// PNG read/write (no dependencies).
-// ---------------------------------------------------------------------------
-const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
-function crc32(buf) { let c = 0xffffffff; for (let i = 0; i < buf.length; i++) c = CRC[(c ^ buf[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
-function chunk(type, data) {
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-  const td = Buffer.concat([Buffer.from(type, "ascii"), data]);
-  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
-  return Buffer.concat([len, td, crc]);
-}
-function writePNG(file, w, h, channels, depth, pix) {
-  const colorType = { 1: 0, 3: 2, 4: 6 }[channels];
-  const bpp = channels * (depth / 8);
-  const raw = Buffer.alloc((w * bpp + 1) * h);
-  for (let y = 0; y < h; y++) {
-    const o = y * (w * bpp + 1);
-    raw[o] = 0;
-    if (depth === 8) raw.set(pix.subarray(y * w * channels, (y + 1) * w * channels), o + 1);
-    else for (let i = 0, b = y * w * channels; i < w * channels; i++) { const v = pix[b + i]; raw[o + 1 + i * 2] = v >> 8; raw[o + 2 + i * 2] = v & 255; }
-  }
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
-  ihdr[8] = depth; ihdr[9] = colorType;
-  const idat = zlib.deflateSync(raw, { level: 6 });
-  fs.writeFileSync(file, Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", ihdr), chunk("IDAT", idat), chunk("IEND", Buffer.alloc(0))]));
-}
-function readPNG8(file) {
-  const b = fs.readFileSync(file);
-  let o = 8, w = 0, h = 0, ct = 0, depth = 0; const idat = [];
-  while (o < b.length) {
-    const len = b.readUInt32BE(o), type = b.toString("ascii", o + 4, o + 8), d = b.subarray(o + 8, o + 8 + len);
-    if (type === "IHDR") { w = d.readUInt32BE(0); h = d.readUInt32BE(4); depth = d[8]; ct = d[9]; if (d[12]) throw new Error("interlaced PNG"); }
-    else if (type === "IDAT") idat.push(d);
-    else if (type === "IEND") break;
-    o += 12 + len;
-  }
-  if (depth !== 8) throw new Error(`${file}: depth ${depth} unsupported`);
-  const ch = { 0: 1, 2: 3, 4: 2, 6: 4 }[ct];
-  const raw = zlib.inflateSync(Buffer.concat(idat));
-  const stride = w * ch, out = new Uint8Array(stride * h);
-  for (let y = 0; y < h; y++) {
-    const f = raw[y * (stride + 1)], src = y * (stride + 1) + 1, dst = y * stride;
-    for (let x = 0; x < stride; x++) {
-      const a = x >= ch ? out[dst + x - ch] : 0, up = y ? out[dst - stride + x] : 0, ul = y && x >= ch ? out[dst - stride + x - ch] : 0;
-      let v = raw[src + x];
-      if (f === 1) v += a; else if (f === 2) v += up; else if (f === 3) v += (a + up) >> 1;
-      else if (f === 4) { const p = a + up - ul, pa = Math.abs(p - a), pb = Math.abs(p - up), pc = Math.abs(p - ul); v += pa <= pb && pa <= pc ? a : pb <= pc ? up : ul; }
-      out[dst + x] = v & 255;
-    }
-  }
-  return { w, h, ch, data: out };
-}
-
-// ---------------------------------------------------------------------------
 // Main.
 // ---------------------------------------------------------------------------
 if (isMainThread) {
@@ -570,57 +480,11 @@ if (isMainThread) {
   log(`loaded ${path.basename(src8)}; grid ${n}^2 at (${oi},${oj}); ${THREADS} threads`);
 
   // --- masks -> protection P and ice at the fine grid ---
-  const m1 = readPNG8(path.join(DIR, "Masks_4096.png"));
-  const MR = m1.w;
-  const m2path = path.join(DIR, "Masks2_4096.png");
-  const m2 = readPNG8(m2path);
-  // Dilate water a little (rivers get calm banks).
-  const wat = new Float32Array(MR * MR), padm = new Float32Array(MR * MR), icem = new Float32Array(MR * MR);
-  for (let k = 0; k < MR * MR; k++) { wat[k] = m1.data[k * 4 + 3] / 255; icem[k] = m1.data[k * 4 + 2] / 255; padm[k] = m2.data[k * m2.ch + 2] / 255; }
-  const watD = new Float32Array(MR * MR);
-  for (let y = 0; y < MR; y++) for (let x = 0; x < MR; x++) {
-    let v = 0;
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-      const xx = x + dx, yy = y + dy;
-      if (xx < 0 || yy < 0 || xx >= MR || yy >= MR) continue;
-      const w = wat[yy * MR + xx]; if (!w) continue;
-      v = Math.max(v, w * (1 - Math.hypot(dx, dy) / 3.2));
-    }
-    watD[y * MR + x] = v;
-  }
-  const msamp = (G, wx, wz) => {
-    let u = (wx + S / 2) / S * MR - 0.5, v = (wz + S / 2) / S * MR - 0.5;
-    if (u < 0) u = 0; if (v < 0) v = 0; if (u > MR - 1.001) u = MR - 1.001; if (v > MR - 1.001) v = MR - 1.001;
-    const iu = u | 0, iv = v | 0, tu = u - iu, tv = v - iv, c = iv * MR + iu;
-    return (G[c] * (1 - tu) + G[c + 1] * tu) * (1 - tv) + (G[c + MR] * (1 - tu) + G[c + MR + 1] * tu) * tv;
-  };
-  const Ps = sab(N2), ICEs = sab(N2), Es = sab(N2), Ks = sab(N2), Wfs = sab(N2);
-  const P = new Uint8Array(Ps), ICE = new Uint8Array(ICEs), WF = new Uint8Array(Wfs);
   const world = JSON.parse(fs.readFileSync(path.join(DIR, "World.json"), "utf8"));
-  for (let y = 0; y < n; y++) {
-    const wz = -S / 2 + (oj + y) * step;
-    for (let x = 0; x < n; x++) {
-      const i = y * n + x;
-      if (H0[i] < -20) continue;
-      const wx = -S / 2 + (oi + x) * step;
-      if (argv.includes("--synth")) { P[i] = 255; continue; }
-      const w = msamp(watD, wx, wz), pd = msamp(padm, wx, wz);
-      const p = (1 - smooth(0.05, 0.6, w)) * (1 - smooth(0.02, 0.5, pd));
-      P[i] = Math.round(255 * p);
-      ICE[i] = Math.round(255 * msamp(icem, wx, wz));
-      WF[i] = msamp(wat, wx, wz) > 0.35 ? 1 : 0;
-    }
-  }
-  // Lakes: the basin below its level, plus a 2 m shore, is left alone.
-  if (!argv.includes("--synth")) for (const L of world.lakes) {
-    const ia = Math.max(0, Math.floor((L.x0 + S / 2) / step) - oi - 2), ib = Math.min(n - 1, Math.ceil((L.x0 + L.n * L.s + S / 2) / step) - oi + 2);
-    const ja = Math.max(0, Math.floor((L.z0 + S / 2) / step) - oj - 2), jb = Math.min(n - 1, Math.ceil((L.z0 + L.n * L.s + S / 2) / step) - oj + 2);
-    for (let y = ja; y <= jb; y++) for (let x = ia; x <= ib; x++) {
-      const i = y * n + x;
-      if (H0[i] < L.level) { P[i] = 0; WF[i] = 1; }
-      else P[i] = Math.round(P[i] * smooth(L.level + 0.5, L.level + 4, H0[i]));
-    }
-  }
+  const { P, ICE, WF, m1, m2 } = buildProtection({ dir: DIR, H0, n, oi, oj, step, world, synth: argv.includes("--synth"), buffer: (b) => new SharedArrayBuffer(b) });
+  const Ps = P.buffer, ICEs = ICE.buffer, Wfs = WF.buffer;
+  const Es = sab(N2), Ks = sab(N2);
+  const MR = m1.w, m2path = path.join(DIR, "Masks2_4096.png");
   log("masks and protection ready");
 
   // --- worker pool ---
@@ -812,9 +676,12 @@ if (isMainThread) {
   }
 
   // --- write heightmaps ---
+  // Heightmap_<res>_eroded.r16 is what cliffs.mjs starts from (it overwrites Heightmap_<res>).
+  const erodedOf = (res) => path.join(DIR, `Heightmap_${res}_eroded.r16`);
   fs.writeFileSync(curOf(8129, "r16"), Buffer.from(U.buffer));
+  fs.writeFileSync(erodedOf(8129), Buffer.from(U.buffer));
   writePNG(curOf(8129, "png"), NF, NF, 1, 16, U);
-  log("wrote Heightmap_8129.r16/.png");
+  log("wrote Heightmap_8129.r16/.png (+ _eroded.r16)");
   const DLs = sab(N2 * 4); { const DL = new Float32Array(DLs); for (let i = 0; i < N2; i++) DL[i] = dec(U[i]) - H0[i]; }
   for (const [res, mode] of [[4033, "box"], ...(DO16 ? [[16321, "cubic"]] : [])]) {
     const ob = fs.readFileSync(smoothOf(res, "r16"));
@@ -835,6 +702,7 @@ if (isMainThread) {
     let flips = 0, mx = 0;
     for (let i = 0; i < res * res; i++) { if ((O[i] > 32768) !== (R[i] > 32768)) flips++; mx = Math.max(mx, Math.abs(R[i] - O[i])); }
     fs.writeFileSync(curOf(res, "r16"), Buffer.from(R.buffer));
+    fs.writeFileSync(erodedOf(res), Buffer.from(R.buffer));
     writePNG(curOf(res, "png"), res, res, 1, 16, R);
     stats[`coastCellsChanged_${res}`] = flips; stats[`maxAbs_${res}`] = +dec(32768 + mx).toFixed(2);
     log(`wrote Heightmap_${res}.r16/.png (coast flips ${flips}, max |change| ${dec(32768 + mx).toFixed(1)} m)`);
@@ -867,9 +735,11 @@ if (isMainThread) {
   const fimg = new Uint8Array(M * M);
   for (let k = 0; k < M * M; k++) fimg[k] = Math.min(255, Math.round(255 * Math.log1p(flow[k]) / Math.log1p(T999)));
   writePNG(path.join(DIR, "Flow_4096.png"), M, M, 1, 8, fimg);
+  writePNG(path.join(DIR, "Flow_4096_eroded.png"), M, M, 1, 8, fimg);
   log(`wrote Flow_4096.png (T99.9 = ${T999.toFixed(1)})`);
 
   // --- World.json note ---
+  delete world.cliffs;          // the maps are plain eroded again until cliffs.mjs re-runs
   world.erosion = {
     tool: "Tools/WorldBake/erode.mjs", source: "Heightmap_8129_smooth.r16", params: PRM, stats,
     flow: { file: "Flow_4096.png", note: "8-bit grey, Masks pixel-centre convention; 255*log(1+t)/log(1+T), t = droplet paths per unit rain crossing the pixel (11 m + 5.5 m passes), T = 99.9th percentile. High on gully floors, valley bottoms and fans." },
