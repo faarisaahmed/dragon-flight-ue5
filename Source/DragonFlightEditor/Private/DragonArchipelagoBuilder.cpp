@@ -39,6 +39,7 @@
 #include "Landscape.h"
 #include "LandscapeInfo.h"
 #include "WaterBodyOceanActor.h"
+#include "WaterBodyOceanComponent.h"
 #include "WaterBodyLakeActor.h"
 #include "WaterBodyRiverActor.h"
 #include "WaterBodyComponent.h"
@@ -656,6 +657,20 @@ TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>> FDragonArchipelagoBuilder::Impo
 					SM.MaterialInterface = MI;
 					bChanged = true;
 				}
+				// Slots we found no textures for keep the importer's own material; it must still
+				// be allowed on instanced and Nanite meshes, or it renders as the default grid.
+				for (FStaticMaterial& SM : Mats)
+				{
+					UMaterial* Base = SM.MaterialInterface ? SM.MaterialInterface->GetMaterial() : nullptr;
+					if (!Base || Base->GetOutermost() == GetTransientPackage() || Base->GetPathName().StartsWith(TEXT("/Engine/"))) continue;
+					if (!Base->GetUsageByFlag(MATUSAGE_InstancedStaticMeshes) || !Base->GetUsageByFlag(MATUSAGE_Nanite))
+					{
+						Base->SetUsageByFlag(MATUSAGE_InstancedStaticMeshes, true);
+						Base->SetUsageByFlag(MATUSAGE_Nanite, true);
+						Base->PostEditChange();
+						UEditorAssetLibrary::SaveLoadedAsset(Base, false);
+					}
+				}
 				// Nanite everything; foliage keeps its area as it simplifies.
 				{
 					FMeshNaniteSettings NS = Mesh->GetNaniteSettings();
@@ -802,7 +817,7 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 		AWaterZone* Zone = World->SpawnActor<AWaterZone>(FVector::ZeroVector, FRotator::ZeroRotator);
 		Zone->SetActorLabel(TEXT("WaterZone"));
 		// VERIFY(5.5): AWaterZone::SetZoneExtent(FVector2D) believed present since 5.1.
-		Zone->SetZoneExtent(FVector2D(SizeCm * 1.6, SizeCm * 1.6));
+		Zone->SetZoneExtent(FVector2D(SizeCm * 1.1, SizeCm * 1.1));
 
 		AWaterBodyOcean* Ocean = World->SpawnActor<AWaterBodyOcean>(FVector::ZeroVector, FRotator::ZeroRotator);
 		Ocean->SetActorLabel(TEXT("Ocean"));
@@ -824,6 +839,13 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 		if (UWaterBodyComponent* C = Ocean->GetWaterBodyComponent())
 		{
 			SetAffectsLandscape(C, false); // the terrain is already the shape it should be
+			if (UWaterBodyOceanComponent* OC = Cast<UWaterBodyOceanComponent>(C))
+			{
+				// An ocean's mesh only covers OceanExtents (small by default) around the zone:
+				// make it the whole zone, and its collision the whole world.
+				OC->SetCollisionExtents(FVector(SizeCm * 0.6, SizeCm * 0.6, 20000.0));
+				OC->FillWaterZoneWithOcean();
+			}
 		}
 
 		// Lakes: a body at each lake's level over its bounds; the terrain hides the rest.

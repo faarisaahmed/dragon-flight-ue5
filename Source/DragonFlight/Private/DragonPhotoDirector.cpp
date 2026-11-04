@@ -14,6 +14,8 @@
 #include "UnrealClient.h"
 #if WITH_EDITOR
 #include "ShaderCompiler.h"
+#include "TextureCompiler.h"
+#include "StaticMeshCompiler.h"
 #endif
 
 ADragonPhotoDirector::ADragonPhotoDirector()
@@ -110,7 +112,11 @@ void ADragonPhotoDirector::PlanShots()
 bool ADragonPhotoDirector::Busy() const
 {
 #if WITH_EDITOR
+	// Textures and meshes compile on first use in an editor build; until they finish
+	// the renderer shows placeholders (the grey checker), so a shot would be a lie.
 	if (GShaderCompilingManager && GShaderCompilingManager->GetNumRemainingJobs() > 0) return true;
+	if (FTextureCompilingManager::Get().GetNumRemainingTextures() > 0) return true;
+	if (FStaticMeshCompilingManager::Get().GetNumRemainingMeshes() > 0) return true;
 #endif
 	return false;
 }
@@ -153,7 +159,8 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 		if (Now - LastLog > 30.0 && GShaderCompilingManager)
 		{
 			LastLog = Now;
-			UE_LOG(LogDragon, Display, TEXT("[Photo] waiting for %d shader jobs"), GShaderCompilingManager->GetNumRemainingJobs());
+			UE_LOG(LogDragon, Display, TEXT("[Photo] waiting: %d shaders, %d textures, %d meshes"), GShaderCompilingManager->GetNumRemainingJobs(),
+				FTextureCompilingManager::Get().GetNumRemainingTextures(), FStaticMeshCompilingManager::Get().GetNumRemainingMeshes());
 		}
 #endif
 		return;
