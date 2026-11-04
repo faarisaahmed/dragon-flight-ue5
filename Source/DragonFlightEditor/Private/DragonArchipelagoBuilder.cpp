@@ -709,53 +709,10 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 	Sky->CloudMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineSky/VolumetricClouds/m_SimpleVolumetricCloud_Inst.m_SimpleVolumetricCloud_Inst"));
 	Sky->WindYaw = FMath::RadiansToDegrees(J->GetNumberField(TEXT("windBearing")));
 
-	// --- Landscape -----------------------------------------------------------
-	if (Options.bLandscape)
-	{
-		int32 Res = Options.Res;
-		if (Res == 0)
-		{
-#if PLATFORM_MAC
-			Res = 4033;
-#else
-			Res = 8129;
-#endif
-		}
-		// Valid sizes: N = components * quadsPerComponent + 1.
-		int32 QuadsPerSection = 127, Sections = 2;
-		if (Res == 4033) { QuadsPerSection = 63; Sections = 2; }
-		else if (Res == 16321) { QuadsPerSection = 255; Sections = 1; }
-		const FString File = UDragonWorldSubsystem::DataDir() / FString::Printf(TEXT("Heightmap_%d.r16"), Res);
-		TArray<uint8> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, *File) || Bytes.Num() != Res * Res * 2)
-		{
-			Log(FString::Printf(TEXT("! %s missing or wrong size"), *File));
-			return false;
-		}
-		TArray<uint16> Heights;
-		Heights.SetNumUninitialized(Res * Res);
-		FMemory::Memcpy(Heights.GetData(), Bytes.GetData(), Bytes.Num());
-
-		const double ZScale = J->GetObjectField(TEXT("heightmap"))->GetNumberField(TEXT("zScalePercent"));
-		const double XY = SizeCm / (Res - 1);
-		ALandscape* Landscape = World->SpawnActor<ALandscape>();
-		Landscape->SetActorLabel(TEXT("Archipelago"));
-		Landscape->LandscapeMaterial = LoadObject<UMaterialInterface>(nullptr, *(MatRoot / TEXT("M_Archipelago.M_Archipelago")));
-		Landscape->SetActorTransform(FTransform(FQuat::Identity, FVector(-SizeCm * 0.5, -SizeCm * 0.5, 0.0), FVector(XY, XY, ZScale)));
-		Landscape->StaticLightingLOD = 0;
-
-		TMap<FGuid, TArray<uint16>> HeightData;
-		HeightData.Add(FGuid(), MoveTemp(Heights));
-		TMap<FGuid, TArray<FLandscapeImportLayerInfo>> LayerData;
-		LayerData.Add(FGuid(), TArray<FLandscapeImportLayerInfo>());
-		Landscape->Import(FGuid::NewGuid(), 0, 0, Res - 1, Res - 1, Sections, QuadsPerSection, HeightData, *File, LayerData, ELandscapeImportAlphamapType::Additive,
-			TArrayView<const FLandscapeLayer>());
-		if (ULandscapeInfo* Info = Landscape->GetLandscapeInfo()) Info->UpdateLayerInfoMap(Landscape);
-		Landscape->RegisterAllComponents();
-		FFileHelper::SaveStringToFile(FString::FromInt(Res), *(UDragonWorldSubsystem::DataDir() / TEXT("LandscapeRes.txt")));
-		Log(FString::Printf(TEXT("landscape %d x %d at %.2f m/quad"), Res, Res, XY / 100.0));
-	}
-
+	// Water goes in BEFORE the landscape: the Water editor module auto-attaches a
+	// landscape brush to any water body spawned over an existing landscape, and that
+	// path opens a Slate dialog, which asserts in a commandlet. Our water never edits
+	// the terrain anyway (the bake already carved it).
 	// --- Water -----------------------------------------------------------------
 	if (Options.bWater)
 	{
@@ -840,6 +797,53 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 			}
 			Log(FString::Printf(TEXT("%d rivers"), Count));
 		}
+	}
+
+	// --- Landscape -----------------------------------------------------------
+	if (Options.bLandscape)
+	{
+		int32 Res = Options.Res;
+		if (Res == 0)
+		{
+#if PLATFORM_MAC
+			Res = 4033;
+#else
+			Res = 8129;
+#endif
+		}
+		// Valid sizes: N = components * quadsPerComponent + 1.
+		int32 QuadsPerSection = 127, Sections = 2;
+		if (Res == 4033) { QuadsPerSection = 63; Sections = 2; }
+		else if (Res == 16321) { QuadsPerSection = 255; Sections = 1; }
+		const FString File = UDragonWorldSubsystem::DataDir() / FString::Printf(TEXT("Heightmap_%d.r16"), Res);
+		TArray<uint8> Bytes;
+		if (!FFileHelper::LoadFileToArray(Bytes, *File) || Bytes.Num() != Res * Res * 2)
+		{
+			Log(FString::Printf(TEXT("! %s missing or wrong size"), *File));
+			return false;
+		}
+		TArray<uint16> Heights;
+		Heights.SetNumUninitialized(Res * Res);
+		FMemory::Memcpy(Heights.GetData(), Bytes.GetData(), Bytes.Num());
+
+		const double ZScale = J->GetObjectField(TEXT("heightmap"))->GetNumberField(TEXT("zScalePercent"));
+		const double XY = SizeCm / (Res - 1);
+		ALandscape* Landscape = World->SpawnActor<ALandscape>();
+		Landscape->SetActorLabel(TEXT("Archipelago"));
+		Landscape->LandscapeMaterial = LoadObject<UMaterialInterface>(nullptr, *(MatRoot / TEXT("M_Archipelago.M_Archipelago")));
+		Landscape->SetActorTransform(FTransform(FQuat::Identity, FVector(-SizeCm * 0.5, -SizeCm * 0.5, 0.0), FVector(XY, XY, ZScale)));
+		Landscape->StaticLightingLOD = 0;
+
+		TMap<FGuid, TArray<uint16>> HeightData;
+		HeightData.Add(FGuid(), MoveTemp(Heights));
+		TMap<FGuid, TArray<FLandscapeImportLayerInfo>> LayerData;
+		LayerData.Add(FGuid(), TArray<FLandscapeImportLayerInfo>());
+		Landscape->Import(FGuid::NewGuid(), 0, 0, Res - 1, Res - 1, Sections, QuadsPerSection, HeightData, *File, LayerData, ELandscapeImportAlphamapType::Additive,
+			TArrayView<const FLandscapeLayer>());
+		if (ULandscapeInfo* Info = Landscape->GetLandscapeInfo()) Info->UpdateLayerInfoMap(Landscape);
+		Landscape->RegisterAllComponents();
+		FFileHelper::SaveStringToFile(FString::FromInt(Res), *(UDragonWorldSubsystem::DataDir() / TEXT("LandscapeRes.txt")));
+		Log(FString::Printf(TEXT("landscape %d x %d at %.2f m/quad"), Res, Res, XY / 100.0));
 	}
 
 	// --- Scatter -------------------------------------------------------------

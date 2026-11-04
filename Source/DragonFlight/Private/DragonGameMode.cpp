@@ -1,4 +1,6 @@
 #include "DragonGameMode.h"
+#include "DragonPhotoDirector.h"
+#include "Misc/CommandLine.h"
 #include "DragonFlight.h"
 #include "DragonPawn.h"
 #include "DragonHUD.h"
@@ -41,6 +43,11 @@ void ADragonGameMode::StartPlay()
 	if (!ADragonSky::Get(this))
 	{
 		GetWorld()->SpawnActor<ADragonSky>();
+	}
+	// Unattended screenshots (-AutoShot): see ADragonPhotoDirector.
+	if (FParse::Param(FCommandLine::Get(), TEXT("AutoShot")))
+	{
+		GetWorld()->SpawnActor<ADragonPhotoDirector>();
 	}
 }
 
