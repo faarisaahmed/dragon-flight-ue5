@@ -62,8 +62,10 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 	Add("Trees",    EDragonScatterKind::Tree,     "trees",       140.f, 256.f, 9000.f, FVector2D(0.8f, 1.5f), 0.4f, 0.f, true,  false, 11);
 	Add("Saplings", EDragonScatterKind::Sapling,  "trees",       40.f,  192.f, 2500.f, FVector2D(0.35f, 0.7f), 0.2f, 0.f, true,  false, 23);
 	Add("DeadWood", EDragonScatterKind::DeadWood, "deadwood",    8.f,   192.f, 1500.f, FVector2D(0.8f, 1.4f), 0.2f, 0.8f, true, false, 37);
-	Add("Rocks",    EDragonScatterKind::Rock,     "rocks",       30.f,  256.f, 5000.f, FVector2D(0.6f, 3.0f), 0.5f, 0.7f, true,  true,  41);
-	Add("Cliffs",   EDragonScatterKind::Cliff,    "cliffs",      2.5f,  512.f, 12000.f, FVector2D(2.0f, 6.0f), 2.0f, 0.9f, true, true,  53);
+	// The Poly Haven cliff and rock scans are already life-size (cliff pieces 20-50 m), so
+	// they are scattered near 1:1 and sparsely; the terrain is the landform, they are detail.
+	Add("Rocks",    EDragonScatterKind::Rock,     "rocks",       12.f,  256.f, 5000.f, FVector2D(0.6f, 1.6f), 0.4f, 0.7f, true,  true,  41);
+	Add("Cliffs",   EDragonScatterKind::Cliff,    "cliffs",      0.5f,  512.f, 12000.f, FVector2D(0.7f, 1.3f), 3.0f, 0.9f, true, true,  53);
 	Add("Ground",   EDragonScatterKind::Ground,   "ground",      2600.f, 32.f, 160.f,  FVector2D(0.7f, 1.3f), 0.05f, 0.6f, false, false, 67);
 }
 
@@ -201,7 +203,7 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 			+ (H < 9.f ? 0.45f : 0.f)                              // the shore
 			+ (1.f - Veg) * (H > 2.f ? 0.12f : 0.f);              // bare ground
 		P *= 1.f - Forest * 0.6f;
-		OutScale = 1.f + Smooth(Slope, 0.5f, 0.9f);
+		OutScale = 1.f + 0.4f * Smooth(Slope, 0.5f, 0.9f);
 		break;
 	case EDragonScatterKind::Cliff:
 		if (H < -2.f) return false;

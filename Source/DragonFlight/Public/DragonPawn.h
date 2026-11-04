@@ -10,6 +10,7 @@ class UCameraComponent;
 class UPoseableMeshComponent;
 class UDragonStandInComponent;
 class UDragonRigComponent;
+class UDragonWebRigComponent;
 class ADragonPlasma;
 class UDragonWindAudio;
 class USkeletalMesh;
@@ -53,6 +54,8 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UDragonStandInComponent> StandIn;
 	/** Drives the real mesh's bones procedurally from the flight state (wings, tail, neck, legs). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UDragonRigComponent> Rig;
+	/** The web game's own animation for its 152-bone dragon (wings.js / flightrig.js / dragonrig.js / gait.js). Used instead of Rig when the mesh has that skeleton. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UDragonWebRigComponent> WebRig;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UCameraComponent> Camera;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UDragonWindAudio> WindAudio;
 
@@ -68,9 +71,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon|Gameplay") bool bCollide = true;
 	/** Uniform scale on the dragon. 1 = life size (8.6 m nose to tail, 15.1 m span). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon") float DragonScale = 1.f;
-	/** Skeletal dragon to use; if empty, /Game/Dragon/SK_Dragon is tried, then the primitive stand-in. */
+	/** Skeletal dragon to use; if empty, /Game/Dragon/SK_Dragon/SkeletalMeshes/SK_Dragon then /Game/Dragon/SK_Dragon are tried, then the primitive stand-in. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon") TSoftObjectPtr<USkeletalMesh> DragonAsset;
-	/** Yaw (degrees) that turns the imported mesh to face +X. */
+	/** Yaw (degrees) that turns the imported mesh to face +X. With the web dragon the facing is measured off its skeleton and this is added on top. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon") float DragonMeshYaw = 0.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dragon|Fire") TSubclassOf<ADragonPlasma> PlasmaClass;

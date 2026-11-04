@@ -3,6 +3,7 @@
 #include "DragonWorldSubsystem.h"
 #include "DragonStandInComponent.h"
 #include "DragonRigComponent.h"
+#include "DragonWebRigComponent.h"
 #include "DragonPlasma.h"
 #include "Camera/CameraComponent.h"
 #include "Components/PoseableMeshComponent.h"
@@ -89,6 +90,7 @@ ADragonPawn::ADragonPawn()
 	StandIn->SetupAttachment(MeshPivot);
 
 	Rig = CreateDefaultSubobject<UDragonRigComponent>(TEXT("Rig"));
+	WebRig = CreateDefaultSubobject<UDragonWebRigComponent>(TEXT("WebRig"));
 
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	Camera->SetupAttachment(Feet);
@@ -109,17 +111,48 @@ void ADragonPawn::BeginPlay()
 	PosM = GetActorLocation() / M;
 	PrevPosM = PosM;
 	SetActorScale3D(FVector(DragonScale));
+	// A skeletal mesh with no skeleton asserts in UPoseableMeshComponent::AllocateTransformData,
+	// so anything without one is refused and the stand-in is used instead.
+	auto Usable = [](const USkeletalMesh* A) { return A && A->GetSkeleton() != nullptr; };
+	if (DragonMesh->GetSkinnedAsset() && !DragonMesh->GetSkinnedAsset()->GetSkeleton())
+	{
+		UE_LOG(LogDragon, Warning, TEXT("Dragon mesh %s has no skeleton; ignoring it."), *DragonMesh->GetSkinnedAsset()->GetName());
+		DragonMesh->SetSkinnedAssetAndUpdate(nullptr);
+	}
 	if (!DragonMesh->GetSkinnedAsset())
 	{
-		USkeletalMesh* Asset = DragonAsset.IsNull() ? nullptr : DragonAsset.LoadSynchronous();
-		if (!Asset) Asset = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Dragon/SK_Dragon.SK_Dragon"));
+		USkeletalMesh* Asset = nullptr;
+		auto Try = [&](USkeletalMesh* A, const TCHAR* What)
+		{
+			if (Asset || !A) return;
+			if (Usable(A)) Asset = A;
+			else UE_LOG(LogDragon, Warning, TEXT("Dragon mesh %s (%s) has no skeleton; skipping it."), *A->GetPathName(), What);
+		};
+		Try(DragonAsset.IsNull() ? nullptr : DragonAsset.LoadSynchronous(), TEXT("DragonAsset"));
+		Try(LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Dragon/SK_Dragon/SkeletalMeshes/SK_Dragon.SK_Dragon")), TEXT("Interchange import"));
+		Try(LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Dragon/SK_Dragon.SK_Dragon")), TEXT("legacy path"));
 		if (Asset) DragonMesh->SetSkinnedAssetAndUpdate(Asset);
+		else UE_LOG(LogDragon, Log, TEXT("No usable dragon skeletal mesh; using the stand-in."));
 	}
 	DragonMesh->SetRelativeRotation(FRotator(0.f, DragonMeshYaw, 0.f));
 	const bool bHasMesh = DragonMesh->GetSkinnedAsset() != nullptr;
 	DragonMesh->SetVisibility(bHasMesh);
 	StandIn->SetStandInVisible(!bHasMesh);
-	if (bHasMesh) Rig->Bind(DragonMesh);
+	if (bHasMesh)
+	{
+		// The web game's own dragon gets the web game's own animation; anything
+		// else gets the generic, data-driven rig.
+		if (UDragonWebRigComponent::IsWebSkeleton(DragonMesh->GetSkinnedAsset()) && WebRig->Bind(DragonMesh))
+		{
+			DragonMesh->SetRelativeTransform(WebRig->GetMeshRelativeTransform() * FTransform(FRotator(0.f, DragonMeshYaw, 0.f)));
+			// Wing tips beat well outside the bind-pose bounds.
+			DragonMesh->SetBoundsScale(2.f);
+		}
+		else
+		{
+			Rig->Bind(DragonMesh);
+		}
+	}
 
 	// Face away from the camera, as the web game does on its first frame.
 	CamYaw = F::YawToHeading(GetActorRotation().Yaw) + PI;
@@ -260,7 +293,27 @@ void ADragonPawn::Tick(float DeltaSeconds)
 	const FDragonFlightState FS = Flight.GetFlightState();
 	Heave = 0.f;
 	if (StandIn && StandIn->IsStandInVisible()) Heave = StandIn->Animate(Dt, FS, bGrounded, WalkSpeed, bFlaring);
-	if (Rig && Rig->IsBound()) Heave = Rig->Animate(Dt, FS, bGrounded, WalkSpeed, bFlaring);
+	if (WebRig && WebRig->IsBound())
+	{
+		FDragonWebRigInput WI;
+		WI.FS = FS;
+		WI.bBoost = Flight.bBursting;
+		WI.bGrounded = bGrounded;
+		WI.bFlaring = bFlaring;
+		WI.GroundSpeed = FMath::Abs(WalkSpeed) / FMath::Max(DragonScale, 0.01f);
+		WI.MaxGroundSpeed = RUN_SPEED / FMath::Max(DragonScale, 0.01f);
+		// aim.js setTarget: the head turns toward the crosshair's point, off his heading and flight path.
+		WI.bAimActive = In.bAim && !bGrounded;
+		if (WI.bAimActive)
+		{
+			const FVector D = (AimPointM() - (PosM + FVector(0, 0, 1.6f * DragonScale))).GetSafeNormal();
+			WI.AimYaw = FMath::Clamp(F::AngleDelta(Flight.Heading, FMath::Atan2(D.X, D.Y)), -1.20f, 1.20f);
+			WI.AimPitch = FMath::Clamp(FMath::Asin(FMath::Clamp(D.Z, -1.0, 1.0)) - Flight.PathAngle, -0.78f, 0.78f);
+		}
+		WI.GroundAtM = [this](float X, float Y) { return SolidAtM(X, Y); };
+		Heave = WebRig->Animate(Dt, WI);
+	}
+	else if (Rig && Rig->IsBound()) Heave = Rig->Animate(Dt, FS, bGrounded, WalkSpeed, bFlaring);
 	MeshPivot->SetRelativeLocation(FVector(0, 0, (-BODY_CENTRE + Heave) * M));
 
 	TickCamera(Dt, In);
@@ -465,6 +518,7 @@ void ADragonPawn::Land()
 	GroundPitch = Flight.CurrentPitch * 0.f;
 	GroundRoll = 0.f;
 	Unsupported = 0.f;
+	if (WebRig && WebRig->IsBound()) WebRig->BeginFold();
 }
 
 void ADragonPawn::TakeOff()
@@ -474,6 +528,7 @@ void ADragonPawn::TakeOff()
 	Flight.SetHeading(WalkYaw);
 	PosM.Z += 3.f;
 	Flight.ClimbVel = FMath::Max(Flight.ClimbVel, 0.f);
+	if (WebRig && WebRig->IsBound()) WebRig->BeginUnfold();
 }
 
 // --- On foot (main.js 2667-2768, groundbody.js simplified) ------------------
