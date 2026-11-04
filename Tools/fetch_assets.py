@@ -25,7 +25,7 @@ UA = {"User-Agent": "dragon-flight-ue5 asset fetch"}
 
 # Ground layers the landscape material blends. key -> Poly Haven texture id.
 TEXTURES = {
-    "Cliff": "cliff_side",
+    "Cliff": "seaside_rock",          # dark grey basalt-like sea cliff (was cliff_side: orange sandstone)
     "Scree": "rocky_terrain_02",
     "Grass": "leafy_grass",
     "Heath": "sparse_grass",

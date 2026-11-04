@@ -263,6 +263,23 @@ void FDragonArchipelagoBuilder::ImportGroundTextures()
 	for (const TCHAR* L : GroundLayers) ImportSet(L, false);
 	for (const TCHAR* L : FarLayers) ImportSet(L, true);
 
+	// The heightmap as a texture, for water depth (shore foam, colour) in M_Sea.
+	{
+		const FString HFile = UDragonWorldSubsystem::DataDir() / TEXT("Heightmap_4033.png");
+		if (UTexture2D* HT = ImportTexture(HFile, TEXT("/Game/World/Data"), TEXT("T_Height"), false, true))
+		{
+			if (HT->CompressionSettings != TC_Grayscale || HT->SRGB || HT->Filter != TF_Bilinear)
+			{
+				HT->CompressionSettings = TC_Grayscale; // 16-bit source -> G16
+				HT->SRGB = false;
+				HT->Filter = TF_Bilinear;
+				HT->AddressX = TA_Clamp; HT->AddressY = TA_Clamp;
+				HT->MipGenSettings = TMGS_NoMipmaps;
+				HT->PostEditChange();
+				UEditorAssetLibrary::SaveLoadedAsset(HT, false);
+			}
+		}
+	}
 	// The baked masks, read in the landscape material by world position.
 	TArray<FString> Masks;
 	IFileManager::Get().FindFiles(Masks, *(UDragonWorldSubsystem::DataDir() / TEXT("Masks*.png")), true, false);
@@ -513,68 +530,162 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 	}
 
 	// --- M_Sea / M_Lake: Single Layer Water ------------------------------------
-	auto MakeWater = [&](const TCHAR* Name, FLinearColor Absorb, FLinearColor Scatter, float WaveScale)
+	// Five Gerstner swells (metres), running with the prevailing wind; shared by the
+	// displacement and the normal so the lighting matches the shape exactly.
+	static const TCHAR* GWaves = TEXT(
+		"const float4 Wv[5] = {\n"
+		"  float4( 0.88,  0.47, 92.0, 0.55),\n"
+		"  float4( 0.97,  0.24, 57.0, 0.34),\n"
+		"  float4( 0.62,  0.79, 35.0, 0.20),\n"
+		"  float4( 0.99, -0.12, 21.0, 0.11),\n"
+		"  float4( 0.73,  0.68, 13.0, 0.06) };\n");
+	auto MakeWater = [&](const TCHAR* Name, bool bSea)
 	{
 		UMaterial* M = NewMaterial(Name);
 		if (!M) return;
 		M->SetShadingModel(MSM_SingleLayerWater);
 		M->BlendMode = BLEND_Opaque;
-		UMaterialExpressionTextureObjectParameter* WN = Expr<UMaterialExpressionTextureObjectParameter>(M, -900, 200);
-		WN->ParameterName = TEXT("WaveNormal");
-		WN->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Water/Textures/Normals/T_Water_TilingNormal_Waves_02.T_Water_TilingNormal_Waves_02"));
-		WN->SamplerType = SAMPLERTYPE_Normal;
-		UMaterialExpressionCustom* Waves = Expr<UMaterialExpressionCustom>(M, -450, 100);
-		Waves->Description = TEXT("Waves");
-		Waves->OutputType = CMOT_Float3;
-		Waves->Inputs.Reset();
-		for (const TCHAR* In : { TEXT("P"), TEXT("Cam"), TEXT("T"), TEXT("Tex"), TEXT("Scale") }) { FCustomInput I; I.InputName = In; Waves->Inputs.Add(I); }
-		Waves->Code = TEXT(
-			"float2 p = P.xy * 0.01;\n"
-			"float d = length(P - Cam) * 0.01;\n"
-			"float fade = 1.0 / (1.0 + d / 900.0);\n"
-			"float2 n = 0;\n"
-			"n += (Texture2DSample(Tex, TexSampler, p / (46.0 * Scale) + T * float2(0.011, 0.006)).xy * 2 - 1) * 0.9;\n"
-			"n += (Texture2DSample(Tex, TexSampler, p / (17.0 * Scale) + T * float2(-0.017, 0.021)).xy * 2 - 1) * 0.6 * fade;\n"
-			"n += (Texture2DSample(Tex, TexSampler, p / (5.3 * Scale) + T * float2(0.042, -0.031)).xy * 2 - 1) * 0.45 * fade * fade;\n"
-			"n += (Texture2DSample(Tex, TexSampler, p / (420.0 * Scale) + T * float2(0.0016, 0.0011)).xy * 2 - 1) * 0.5;\n"
-			"return normalize(float3(n * 0.55, 1.0));\n");
-		Waves->PostEditChange();
-		UMaterialExpressionWorldPosition* WP = Expr<UMaterialExpressionWorldPosition>(M, -900, -100);
-		UMaterialExpressionCameraPositionWS* CP = Expr<UMaterialExpressionCameraPositionWS>(M, -900, -20);
-		UMaterialExpressionTime* Tm = Expr<UMaterialExpressionTime>(M, -900, 60);
-		UMaterialExpressionScalarParameter* Sc = Expr<UMaterialExpressionScalarParameter>(M, -900, 320);
-		Sc->ParameterName = TEXT("WaveScale"); Sc->DefaultValue = WaveScale;
-		UMaterialEditingLibrary::ConnectMaterialExpressions(WP, TEXT(""), Waves, TEXT("P"));
-		UMaterialEditingLibrary::ConnectMaterialExpressions(CP, TEXT(""), Waves, TEXT("Cam"));
-		UMaterialEditingLibrary::ConnectMaterialExpressions(Tm, TEXT(""), Waves, TEXT("T"));
-		UMaterialEditingLibrary::ConnectMaterialExpressions(WN, TEXT(""), Waves, TEXT("Tex"));
-		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc, TEXT(""), Waves, TEXT("Scale"));
-		UMaterialEditingLibrary::ConnectMaterialProperty(Waves, TEXT(""), MP_Normal);
-		UMaterialExpressionConstant* Rough = Expr<UMaterialExpressionConstant>(M, -300, 300);
-		Rough->R = 0.05f;
-		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
-		UMaterialExpressionConstant3Vector* Black = Expr<UMaterialExpressionConstant3Vector>(M, -300, -200);
-		Black->Constant = FLinearColor::Black;
-		UMaterialEditingLibrary::ConnectMaterialProperty(Black, TEXT(""), MP_BaseColor);
+		auto Scalar = [&](const TCHAR* N, float V, int32 Y) { UMaterialExpressionScalarParameter* E = Expr<UMaterialExpressionScalarParameter>(M, -1100, Y); E->ParameterName = N; E->DefaultValue = V; return E; };
+		auto Vec = [&](const TCHAR* N, FLinearColor V, int32 Y) { UMaterialExpressionVectorParameter* E = Expr<UMaterialExpressionVectorParameter>(M, -1100, Y); E->ParameterName = N; E->DefaultValue = V; return E; };
+		auto TexO = [&](const TCHAR* N, const TCHAR* Path, EMaterialSamplerType Ty, int32 Y)
+		{
+			UMaterialExpressionTextureObjectParameter* E = Expr<UMaterialExpressionTextureObjectParameter>(M, -1100, Y);
+			E->ParameterName = N; E->Texture = LoadObject<UTexture2D>(nullptr, Path); E->SamplerType = Ty; return E;
+		};
+		UMaterialExpressionWorldPosition* WPx = Expr<UMaterialExpressionWorldPosition>(M, -1100, -600);
+		WPx->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		UMaterialExpressionWorldPosition* WP = Expr<UMaterialExpressionWorldPosition>(M, -1100, -520);
+		UMaterialExpressionObjectPositionWS* OP = Expr<UMaterialExpressionObjectPositionWS>(M, -1100, -440);
+		UMaterialExpressionCameraPositionWS* CP = Expr<UMaterialExpressionCameraPositionWS>(M, -1100, -360);
+		UMaterialExpressionTime* Tm = Expr<UMaterialExpressionTime>(M, -1100, -280);
+		auto* Amp = Scalar(TEXT("WaveAmplitude"), bSea ? 1.f : 0.f, -200);
+		auto* Half = Scalar(TEXT("GridHalfM"), 1500.f, -120);
+		auto* DScale = Scalar(TEXT("DetailScale"), bSea ? 1.f : 0.45f, -40);
+		auto* Foam = Scalar(TEXT("FoamAmount"), bSea ? 1.f : 0.f, 40);
+		auto* WS = Scalar(TEXT("WorldSizeM"), 45000.f, 120);
+		auto* WN = TexO(TEXT("WaveNormal"), TEXT("/Water/Textures/Normals/T_Water_TilingNormal_Waves_02.T_Water_TilingNormal_Waves_02"), SAMPLERTYPE_Normal, 200);
+		auto* FT = TexO(TEXT("FoamTex"), TEXT("/Water/Textures/Foam/T_WaterFlow_03_Foam_Tiled.T_WaterFlow_03_Foam_Tiled"), SAMPLERTYPE_Color, 290);
+		auto* HT = TexO(TEXT("Height"), TEXT("/Game/World/Data/T_Height.T_Height"), SAMPLERTYPE_LinearGrayscale, 380);
+		if (!HT->Texture) HT->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Game/World/Textures/Defaults/T_Default_Gray.T_Default_Gray"));
+		auto* ShallowS = Vec(TEXT("ScatterShallow"), bSea ? FLinearColor(0.010f, 0.040f, 0.036f) : FLinearColor(0.012f, 0.014f, 0.008f), 470);
+		auto* DeepS = Vec(TEXT("ScatterDeep"), bSea ? FLinearColor(0.003f, 0.010f, 0.014f) : FLinearColor(0.006f, 0.008f, 0.006f), 550);
+		auto* Ab = Vec(TEXT("Absorption"), bSea ? FLinearColor(0.36f, 0.070f, 0.042f) : FLinearColor(0.50f, 0.22f, 0.20f), 630);
+
+		auto In = [](UMaterialExpressionCustom* C, std::initializer_list<const TCHAR*> Names) { C->Inputs.Reset(); for (const TCHAR* N : Names) { FCustomInput I; I.InputName = N; C->Inputs.Add(I); } };
+
+		// Displacement.
+		UMaterialExpressionCustom* Disp = Expr<UMaterialExpressionCustom>(M, -600, -500);
+		Disp->Description = TEXT("Swell");
+		Disp->OutputType = CMOT_Float3;
+		In(Disp, { TEXT("P"), TEXT("O"), TEXT("T"), TEXT("Amp"), TEXT("Half") });
+		Disp->Code = FString(GWaves) + TEXT(
+			"float3 p = P * 0.01; float2 o = O.xy * 0.01;\n"
+			"float r = max(abs(p.x - o.x), abs(p.y - o.y));\n"
+			"float fade = saturate((Half * 0.94 - r) / (Half * 0.5)) * Amp;\n"
+			"if (fade <= 0.0) return 0;\n"
+			"float3 off = 0;\n"
+			"for (int i = 0; i < 5; i++) {\n"
+			"  float2 d = Wv[i].xy; float L = Wv[i].z; float A = Wv[i].w * fade;\n"
+			"  float k = 6.2832 / L; float c = sqrt(9.81 / k); float f = k * (dot(d, p.xy) - c * T);\n"
+			"  float Q = saturate(0.55 / (k * Wv[i].w * 5.0));\n"
+			"  off.xy += Q * A * d * cos(f); off.z += A * sin(f); }\n"
+			"return off * 100.0;\n");
+		Disp->PostEditChange();
+		UMaterialEditingLibrary::ConnectMaterialExpressions(WPx, TEXT(""), Disp, TEXT("P"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(OP, TEXT(""), Disp, TEXT("O"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Tm, TEXT(""), Disp, TEXT("T"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Amp, TEXT(""), Disp, TEXT("Amp"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Half, TEXT(""), Disp, TEXT("Half"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(Disp, TEXT(""), MP_WorldPositionOffset);
+
+		// Surface: normal (swell + ripples), foam, scattering by depth.
+		UMaterialExpressionCustom* Surf = Expr<UMaterialExpressionCustom>(M, -600, 100);
+		Surf->Description = TEXT("Sea surface");
+		Surf->OutputType = CMOT_Float3;
+		In(Surf, { TEXT("P"), TEXT("O"), TEXT("Cam"), TEXT("T"), TEXT("Amp"), TEXT("Half"), TEXT("DS"), TEXT("FoamAmt"), TEXT("WS"),
+			TEXT("Tex"), TEXT("FoamT"), TEXT("H"), TEXT("SS"), TEXT("SD") });
+		Surf->AdditionalOutputs.Reset();
+		for (const TCHAR* N : { TEXT("FoamOut"), TEXT("Rough") }) { FCustomOutput O; O.OutputName = N; O.OutputType = CMOT_Float1; Surf->AdditionalOutputs.Add(O); }
+		{ FCustomOutput O; O.OutputName = TEXT("Scatter"); O.OutputType = CMOT_Float3; Surf->AdditionalOutputs.Add(O); }
+		Surf->Code = FString(GWaves) + TEXT(
+			"float3 p = P * 0.01; float2 o = O.xy * 0.01;\n"
+			"float dist = length(P - Cam) * 0.01;\n"
+			"float r = max(abs(p.x - o.x), abs(p.y - o.y));\n"
+			"float fade = saturate((Half * 0.94 - r) / (Half * 0.5)) * Amp;\n"
+			// swell normal and height
+			"float3 n = float3(0, 0, 1); float hz = 0;\n"
+			"for (int i = 0; i < 5; i++) {\n"
+			"  float2 d = Wv[i].xy; float L = Wv[i].z; float A = Wv[i].w * fade;\n"
+			"  float k = 6.2832 / L; float c = sqrt(9.81 / k); float f = k * (dot(d, p.xy) - c * T);\n"
+			"  float Q = saturate(0.55 / (k * Wv[i].w * 5.0));\n"
+			"  n.xy -= d * k * A * cos(f); n.z -= Q * k * A * sin(f); hz += A * sin(f); }\n"
+			// beyond the grid the swell still reads in the lighting, at half strength
+			"float far = (1.0 - fade) * Amp * 0.5;\n"
+			"for (int j = 0; j < 3; j++) {\n"
+			"  float2 d = Wv[j].xy; float L = Wv[j].z; float A = Wv[j].w * far;\n"
+			"  float k = 6.2832 / L; float c = sqrt(9.81 / k); float f = k * (dot(d, p.xy) - c * T);\n"
+			"  n.xy -= d * k * A * cos(f); }\n"
+			// ripples
+			"float near = 1.0 / (1.0 + dist / 700.0);\n"
+			"float2 q = 0;\n"
+			"q += (Texture2DSample(Tex, TexSampler, p.xy / (31.0 * DS) + T * float2(0.010, 0.006)).xy * 2 - 1) * 0.55;\n"
+			"q += (Texture2DSample(Tex, TexSampler, p.xy / (11.0 * DS) + T * float2(-0.019, 0.023)).xy * 2 - 1) * 0.45 * near;\n"
+			"q += (Texture2DSample(Tex, TexSampler, p.xy / (3.7 * DS) + T * float2(0.047, -0.033)).xy * 2 - 1) * 0.35 * near * near;\n"
+			"float3 N = normalize(float3(n.xy / max(n.z, 0.2) + q * 0.32, 1.0));\n"
+			// depth from the baked terrain (sea level 0; v -> metres)
+			"float2 muv = p.xy / WS + 0.5;\n"
+			"float hv = Texture2DSample(H, HSampler, muv).r;\n"
+			"float ground = (hv * 65535.0 - 32768.0) / 32.0;\n"
+			"float depth = max(0.0, hz - ground);\n"
+			"bool inWorld = all(muv > 0.0) && all(muv < 1.0);\n"
+			"if (!inWorld) depth = 400.0;\n"
+			// foam: surf along the shore, breaking on the swell's crests
+			"float ft = Texture2DSample(FoamT, FoamTSampler, p.xy / 7.0 + T * float2(0.013, 0.009)).r;\n"
+			"float ft2 = Texture2DSample(FoamT, FoamTSampler, p.xy / 23.0 - T * float2(0.006, 0.011)).r;\n"
+			"float shore = saturate(1.0 - depth / 4.0);\n"
+			"float surge = 0.6 + 0.4 * sin(T * 0.9 + dot(p.xy, float2(0.05, 0.03)));\n"
+			"float surf = saturate(shore * shore * 1.6 * surge) * smoothstep(0.30, 0.65, ft * 0.7 + ft2 * 0.5 + shore * 0.35);\n"
+			"float crest = saturate((hz - 0.55) * 2.2) * smoothstep(0.55, 0.85, ft) * 0.7;\n"
+			"FoamOut = saturate((surf + crest) * FoamAmt);\n"
+			"Rough = lerp(0.035, 0.6, FoamOut);\n"
+			"Scatter = lerp(SS, SD, saturate(depth / 25.0));\n"
+			"return N;\n");
+		Surf->RebuildOutputs();
+		Surf->PostEditChange();
+		UMaterialEditingLibrary::ConnectMaterialExpressions(WP, TEXT(""), Surf, TEXT("P"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(OP, TEXT(""), Surf, TEXT("O"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(CP, TEXT(""), Surf, TEXT("Cam"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Tm, TEXT(""), Surf, TEXT("T"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Amp, TEXT(""), Surf, TEXT("Amp"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Half, TEXT(""), Surf, TEXT("Half"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(DScale, TEXT(""), Surf, TEXT("DS"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Foam, TEXT(""), Surf, TEXT("FoamAmt"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(WS, TEXT(""), Surf, TEXT("WS"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(WN, TEXT(""), Surf, TEXT("Tex"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(FT, TEXT(""), Surf, TEXT("FoamT"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(HT, TEXT(""), Surf, TEXT("H"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(ShallowS, TEXT(""), Surf, TEXT("SS"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(DeepS, TEXT(""), Surf, TEXT("SD"));
+		M->bTangentSpaceNormal = false; // the grid is flat and unrotated: we write a world normal
+		UMaterialEditingLibrary::ConnectMaterialProperty(Surf, TEXT(""), MP_Normal);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Surf, TEXT("Rough"), MP_Roughness);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Surf, TEXT("FoamOut"), MP_Opacity);
+		UMaterialExpressionConstant3Vector* FoamCol = Expr<UMaterialExpressionConstant3Vector>(M, -300, -150);
+		FoamCol->Constant = FLinearColor(0.80f, 0.83f, 0.85f);
+		UMaterialEditingLibrary::ConnectMaterialProperty(FoamCol, TEXT(""), MP_BaseColor);
 
 		UMaterialExpressionSingleLayerWaterMaterialOutput* Out = Expr<UMaterialExpressionSingleLayerWaterMaterialOutput>(M, -100, 500);
-		UMaterialExpressionVectorParameter* Ab = Expr<UMaterialExpressionVectorParameter>(M, -400, 450);
-		Ab->ParameterName = TEXT("Absorption"); Ab->DefaultValue = Absorb;
-		UMaterialExpressionVectorParameter* Sca = Expr<UMaterialExpressionVectorParameter>(M, -400, 550);
-		Sca->ParameterName = TEXT("Scattering"); Sca->DefaultValue = Scatter;
-		UMaterialExpressionScalarParameter* G = Expr<UMaterialExpressionScalarParameter>(M, -400, 650);
-		G->ParameterName = TEXT("PhaseG"); G->DefaultValue = 0.2f;
-		UMaterialExpressionConstant* Behind = Expr<UMaterialExpressionConstant>(M, -400, 720);
+		UMaterialExpressionScalarParameter* G = Scalar(TEXT("PhaseG"), 0.25f, 720);
+		UMaterialExpressionConstant* Behind = Expr<UMaterialExpressionConstant>(M, -400, 800);
 		Behind->R = 1.f;
 		Out->AbsorptionCoefficients.Connect(0, Ab);
-		Out->ScatteringCoefficients.Connect(0, Sca);
+		Out->ScatteringCoefficients.Connect(3, Surf); // output index 3 = "Scatter" (0 is the return value)
 		Out->PhaseG.Connect(0, G);
 		Out->ColorScaleBehindWater.Connect(0, Behind);
 		Finish(M);
 	};
-	// Coefficients per metre: a cold, clear North Atlantic sea; a peaty highland lake.
-	MakeWater(TEXT("M_Sea"),  FLinearColor(0.38f, 0.075f, 0.045f), FLinearColor(0.004f, 0.013f, 0.016f), 1.0f);
-	MakeWater(TEXT("M_Lake"), FLinearColor(0.50f, 0.22f, 0.20f),   FLinearColor(0.008f, 0.012f, 0.009f), 0.45f);
+	MakeWater(TEXT("M_Sea"), true);
+	MakeWater(TEXT("M_Lake"), false);
 
 	// --- M_Rain: streaks on a camera-following curtain ------------------------
 	if (UMaterial* M = NewMaterial(TEXT("M_Rain")))
