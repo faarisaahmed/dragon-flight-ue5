@@ -12,8 +12,10 @@ Windows PC (no DX12 hardware ray tracing path), so judge final looks there.
    - **IS-0007** on install: the launcher didn't create
      `~/Library/Application Support/Epic/EpicGamesLauncher/Data/Manifests/Pending`.
      Create it, delete the half-made `UE_5.8` folder, install again.
-2. Xcode: UE 5.8 wants **Xcode 26.1.1** (26.4+ is not compatible). Install it beside
-   the App Store Xcode with `brew install xcodes && xcodes install 26.1.1 --experimental-unxip --select`.
+2. Xcode: the mini builds fine with the App Store **Xcode 26.6** (Epic's docs say 26.1.1;
+   if a compile ever fails on the toolchain, `xcodes install 26.1.1 --select`). Xcode 26 ships
+   the Metal shader compiler separately — without it the game quits at launch with
+   "missing Metal Toolchain": `xcodebuild -downloadComponent MetalToolchain` (~700 MB).
 3. Data: `python3 Tools/fetch_world.py` (terrain + dragon) and `python3 Tools/fetch_assets.py` (CC0 art).
 4. Build + world:
    ```sh
