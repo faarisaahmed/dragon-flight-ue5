@@ -13,6 +13,7 @@
 #include "DragonWorldSubsystem.h"
 #include "GameFramework/GameUserSettings.h"
 #include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
 #include "Kismet/GameplayStatics.h"
@@ -44,13 +45,7 @@ void ADragonGameMode::StartPlay()
 		}
 	}
 
-	// Render scale by preset: Epic draws 75% and TSR upscales; Max (Cinematic) is native.
-	if (UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr)
-	{
-		const float Want = S->GetOverallScalabilityLevel() >= 4 ? 100.f : 75.f;
-		if (IConsoleVariable* SP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage")))
-			SP->Set(Want, ECVF_SetByGameSetting);
-	}
+	ADragonPlayerController::ApplyRenderScale();
 
 	// Make sure there is a sky even in an empty test map.
 	if (!ADragonSky::Get(this))
@@ -142,8 +137,7 @@ void ADragonPlayerController::Quality(int32 Level)
 	{
 		S->SetOverallScalabilityLevel(FMath::Clamp(Level, 0, 4));
 		S->ApplySettings(false);
-		if (IConsoleVariable* SP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage")))
-			SP->Set(Level >= 4 ? 100.f : 75.f, ECVF_SetByGameSetting); // see StartPlay
+		ApplyRenderScale();
 		S->SaveSettings();
 	}
 }
@@ -173,4 +167,17 @@ void ADragonPlayerController::GoTo(const FString& IslandName)
 			return;
 		}
 	}
+}
+
+void ADragonPlayerController::ApplyRenderScale()
+{
+	// Render a fixed number of lines whatever the display (TSR upscales to the output): 810 on
+	// Epic and below, 1080 on Max. A 4K screen at native would cost ~5x a 1080p one.
+	const UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+	FVector2D Size(1920, 1080);
+	if (GEngine && GEngine->GameViewport) GEngine->GameViewport->GetViewportSize(Size);
+	const float Lines = (S && S->GetOverallScalabilityLevel() >= 4) ? 1080.f : 810.f;
+	const float Pct = FMath::Clamp(Lines / FMath::Max(Size.Y, 1.0) * 100.f, 33.f, 100.f);
+	if (IConsoleVariable* SP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage")))
+		SP->Set(Pct, ECVF_SetByGameSetting);
 }

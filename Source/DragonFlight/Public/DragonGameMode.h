@@ -37,6 +37,8 @@ public:
 
 	/** 0 Low .. 4 Cinematic ("Max"). */
 	UFUNCTION(Exec) void Quality(int32 Level);
+	/** Sets r.ScreenPercentage so the scene renders ~810 lines (1080 on Max) at any output size. */
+	static void ApplyRenderScale();
 	UFUNCTION(Exec) void TimeOfDay(float Hours);
 	UFUNCTION(Exec) void Weather(int32 Preset);
 	UFUNCTION(Exec) void GoTo(const FString& IslandName);

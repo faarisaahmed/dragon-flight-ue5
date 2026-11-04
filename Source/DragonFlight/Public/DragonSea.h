@@ -42,7 +42,7 @@ public:
 	/** Half-width of the wave grid, metres (must match the material's GridHalf). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") float GridHalfM = 1500.f;
 	/** Quads along each side of the wave grid (denser toward the middle). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") int32 GridQuads = 320;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") int32 GridQuads = 224;
 	/** The grid re-centres on the camera in steps of this many metres. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") float SnapM = 50.f;
 	/** How far the flat frame reaches, metres. */

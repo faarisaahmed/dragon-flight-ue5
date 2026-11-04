@@ -76,6 +76,10 @@ ADragonSky::ADragonSky()
 	Clouds->TracingMaxDistance = 60.f;   // km — the world is 45 km across; beyond this the haze has them
 	Clouds->TracingStartMaxDistance = 400.f;
 	Clouds->bUsePerSampleAtmosphericLightTransmittance = true;
+	// Half the stock ray samples: the cloud layer is far away and soft, and it costs ~7 ms a frame at full.
+	Clouds->ViewSampleCountScale = 0.5f;
+	Clouds->ShadowViewSampleCountScale = 0.5f;
+	Clouds->ShadowTracingDistance = 8.f; // km
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CloudMat(TEXT("/Engine/EngineSky/VolumetricClouds/m_SimpleVolumetricCloud_Inst.m_SimpleVolumetricCloud_Inst"));
 	if (CloudMat.Succeeded())
 	{
@@ -104,7 +108,7 @@ ADragonSky::ADragonSky()
 	Sun->bCastShadowsOnClouds = true;
 	Sun->bCastShadowsOnAtmosphere = true;
 	Sun->CloudShadowStrength = 0.85f;
-	Sun->CloudShadowExtent = 35.f; // km (around the camera)
+	Sun->CloudShadowExtent = 20.f; // km (around the camera)
 	Sun->bUseTemperature = true;
 	Sun->Temperature = 5900.f;
 	Sun->ForwardShadingPriority = 1;

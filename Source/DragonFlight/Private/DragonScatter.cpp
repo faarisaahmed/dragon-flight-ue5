@@ -69,7 +69,7 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 		ScatterLayers.Add(L);
 	};
 	//   name        kind                          group          /ha    tile   radius  scale                 sink  align shadow collide seed
-	Add("Trees",    EDragonScatterKind::Tree,     "trees",       140.f, 256.f, 9000.f, FVector2D(0.8f, 1.5f), 0.4f, 0.f, true,  false, 11);
+	Add("Trees",    EDragonScatterKind::Tree,     "trees",       140.f, 256.f, 6000.f, FVector2D(0.8f, 1.5f), 0.4f, 0.f, true,  false, 11);
 	Add("Saplings", EDragonScatterKind::Sapling,  "trees",       40.f,  192.f, 2500.f, FVector2D(0.35f, 0.7f), 0.2f, 0.f, true,  false, 23);
 	Add("DeadWood", EDragonScatterKind::DeadWood, "deadwood",    8.f,   192.f, 1500.f, FVector2D(0.8f, 1.4f), 0.2f, 0.8f, true, false, 37);
 	// The Poly Haven cliff and rock scans are already life-size (cliff pieces 20-50 m), so
@@ -401,7 +401,9 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 		C->SetMobility(EComponentMobility::Movable); // created at runtime under a movable root
 		C->SetCollisionEnabled(L.bCollide ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
 		C->SetCastShadow(L.bCastShadow);
-		C->bAffectDistanceFieldLighting = L.Kind != EDragonScatterKind::Ground;
+		// Only rocks and cliffs go into Lumen's distance fields: 50k trees in the SDF atlas cost
+		// more GPU than their bounce light is worth.
+		C->bAffectDistanceFieldLighting = L.Kind == EDragonScatterKind::Rock || L.Kind == EDragonScatterKind::Cliff;
 		C->SetCullDistances(0, FMath::RoundToInt(L.RadiusM * 1.1f * M));
 		C->SetupAttachment(RootComponent);
 		C->RegisterComponent();
