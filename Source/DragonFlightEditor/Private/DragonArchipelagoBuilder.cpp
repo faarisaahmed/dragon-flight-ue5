@@ -703,7 +703,12 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float shore = saturate(1.0 - depth / 4.0);\n"
 			"float surge = 0.6 + 0.4 * sin(T * 0.9 + dot(p.xy, float2(0.05, 0.03)));\n"
 			"float surf = saturate(shore * shore * 1.6 * surge) * smoothstep(0.30, 0.65, ft * 0.7 + ft2 * 0.5 + shore * 0.35);\n"
-			"float crest = saturate((hz - 0.55) * 2.2) * smoothstep(0.55, 0.85, ft) * 0.7;\n"
+			// whitecaps come in scattered patches where gusts push the crests over, not on every
+			// crest of the long swell (which lines them up into rows); thinned with distance, where
+			// they'd shrink to dotted lines.
+			"float patch = smoothstep(0.50, 0.80, Texture2DSample(FoamT, FoamTSampler, p.xy / 310.0 + T * float2(0.0021, 0.0013)).r * 0.6\n"
+			"            + Texture2DSample(FoamT, FoamTSampler, p.xy / 97.0 - T * float2(0.0030, 0.0042)).r * 0.5);\n"
+			"float crest = saturate((hz - 0.60) * 2.0) * smoothstep(0.58, 0.88, ft) * patch * 0.75 * (1.0 - smoothstep(250.0, 900.0, dist));\n"
 			"FoamOut = saturate((surf + crest) * FoamAmt);\n"
 			"Rough = lerp(0.035, 0.6, FoamOut);\n"
 			"Scatter = lerp(SS, SD, saturate(depth / 25.0));\n"
