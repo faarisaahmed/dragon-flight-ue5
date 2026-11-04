@@ -506,6 +506,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 	{
 		M->SetUsageByFlag(MATUSAGE_SkeletalMesh, true);
 		M->SetShadingModel(MSM_Subsurface);
+		M->TwoSided = true;
 		UMaterialExpressionTextureSampleParameter2D* D = TexParam(M, TEXT("BaseColor"), nullptr, SAMPLERTYPE_Color, -700, -250);
 		UMaterialExpressionTextureSampleParameter2D* N = TexParam(M, TEXT("Normal"), nullptr, SAMPLERTYPE_Normal, -700, 0);
 		UMaterialExpressionTextureSampleParameter2D* A = TexParam(M, TEXT("ARM"), nullptr, SAMPLERTYPE_Masks, -700, 250);
@@ -933,9 +934,38 @@ bool FDragonArchipelagoBuilder::ImportDragon()
 
 	if (bGlb)
 	{
-		// Keep the model's own textures (Interchange made materials from them); just report the slots.
-		for (const FSkeletalMaterial& SM : Mesh->GetMaterials())
-			Log(FString::Printf(TEXT("  slot %s -> %s"), *SM.MaterialSlotName.ToString(), SM.MaterialInterface ? *SM.MaterialInterface->GetPathName() : TEXT("none")));
+		// The web model's own colour textures, rendered through our skin and membrane
+		// materials (scale sheen, a little subsurface, light through the wing).
+		UMaterial* Skin = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_DragonSkin.M_DragonSkin")));
+		UMaterial* Wing = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_Membrane.M_Membrane")));
+		for (FSkeletalMaterial& SM : Mesh->GetMaterials())
+		{
+			const FString Slot = SM.MaterialSlotName.ToString();
+			UTexture* BaseTex = nullptr;
+			if (UMaterialInstance* Src = Cast<UMaterialInstance>(SM.MaterialInterface))
+			{
+				for (const FTextureParameterValue& TP : Src->TextureParameterValues)
+					if (TP.ParameterValue && TP.ParameterInfo.Name.ToString().Contains(TEXT("BaseColor"))) { BaseTex = TP.ParameterValue; break; }
+				if (!BaseTex)
+					for (const FTextureParameterValue& TP : Src->TextureParameterValues)
+						if (TP.ParameterValue) { BaseTex = TP.ParameterValue; break; }
+			}
+			const bool bWing = Slot.Contains(TEXT("membrane"), ESearchCase::IgnoreCase) || Slot.Contains(TEXT("wing"), ESearchCase::IgnoreCase);
+			UMaterial* Parent = bWing ? Wing : Skin;
+			if (!Parent) continue;
+			UMaterialInstanceConstant* MI = CreateOrLoad<UMaterialInstanceConstant, UMaterialInstanceConstantFactoryNew>(Dest, FString::Printf(TEXT("MI_Dragon_%s"), *Slot),
+				[Parent](UMaterialInstanceConstantFactoryNew* F) { F->InitialParent = Parent; });
+			if (!MI) continue;
+			MI->SetParentEditorOnly(Parent);
+			if (BaseTex) UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, TEXT("BaseColor"), BaseTex);
+			if (bWing) UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Translucency"), FLinearColor(0.30f, 0.09f, 0.05f));
+			UMaterialEditingLibrary::UpdateMaterialInstance(MI);
+			UEditorAssetLibrary::SaveLoadedAsset(MI, false);
+			SM.MaterialInterface = MI;
+			Log(FString::Printf(TEXT("  slot %s -> %s (%s)"), *Slot, *MI->GetName(), BaseTex ? *BaseTex->GetName() : TEXT("no texture")));
+		}
+		Mesh->PostEditChange();
+		Mesh->MarkPackageDirty();
 		UEditorAssetLibrary::SaveDirectory(Dest, false, true);
 		Log(TEXT("dragon imported (web model)"));
 		return true;
@@ -1158,7 +1188,7 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 		Landscape->RegisterAllComponents();
 		// Nanite landscape where the platform has it (M2+ Macs, DX12 SM6 PCs): full-resolution
 		// geometry at every distance instead of LOD popping, which is what lets 5 m cliffs read.
-		if (UseNanite(GMaxRHIShaderPlatform))
+		// (Commandlets have no GPU to ask, so this is unconditional; platforms without Nanite fall back.)
 		{
 			// bEnableNanite is protected; set it through reflection like the editor's details panel.
 			if (FBoolProperty* P = FindFProperty<FBoolProperty>(ALandscapeProxy::StaticClass(), TEXT("bEnableNanite")))
