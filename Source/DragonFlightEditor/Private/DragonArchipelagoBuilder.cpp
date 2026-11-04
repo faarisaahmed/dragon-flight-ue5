@@ -25,6 +25,8 @@
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionVertexNormalWS.h"
+#include "Materials/MaterialExpressionLandscapeGrassOutput.h"
+#include "LandscapeGrassType.h"
 #include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
@@ -348,6 +350,8 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 	{ FCustomOutput O; O.OutputName = TEXT("NormalWS"); O.OutputType = CMOT_Float3; Cu->AdditionalOutputs.Add(O); }
 	{ FCustomOutput O; O.OutputName = TEXT("Rough"); O.OutputType = CMOT_Float1; Cu->AdditionalOutputs.Add(O); }
 	{ FCustomOutput O; O.OutputName = TEXT("AmbOcc"); O.OutputType = CMOT_Float1; Cu->AdditionalOutputs.Add(O); }
+	{ FCustomOutput O; O.OutputName = TEXT("GrassW"); O.OutputType = CMOT_Float1; Cu->AdditionalOutputs.Add(O); }
+	{ FCustomOutput O; O.OutputName = TEXT("HerbW"); O.OutputType = CMOT_Float1; Cu->AdditionalOutputs.Add(O); }
 	// VERIFY(5.5): RebuildOutputs() must be ENGINE_API-exported (class is MinimalAPI) or this fails to link;
 	// alternative: Cu->PostEditChangeProperty(FPropertyChangedEvent(<AdditionalOutputs FProperty>)).
 	Cu->RebuildOutputs();
@@ -401,6 +405,82 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 	UMaterialEditingLibrary::ConnectMaterialProperty(Cu, TEXT("NormalWS"), MP_Normal);
 	UMaterialEditingLibrary::ConnectMaterialProperty(Cu, TEXT("Rough"), MP_Roughness);
 	UMaterialEditingLibrary::ConnectMaterialProperty(Cu, TEXT("AmbOcc"), MP_AmbientOcclusion);
+	// Soil, turf and rock are poor reflectors: a low specular level stops low-sun views turning
+	// the ground into a pale glare.
+	{
+		UMaterialExpressionConstant* Sp = Expr<UMaterialExpressionConstant>(M, -200, 300);
+		Sp->R = 0.12f; // below ~0.25 UE also damps the grazing Fresnel (scaled by 50*F0)
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sp, TEXT(""), MP_Specular);
+	}
+
+	// Turf and herbs, planted by the landscape grass system from the shader's own weights:
+	// dense, GPU-instanced, generated around the camera — the scatter actor can't afford
+	// grass at real density.
+	{
+		auto Pick = [](const FString& Dir, std::initializer_list<const TCHAR*> Needles)
+		{
+			TArray<UStaticMesh*> Out;
+			IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+			TArray<FAssetData> Found;
+			Registry.GetAssetsByPath(FName(*Dir), Found, true);
+			for (const FAssetData& A : Found)
+			{
+				if (A.AssetClassPath != UStaticMesh::StaticClass()->GetClassPathName()) continue;
+				const FString N = A.AssetName.ToString();
+				if (N.Contains(TEXT("_LOD")) && !N.EndsWith(TEXT("_LOD0"))) continue;
+				for (const TCHAR* K : Needles)
+					if (N.Contains(K)) { if (UStaticMesh* SM = Cast<UStaticMesh>(A.GetAsset())) Out.Add(SM); break; }
+			}
+			return Out;
+		};
+		auto MakeGrass = [&](const TCHAR* Name, const TArray<UStaticMesh*>& Meshes, float Per100M2 /* UE's "per 10 m2" is per 10x10 m */, int32 StartCull, int32 EndCull, FVector2f Scale)
+			-> ULandscapeGrassType*
+		{
+			if (Meshes.Num() == 0) { Log(FString::Printf(TEXT("! no meshes for %s"), Name)); return nullptr; }
+			const FString Pkg = TEXT("/Game/World/Grass/") + FString(Name);
+			UPackage* P = CreatePackage(*Pkg);
+			ULandscapeGrassType* G = FindObject<ULandscapeGrassType>(P, Name);
+			if (!G) G = NewObject<ULandscapeGrassType>(P, Name, RF_Public | RF_Standalone);
+			G->GrassVarieties.Reset();
+			for (UStaticMesh* SM : Meshes)
+			{
+				FGrassVariety V;
+				V.GrassMesh = SM;
+				V.GrassDensity = Per100M2 / Meshes.Num();
+				V.StartCullDistance = StartCull; V.EndCullDistance = EndCull;
+				V.ScaleX = FFloatInterval(Scale.X, Scale.Y); V.ScaleY = V.ScaleX; V.ScaleZ = V.ScaleX;
+				V.Scaling = EGrassScaling::Uniform;
+				V.RandomRotation = true; V.AlignToSurface = true;
+				V.bUseGrid = true; V.PlacementJitter = 1.f;
+				V.bWeightAttenuatesMaxScale = true; V.MaxScaleWeightAttenuation = 0.4f;
+				G->GrassVarieties.Add(V);
+			}
+			G->PostEditChange();
+			FAssetRegistryModule::AssetCreated(G);
+			UEditorAssetLibrary::SaveLoadedAsset(G, false);
+			Log(FString::Printf(TEXT("grass %s: %d meshes, %.1f per m2"), Name, Meshes.Num(), Per100M2 / 100.f));
+			return G;
+		};
+		const FString Gr = ModelRoot / TEXT("ground");
+		ULandscapeGrassType* Meadow = MakeGrass(TEXT("LGT_Meadow"),
+			Pick(Gr, { TEXT("grass_medium_01_mid"), TEXT("grass_medium_01_large"), TEXT("grass_medium_01_tall"), TEXT("grass_medium_02") }),
+			1100.f, 5000, 8000, FVector2f(0.9f, 1.5f));
+		ULandscapeGrassType* Herbs = MakeGrass(TEXT("LGT_Herbs"),
+			Pick(Gr, { TEXT("fern_02"), TEXT("dandelion_01"), TEXT("shrub_02"), TEXT("shrub_03"), TEXT("grass_medium_01_tiny") }),
+			50.f, 6000, 9000, FVector2f(0.6f, 1.2f));
+		UMaterialExpressionLandscapeGrassOutput* GO = Expr<UMaterialExpressionLandscapeGrassOutput>(M, 200, 400);
+		GO->GrassTypes.Reset();
+		int32 Out = 4; // custom node outputs: 0 colour, 1 NormalWS, 2 Rough, 3 AmbOcc, 4 GrassW, 5 HerbW
+		for (ULandscapeGrassType* G : { Meadow, Herbs })
+		{
+			const int32 Idx = Out++;
+			if (!G) continue;
+			FGrassInput In(G->GetFName());
+			In.GrassType = G;
+			In.Input.Connect(Idx, Cu);
+			GO->GrassTypes.Add(In);
+		}
+	}
 	Finish(M);
 	Log(TEXT("M_Archipelago built"));
 	return M;

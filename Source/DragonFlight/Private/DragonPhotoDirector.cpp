@@ -5,6 +5,8 @@
 #include "DragonWorldSubsystem.h"
 #include "DragonScatter.h"
 #include "EngineUtils.h"
+#include "LandscapeSubsystem.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Engine/GameInstance.h"
@@ -125,6 +127,31 @@ void ADragonPhotoDirector::PlanShots()
 	H.Rotation = Look(H.Location, Home);
 	H.Hours = 16.5f;
 	Shots.Add(H);
+	// Ground: standing in the grass above the village, eye height, looking across the land.
+	for (int32 k = 0; k < 48; ++k)
+	{
+		const double A = k * 0.7, R = 25000.0 + k * 6000.0;
+		const FVector P = Home + FVector(FMath::Cos(A) * R, FMath::Sin(A) * R, 0.0);
+		const double Z = W->HeightAt(P.X, P.Y);
+		if (Z < 800.0 || Z > 15000.0) continue;
+		// Gentle ground only: compare heights 20 m around.
+		double Mx = Z, Mn = Z;
+		for (int32 d = 0; d < 4; ++d)
+		{
+			const double Zd = W->HeightAt(P.X + (d == 0 ? 2000 : d == 1 ? -2000 : 0), P.Y + (d == 2 ? 2000 : d == 3 ? -2000 : 0));
+			Mx = FMath::Max(Mx, Zd); Mn = FMath::Min(Mn, Zd);
+		}
+		if (Mx - Mn > 700.0) continue;
+		FShot G;
+		G.Name = TEXT("98_ground");
+		G.Location = FVector(P.X, P.Y, Z + 170.0);
+		FRotator Rt = Look(G.Location, FVector(Home.X, Home.Y, G.Location.Z));
+		Rt.Pitch = -6.f;
+		G.Rotation = Rt;
+		G.Hours = 16.0f;
+		Shots.Add(G);
+		break;
+	}
 	// The chase again, last, once everything the dragon uses has certainly compiled.
 	FShot Late = Chase; Late.Name = TEXT("99_chase_late");
 	Shots.Add(Late);
@@ -237,6 +264,18 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 	Timer += DeltaSeconds;
 	const FShot& S = Shots[Index];
 	const float Settle = S.bChase ? 4.f : SettleSeconds;
+	// Landscape grass builds lazily around the camera; build this view's synchronously.
+	if (!bShotRequested && !bGrassBuilt && Timer >= Settle - 2.f)
+	{
+		bGrassBuilt = true;
+		if (ULandscapeSubsystem* LS = GetWorld()->GetSubsystem<ULandscapeSubsystem>())
+		{
+			const APlayerController* PC = GetWorld()->GetFirstPlayerController();
+			TArray<FVector> Cams;
+			if (PC && PC->PlayerCameraManager) Cams.Add(PC->PlayerCameraManager->GetCameraLocation());
+			LS->RegenerateGrass(false, true, Cams.Num() ? TOptional<TArrayView<FVector>>(TArrayView<FVector>(Cams)) : TOptional<TArrayView<FVector>>());
+		}
+	}
 	if (!bShotRequested && Timer >= Settle)
 	{
 		const FString File = OutDir / (S.Name + Tag + TEXT(".png"));
@@ -249,6 +288,7 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 		++Index;
 		Timer = 0.f;
 		bShotRequested = false;
+		bGrassBuilt = false;
 		if (Shots.IsValidIndex(Index)) Frame(Shots[Index]);
 	}
 }

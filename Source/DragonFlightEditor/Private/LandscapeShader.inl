@@ -9,7 +9,7 @@
 // Cam (camera pos, cm), WS (world size, m), SnowLine (m), and texture objects
 // <Layer>D / <Layer>N / <Layer>A for Cliff Scree Grass Heath Forest Sand
 // Shingle Snow Mud, plus FarRockD FarGrassD FarSnowD, MaskA, MaskB, FlowMask.
-// Outputs: return = base colour; NormalWS, Rough, AO.
+// Outputs: return = base colour; NormalWS, Rough, AmbOcc; GrassW, HerbW (grass-map weights).
 static const TCHAR* GLandscapeHLSL = TEXT(R"HLSL(
 float3 pm = P * 0.01;
 float3 N = normalize(Nv);
@@ -60,7 +60,7 @@ float3 C = 0; float3 Nw = 0; float R = 0; float AO = 0;
 	float k = W / wSum; C += c * (TINT) * k; Nw += wn * k; R += saturate(a.g * (RMUL)) * k; AO += a.r * k; }
 
 TOPLAYER(Scree,   6.0, wScree,   float3(0.72, 0.72, 0.74), 1.0)
-TOPLAYER(Grass,   3.0, wGrass,   float3(0.58, 0.74, 0.44) * (0.85 + 0.18 * nz), 1.0)
+TOPLAYER(Grass,   3.0, wGrass,   float3(0.50, 0.68, 0.38) * (0.85 + 0.18 * nz), 1.0)
 TOPLAYER(Heath,   4.0, wHeath,   float3(0.70, 0.70, 0.52) * (0.85 + 0.15 * nz2), 1.0)
 TOPLAYER(Forest,  4.0, wForest,  float3(0.62, 0.62, 0.56), 1.0)
 TOPLAYER(Sand,    5.0, wSand,    float3(0.42, 0.42, 0.44), 1.0)
@@ -141,5 +141,10 @@ R = lerp(R, R * 0.35, splash);
 NormalWS = normalize(Nw + N * 0.001);
 Rough = saturate(R);
 AmbOcc = saturate(AO);
+// Where the landscape grass system plants turf and herbs (read by the grass-map pass only).
+float above = step(1.5, h) * (1.0 - splash);
+float soft = saturate(1.0 - (wCliff + wScree + wSand + wShingle + wSnow) / wSum);
+GrassW = saturate(soft * (0.75 + 0.25 * saturate(mk.g * 1.5)) * 1.2 - wForest / wSum * 0.4 + wet * 0.2) * (1.0 - sn) * above;
+HerbW  = saturate((wForest * 0.9 + wHeath * 0.35 + wGrass * 0.12) / wSum + wet * 0.25) * (1.0 - sn) * above;
 return C;
 )HLSL");

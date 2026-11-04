@@ -48,6 +48,7 @@ private:
 	float Timer = 0.f;
 	float Warmup = 0.f;
 	bool bShotRequested = false;
+	bool bGrassBuilt = false;
 	FString OutDir;
 	FString Tag;
 

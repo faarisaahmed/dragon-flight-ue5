@@ -28,7 +28,7 @@ TEXTURES = {
     "Cliff": "seaside_rock",          # dark grey basalt-like sea cliff (was cliff_side: orange sandstone)
     "Scree": "rocky_terrain_02",
     "Grass": "leafy_grass",
-    "Heath": "sparse_grass",
+    "Heath": "forrest_ground_01",   # darker moor turf and litter (sparse_grass was pale sand that bleached in sun)
     "Forest": "forest_floor",
     "Sand": "coast_sand_01",
     "Shingle": "coast_sand_rocks_02",

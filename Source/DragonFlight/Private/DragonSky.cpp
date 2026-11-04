@@ -157,7 +157,11 @@ ADragonSky::ADragonSky()
 	P.bOverride_AutoExposureMethod = true;           P.AutoExposureMethod = AEM_Histogram;
 	P.bOverride_AutoExposureMinBrightness = true;    P.AutoExposureMinBrightness = -2.5f; // EV100 (extended range)
 	P.bOverride_AutoExposureMaxBrightness = true;    P.AutoExposureMaxBrightness = 16.f;
-	P.bOverride_AutoExposureBias = true;             P.AutoExposureBias = 0.3f;
+	P.bOverride_AutoExposureBias = true;             P.AutoExposureBias = -0.1f;
+	// Meter toward the bright half of the frame, as a photographer exposes for the sunlit
+	// ground: a shadowed mountain filling the frame must not blow the meadow out to white.
+	P.bOverride_AutoExposureLowPercent = true;       P.AutoExposureLowPercent = 55.f;
+	P.bOverride_AutoExposureHighPercent = true;      P.AutoExposureHighPercent = 96.f;
 	P.bOverride_AutoExposureSpeedUp = true;          P.AutoExposureSpeedUp = 2.5f;
 	P.bOverride_AutoExposureSpeedDown = true;        P.AutoExposureSpeedDown = 1.2f;
 	P.bOverride_BloomIntensity = true;               P.BloomIntensity = 0.35f;
@@ -165,7 +169,7 @@ ADragonSky::ADragonSky()
 	// holding detail in both the bright sky and the dark basalt.
 	P.bOverride_WhiteTemp = true;                    P.WhiteTemp = 6900.f;
 	P.bOverride_LocalExposureHighlightContrastScale = true; P.LocalExposureHighlightContrastScale = 0.75f;
-	P.bOverride_LocalExposureShadowContrastScale = true;    P.LocalExposureShadowContrastScale = 0.85f;
+	P.bOverride_LocalExposureShadowContrastScale = true;    P.LocalExposureShadowContrastScale = 0.7f;
 	P.bOverride_ColorSaturation = true;              P.ColorSaturation = FVector4(1.04, 1.04, 1.04, 1.0);
 	P.bOverride_VignetteIntensity = true;            P.VignetteIntensity = 0.25f;
 	P.bOverride_FilmGrainIntensity = true;           P.FilmGrainIntensity = 0.05f;
@@ -358,7 +362,7 @@ void ADragonSky::Apply(float DeltaSeconds)
 	Sun->SetTemperature(FMath::Lerp(3600.f, 5900.f, Smooth(SunElevation, 0.f, 14.f)));
 
 	// "Day for night": a generous blue fill at night so the land reads.
-	SkyLight->SetIntensity(FMath::Lerp(1.f, 3.5f, Night) * (1.f + Live.SunDim * 0.4f));
+	SkyLight->SetIntensity(FMath::Lerp(1.5f, 3.5f, Night) * (1.f + Live.SunDim * 0.4f));
 
 	Fog->SetFogDensity(0.0045f * Live.Fog);
 	Fog->SetVolumetricFogExtinctionScale(0.6f * FMath::Sqrt(Live.Fog));

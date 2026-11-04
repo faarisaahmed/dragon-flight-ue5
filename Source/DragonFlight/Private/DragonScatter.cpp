@@ -77,8 +77,9 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 	Add("Rocks",    EDragonScatterKind::Rock,     "rocks",       12.f,  256.f, 5000.f, FVector2D(0.6f, 1.6f), 0.4f, 0.7f, true,  true,  41);
 	// Cliff pieces stand upright and are set into steep faces as a skin of real rock
 	// (the 5.5 m landscape grid can only round a sea cliff off); see BuildTile.
-	Add("Cliffs",   EDragonScatterKind::Cliff,    "cliffs",      5.0f,  512.f, 12000.f, FVector2D(0.8f, 1.9f), 2.0f, 0.15f, true, true,  53);
-	Add("Ground",   EDragonScatterKind::Ground,   "ground",      2600.f, 32.f, 160.f,  FVector2D(0.7f, 1.3f), 0.05f, 0.6f, false, false, 67);
+	Add("Cliffs",   EDragonScatterKind::Cliff,    "cliffs",      0.6f,  512.f, 12000.f, FVector2D(0.7f, 1.4f), 4.0f, 0.15f, true, true,  53);
+	// Turf itself is the landscape grass system's job now; this adds the odd bigger shrub.
+	Add("Ground",   EDragonScatterKind::Ground,   "ground",      500.f, 32.f, 160.f,  FVector2D(0.7f, 1.3f), 0.05f, 0.6f, false, false, 67);
 }
 
 void ADragonScatter::BeginPlay()
@@ -219,7 +220,7 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 		break;
 	case EDragonScatterKind::Cliff:
 		if (H < -2.f) return false;
-		P = Smooth(Slope, 0.48f, 0.82f);
+		P = Smooth(Slope, 0.66f, 0.92f);
 		OutScale = 1.f + 0.5f * Smooth(Slope, 0.7f, 0.95f);   // the sheerest faces get the biggest pieces
 		break;
 	case EDragonScatterKind::Ground:
