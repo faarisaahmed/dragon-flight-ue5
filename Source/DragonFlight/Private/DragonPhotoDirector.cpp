@@ -152,6 +152,37 @@ void ADragonPhotoDirector::PlanShots()
 		Shots.Add(G);
 		break;
 	}
+	// Village: the densest cluster of house plots, from a low hillside 150 m off.
+	if (const TSharedPtr<FJsonObject> J = W->GetJson())
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Plots = nullptr;
+		if (J->TryGetArrayField(TEXT("village"), Plots) && Plots->Num() > 0)
+		{
+			TArray<FVector> Pts;
+			for (const TSharedPtr<FJsonValue>& V : *Plots)
+				if (const TSharedPtr<FJsonObject> P = V->AsObject())
+					Pts.Add(FVector(P->GetNumberField(TEXT("x")) * 100.0, P->GetNumberField(TEXT("z")) * 100.0, P->GetNumberField(TEXT("h")) * 100.0));
+			int32 BestI = 0, BestN = -1;
+			for (int32 i = 0; i < Pts.Num(); i += 3)
+			{
+				int32 Near = 0;
+				for (const FVector& Q : Pts) Near += FVector::Dist2D(Q, Pts[i]) < 15000.0;
+				if (Near > BestN) { BestN = Near; BestI = i; }
+			}
+			const FVector C = Pts[BestI];
+			for (int32 k = 0; k < 8; ++k)
+			{
+				const double A = k * PI / 4.0;
+				FVector L = C + FVector(FMath::Cos(A), FMath::Sin(A), 0.0) * 15000.0;
+				const double G = W->HeightAt(L.X, L.Y);
+				if (G < 0.0) continue;
+				L.Z = FMath::Max(G, C.Z) + 4500.0;
+				FShot Vg; Vg.Name = TEXT("96_village"); Vg.Location = L; Vg.Rotation = Look(L, C); Vg.Hours = 15.0f;
+				Shots.Add(Vg);
+				break;
+			}
+		}
+	}
 	// River: the longest one, from above its middle reach, looking downstream.
 	{
 		const FDragonRiver* Best = nullptr;

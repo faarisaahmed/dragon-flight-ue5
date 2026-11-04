@@ -1,7 +1,6 @@
 #include "DragonVillage.h"
 #include "DragonFlight.h"
 #include "DragonWorldSubsystem.h"
-#include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/GameInstance.h"
@@ -16,20 +15,20 @@ ADragonVillage::ADragonVillage()
 
 TMap<FString, TArray<UStaticMesh*>> ADragonVillage::LoadKit() const
 {
+	// Known names, loaded directly (the asset registry can be stale in an editor -game run, and
+	// direct paths behave the same cooked): <KitPath>/<name>/<name>/StaticMeshes/<name>, as the
+	// builder's Interchange import lays them out, with <KitPath>/<name>/<name> as a fallback.
 	TMap<FString, TArray<UStaticMesh*>> Kit;
-	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
-	TArray<FAssetData> Found;
-	Registry.GetAssetsByPath(FName(*KitPath), Found, true);
-	for (const FAssetData& A : Found)
-	{
-		if (A.AssetClassPath != UStaticMesh::StaticClass()->GetClassPathName()) continue;
-		const FString Name = A.AssetName.ToString();
-		if (Name.Contains(TEXT("_LOD")) && !Name.EndsWith(TEXT("_LOD0"))) continue;
-		FString Kind = Name, Rest;
-		Name.Split(TEXT("_"), &Kind, &Rest);
-		Kind = Kind.ToLower();
-		if (UStaticMesh* M = Cast<UStaticMesh>(A.GetAsset())) Kit.FindOrAdd(Kind).Add(M);
-	}
+	static const TCHAR* Kinds[] = { TEXT("cottage"), TEXT("turf"), TEXT("longhouse"), TEXT("hallhouse"), TEXT("tall"), TEXT("shed"), TEXT("stilt"), TEXT("square") };
+	static const TCHAR* Variants[] = { TEXT("a"), TEXT("b"), TEXT("c"), TEXT("d") };
+	for (const TCHAR* K : Kinds)
+		for (const TCHAR* V : Variants)
+		{
+			const FString N = FString::Printf(TEXT("%s_%s"), K, V);
+			UStaticMesh* M = LoadObject<UStaticMesh>(nullptr, *FString::Printf(TEXT("%s/%s/%s/StaticMeshes/%s.%s"), *KitPath, *N, *N, *N, *N), nullptr, LOAD_NoWarn | LOAD_Quiet);
+			if (!M) M = LoadObject<UStaticMesh>(nullptr, *FString::Printf(TEXT("%s/%s/%s.%s"), *KitPath, *N, *N, *N), nullptr, LOAD_NoWarn | LOAD_Quiet);
+			if (M) Kit.FindOrAdd(K).Add(M);
+		}
 	return Kit;
 }
 
@@ -39,10 +38,10 @@ void ADragonVillage::BeginPlay()
 	const UDragonWorldSubsystem* W = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDragonWorldSubsystem>() : nullptr;
 	const TSharedPtr<FJsonObject> J = W ? W->GetJson() : nullptr;
 	const TArray<TSharedPtr<FJsonValue>>* Plots = nullptr;
-	if (!J || !J->TryGetArrayField(TEXT("village"), Plots)) { UE_LOG(LogDragon, Log, TEXT("Village: no plots")); return; }
+	if (!J || !J->TryGetArrayField(TEXT("village"), Plots)) { UE_LOG(LogDragon, Display, TEXT("Village: no plots")); return; }
 
 	const TMap<FString, TArray<UStaticMesh*>> Kit = LoadKit();
-	if (Kit.Num() == 0) { UE_LOG(LogDragon, Log, TEXT("Village: no kit under %s"), *KitPath); return; }
+	if (Kit.Num() == 0) { UE_LOG(LogDragon, Display, TEXT("Village: no kit under %s"), *KitPath); return; }
 	// Kinds the kit might not have yet fall back to the nearest thing it does.
 	auto Resolve = [&](const FString& Kind) -> const TArray<UStaticMesh*>*
 	{
