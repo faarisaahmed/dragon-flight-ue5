@@ -18,6 +18,9 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialExpressionCustom.h"
+#include "DragonSea.h"
+#include "Materials/MaterialExpressionConstant3Vector.h"
+#include "Materials/MaterialExpressionSingleLayerWaterMaterialOutput.h"
 #include "Materials/MaterialExpressionTextureObjectParameter.h"
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
@@ -33,6 +36,7 @@
 #include "Engine/Texture2D.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
+#include "EngineUtils.h"
 #include "Animation/Skeleton.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerStart.h"
@@ -508,6 +512,70 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Finish(M);
 	}
 
+	// --- M_Sea / M_Lake: Single Layer Water ------------------------------------
+	auto MakeWater = [&](const TCHAR* Name, FLinearColor Absorb, FLinearColor Scatter, float WaveScale)
+	{
+		UMaterial* M = NewMaterial(Name);
+		if (!M) return;
+		M->SetShadingModel(MSM_SingleLayerWater);
+		M->BlendMode = BLEND_Opaque;
+		UMaterialExpressionTextureObjectParameter* WN = Expr<UMaterialExpressionTextureObjectParameter>(M, -900, 200);
+		WN->ParameterName = TEXT("WaveNormal");
+		WN->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Water/Textures/Normals/T_Water_TilingNormal_Waves_02.T_Water_TilingNormal_Waves_02"));
+		WN->SamplerType = SAMPLERTYPE_Normal;
+		UMaterialExpressionCustom* Waves = Expr<UMaterialExpressionCustom>(M, -450, 100);
+		Waves->Description = TEXT("Waves");
+		Waves->OutputType = CMOT_Float3;
+		Waves->Inputs.Reset();
+		for (const TCHAR* In : { TEXT("P"), TEXT("Cam"), TEXT("T"), TEXT("Tex"), TEXT("Scale") }) { FCustomInput I; I.InputName = In; Waves->Inputs.Add(I); }
+		Waves->Code = TEXT(
+			"float2 p = P.xy * 0.01;\n"
+			"float d = length(P - Cam) * 0.01;\n"
+			"float fade = 1.0 / (1.0 + d / 900.0);\n"
+			"float2 n = 0;\n"
+			"n += (Texture2DSample(Tex, TexSampler, p / (46.0 * Scale) + T * float2(0.011, 0.006)).xy * 2 - 1) * 0.9;\n"
+			"n += (Texture2DSample(Tex, TexSampler, p / (17.0 * Scale) + T * float2(-0.017, 0.021)).xy * 2 - 1) * 0.6 * fade;\n"
+			"n += (Texture2DSample(Tex, TexSampler, p / (5.3 * Scale) + T * float2(0.042, -0.031)).xy * 2 - 1) * 0.45 * fade * fade;\n"
+			"n += (Texture2DSample(Tex, TexSampler, p / (420.0 * Scale) + T * float2(0.0016, 0.0011)).xy * 2 - 1) * 0.5;\n"
+			"return normalize(float3(n * 0.55, 1.0));\n");
+		Waves->PostEditChange();
+		UMaterialExpressionWorldPosition* WP = Expr<UMaterialExpressionWorldPosition>(M, -900, -100);
+		UMaterialExpressionCameraPositionWS* CP = Expr<UMaterialExpressionCameraPositionWS>(M, -900, -20);
+		UMaterialExpressionTime* Tm = Expr<UMaterialExpressionTime>(M, -900, 60);
+		UMaterialExpressionScalarParameter* Sc = Expr<UMaterialExpressionScalarParameter>(M, -900, 320);
+		Sc->ParameterName = TEXT("WaveScale"); Sc->DefaultValue = WaveScale;
+		UMaterialEditingLibrary::ConnectMaterialExpressions(WP, TEXT(""), Waves, TEXT("P"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(CP, TEXT(""), Waves, TEXT("Cam"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Tm, TEXT(""), Waves, TEXT("T"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(WN, TEXT(""), Waves, TEXT("Tex"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc, TEXT(""), Waves, TEXT("Scale"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(Waves, TEXT(""), MP_Normal);
+		UMaterialExpressionConstant* Rough = Expr<UMaterialExpressionConstant>(M, -300, 300);
+		Rough->R = 0.05f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
+		UMaterialExpressionConstant3Vector* Black = Expr<UMaterialExpressionConstant3Vector>(M, -300, -200);
+		Black->Constant = FLinearColor::Black;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Black, TEXT(""), MP_BaseColor);
+
+		UMaterialExpressionSingleLayerWaterMaterialOutput* Out = Expr<UMaterialExpressionSingleLayerWaterMaterialOutput>(M, -100, 500);
+		UMaterialExpressionVectorParameter* Ab = Expr<UMaterialExpressionVectorParameter>(M, -400, 450);
+		Ab->ParameterName = TEXT("Absorption"); Ab->DefaultValue = Absorb;
+		UMaterialExpressionVectorParameter* Sca = Expr<UMaterialExpressionVectorParameter>(M, -400, 550);
+		Sca->ParameterName = TEXT("Scattering"); Sca->DefaultValue = Scatter;
+		UMaterialExpressionScalarParameter* G = Expr<UMaterialExpressionScalarParameter>(M, -400, 650);
+		G->ParameterName = TEXT("PhaseG"); G->DefaultValue = 0.2f;
+		UMaterialExpressionConstant* Behind = Expr<UMaterialExpressionConstant>(M, -400, 720);
+		Behind->R = 1.f;
+		Out->AbsorptionCoefficients.Connect(0, Ab);
+		Out->ScatteringCoefficients.Connect(0, Sca);
+		Out->PhaseG.Connect(0, G);
+		Out->ColorScaleBehindWater.Connect(0, Behind);
+		Finish(M);
+	};
+	// Coefficients per metre: a cold, clear North Atlantic sea; a peaty highland lake.
+	MakeWater(TEXT("M_Sea"),  FLinearColor(0.38f, 0.075f, 0.045f), FLinearColor(0.004f, 0.013f, 0.016f), 1.0f);
+	MakeWater(TEXT("M_Lake"), FLinearColor(0.50f, 0.22f, 0.20f),   FLinearColor(0.008f, 0.012f, 0.009f), 0.45f);
+
 	// --- M_Rain: streaks on a camera-following curtain ------------------------
 	if (UMaterial* M = NewMaterial(TEXT("M_Rain")))
 	{
@@ -812,7 +880,18 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 	// path opens a Slate dialog, which asserts in a commandlet. Our water never edits
 	// the terrain anyway (the bake already carved it).
 	// --- Water -----------------------------------------------------------------
+	// Sea and lakes: our own Single Layer Water surfaces (see ADragonSea).
 	if (Options.bWater)
+	{
+		ADragonSea* Sea = World->SpawnActor<ADragonSea>(FVector::ZeroVector, FRotator::ZeroRotator);
+		Sea->SetActorLabel(TEXT("Sea"));
+		Sea->SeaMaterial = LoadObject<UMaterialInterface>(nullptr, *(MatRoot / TEXT("M_Sea.M_Sea")));
+		Sea->LakeMaterial = LoadObject<UMaterialInterface>(nullptr, *(MatRoot / TEXT("M_Lake.M_Lake")));
+		Log(TEXT("sea placed"));
+	}
+	// The Water plugin's bodies (kept for later: rivers). Off by default — its ocean
+	// mesh is only generated by the interactive editor.
+	if (Options.bWaterPlugin)
 	{
 		AWaterZone* Zone = World->SpawnActor<AWaterZone>(FVector::ZeroVector, FRotator::ZeroRotator);
 		Zone->SetActorLabel(TEXT("WaterZone"));
@@ -843,8 +922,10 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 			{
 				// An ocean's mesh only covers OceanExtents (small by default) around the zone:
 				// make it the whole zone, and its collision the whole world.
+				// Set the extent directly: FillWaterZoneWithOcean() is a no-op until the body has
+				// been assigned to its zone, which hasn't happened yet inside this build.
 				OC->SetCollisionExtents(FVector(SizeCm * 0.6, SizeCm * 0.6, 20000.0));
-				OC->FillWaterZoneWithOcean();
+				OC->SetOceanExtent(FVector2D(SizeCm * 1.1, SizeCm * 1.1));
 			}
 		}
 
@@ -953,6 +1034,17 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 		Landscape->RegisterAllComponents();
 		FFileHelper::SaveStringToFile(FString::FromInt(Res), *(UDragonWorldSubsystem::DataDir() / TEXT("LandscapeRes.txt")));
 		Log(FString::Printf(TEXT("landscape %d x %d at %.2f m/quad"), Res, Res, XY / 100.0));
+	}
+
+	// Once everything is registered, size the ocean again (now it knows its zone).
+	for (TActorIterator<AWaterBodyOcean> It(World); It; ++It)
+	{
+		if (UWaterBodyOceanComponent* OC = Cast<UWaterBodyOceanComponent>(It->GetWaterBodyComponent()))
+		{
+			OC->SetOceanExtent(FVector2D(SizeCm * 1.1, SizeCm * 1.1));
+			OC->FillWaterZoneWithOcean();
+			Log(FString::Printf(TEXT("ocean extent set; zone %s"), OC->GetWaterZone() ? *OC->GetWaterZone()->GetName() : TEXT("none")));
+		}
 	}
 
 	// --- Scatter -------------------------------------------------------------

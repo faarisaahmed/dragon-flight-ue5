@@ -48,6 +48,7 @@ private:
 	float Warmup = 0.f;
 	bool bShotRequested = false;
 	FString OutDir;
+	FString Tag;
 
 	UPROPERTY(Transient) TObjectPtr<ACameraActor> Camera;
 };

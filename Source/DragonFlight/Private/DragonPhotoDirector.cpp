@@ -53,6 +53,14 @@ void ADragonPhotoDirector::BeginPlay()
 		Camera->GetCameraComponent()->bConstrainAspectRatio = false;
 	}
 	PlanShots();
+	// -AutoShotOnly=00+05 keeps only shots whose names start with those prefixes.
+	FString Only;
+	if (FParse::Value(FCommandLine::Get(), TEXT("AutoShotOnly="), Only))
+	{
+		TArray<FString> Keep; Only.ParseIntoArray(Keep, TEXT("+"));
+		Shots.RemoveAll([&](const FShot& S) { for (const FString& K : Keep) if (S.Name.StartsWith(K)) return false; return true; });
+	}
+	FParse::Value(FCommandLine::Get(), TEXT("AutoShotTag="), Tag);
 	UE_LOG(LogDragon, Display, TEXT("[Photo] %d shots planned -> %s"), Shots.Num(), *OutDir);
 }
 
@@ -145,6 +153,17 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 		Camera->SetActorLocationAndRotation(S.Location, S.Rotation);
 		PC->SetViewTarget(Camera);
 	}
+	// Diagnostics: what is under the view, and how high.
+	FVector At = PC->PlayerCameraManager ? PC->PlayerCameraManager->GetCameraLocation() : S.Location;
+	if (!S.bChase) At = S.Location;
+	TArray<FHitResult> Hits;
+	FCollisionQueryParams Q(SCENE_QUERY_STAT(PhotoProbe), true);
+	GetWorld()->LineTraceMultiByChannel(Hits, FVector(At.X, At.Y, 300000.0), FVector(At.X, At.Y, -100000.0), ECC_Visibility, Q);
+	FString Under;
+	for (const FHitResult& H : Hits) Under += FString::Printf(TEXT(" [%s z=%.1fm]"), H.GetActor() ? *H.GetActor()->GetName() : TEXT("?"), H.ImpactPoint.Z / 100.0);
+	const UDragonWorldSubsystem* W = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDragonWorldSubsystem>() : nullptr;
+	UE_LOG(LogDragon, Display, TEXT("[Photo] %s cam z=%.0fm, heightmap z=%.1fm, traces:%s"), *S.Name, At.Z / 100.0,
+		W ? W->HeightAt(At.X, At.Y) / 100.0 : -1.0, *Under);
 }
 
 void ADragonPhotoDirector::Tick(float DeltaSeconds)
@@ -189,7 +208,7 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 	const float Settle = S.bChase ? 4.f : SettleSeconds;
 	if (!bShotRequested && Timer >= Settle)
 	{
-		const FString File = OutDir / (S.Name + TEXT(".png"));
+		const FString File = OutDir / (S.Name + Tag + TEXT(".png"));
 		FScreenshotRequest::RequestScreenshot(File, false, false);
 		bShotRequested = true;
 		UE_LOG(LogDragon, Display, TEXT("[Photo] %s"), *File);

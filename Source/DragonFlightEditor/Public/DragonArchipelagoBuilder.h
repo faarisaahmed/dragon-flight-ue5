@@ -15,6 +15,8 @@ struct FDragonBuildOptions
 	bool bModels = true;
 	bool bLandscape = true;
 	bool bWater = true;
+	/** Also place Water-plugin bodies (ocean, lakes, rivers). Their meshes need the interactive editor. */
+	bool bWaterPlugin = false;
 	bool bRivers = true;
 	bool bSave = true;
 	/** Only (re)import the dragon; leave textures, models and the map alone. */

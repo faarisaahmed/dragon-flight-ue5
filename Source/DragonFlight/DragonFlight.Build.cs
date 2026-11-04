@@ -11,7 +11,7 @@ public class DragonFlight : ModuleRules
 			"Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput",
 			"Landscape", "Water", "Niagara", "UMG", "Slate", "SlateCore",
 			"Json", "JsonUtilities", "RenderCore", "RHI", "PhysicsCore",
-			"DeveloperSettings", "ImageWrapper"
+			"DeveloperSettings", "ImageWrapper", "ProceduralMeshComponent"
 		});
 	}
 }
