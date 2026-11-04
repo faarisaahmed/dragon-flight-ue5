@@ -170,4 +170,7 @@ private:
 	float BoltTimer = 8.f;
 	float BoltT = -1.f;
 	void TickWeatherFX(float DeltaSeconds);
+
+private:
+	FVector AppliedSunDir = FVector::ZeroVector;
 };

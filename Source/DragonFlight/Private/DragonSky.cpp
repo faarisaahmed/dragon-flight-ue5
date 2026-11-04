@@ -73,7 +73,7 @@ ADragonSky::ADragonSky()
 	Clouds->SetupAttachment(Root);
 	Clouds->LayerBottomAltitude = 1.2f; // km — the web game's CLOUD_BASE was ~1.2 km
 	Clouds->LayerHeight = 6.f;
-	Clouds->TracingMaxDistance = 120.f;  // km — the world is 45 km across and you fly above it
+	Clouds->TracingMaxDistance = 60.f;   // km — the world is 45 km across; beyond this the haze has them
 	Clouds->TracingStartMaxDistance = 400.f;
 	Clouds->bUsePerSampleAtmosphericLightTransmittance = true;
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CloudMat(TEXT("/Engine/EngineSky/VolumetricClouds/m_SimpleVolumetricCloud_Inst.m_SimpleVolumetricCloud_Inst"));
@@ -104,7 +104,7 @@ ADragonSky::ADragonSky()
 	Sun->bCastShadowsOnClouds = true;
 	Sun->bCastShadowsOnAtmosphere = true;
 	Sun->CloudShadowStrength = 0.85f;
-	Sun->CloudShadowExtent = 80.f; // km
+	Sun->CloudShadowExtent = 35.f; // km (around the camera)
 	Sun->bUseTemperature = true;
 	Sun->Temperature = 5900.f;
 	Sun->ForwardShadingPriority = 1;
@@ -175,11 +175,8 @@ ADragonSky::ADragonSky()
 	P.bOverride_FilmGrainIntensity = true;           P.FilmGrainIntensity = 0.05f;
 	P.bOverride_MotionBlurAmount = true;             P.MotionBlurAmount = 0.35f;
 	P.bOverride_MotionBlurMax = true;                P.MotionBlurMax = 3.f;
-	P.bOverride_LumenSceneLightingQuality = true;    P.LumenSceneLightingQuality = 2.f;
-	P.bOverride_LumenSceneDetail = true;             P.LumenSceneDetail = 2.f;
+	// Lumen quality follows the scalability preset (the Max preset raises it in DefaultScalability.ini).
 	P.bOverride_LumenSceneViewDistance = true;       P.LumenSceneViewDistance = 40000.f;
-	P.bOverride_LumenFinalGatherQuality = true;      P.LumenFinalGatherQuality = 2.f;
-	P.bOverride_LumenReflectionQuality = true;       P.LumenReflectionQuality = 2.f;
 	P.bOverride_LumenMaxTraceDistance = true;        P.LumenMaxTraceDistance = 40000.f;
 }
 
@@ -343,13 +340,21 @@ void ADragonSky::Apply(float DeltaSeconds)
 {
 	const FVector ToSun = SunDirection(Hours);
 	SunElevation = FMath::RadiansToDegrees(FMath::Asin(ToSun.Z));
-	Sun->SetWorldRotation((-ToSun).Rotation());
+	// Lights move in small steps, not every frame: any change of light direction throws away
+	// the whole virtual shadow map cache (~10 ms to rebuild on an M4 Pro). 0.15 deg steps come
+	// about once a second at the default day length, and nobody can see them.
+	static const float StepCos = FMath::Cos(FMath::DegreesToRadians(0.15f));
+	if (FVector::DotProduct(ToSun, AppliedSunDir) < StepCos)
+	{
+		AppliedSunDir = ToSun;
+		Sun->SetWorldRotation((-ToSun).Rotation());
 
-	// The moon rides roughly opposite the sun, a little higher so it clears the hills.
-	FVector ToMoon = -ToSun;
-	ToMoon.Z = FMath::Abs(ToMoon.Z) * 0.8f + 0.25f;
-	ToMoon.Normalize();
-	Moon->SetWorldRotation((-ToMoon).Rotation());
+		// The moon rides roughly opposite the sun, a little higher so it clears the hills.
+		FVector ToMoon = -ToSun;
+		ToMoon.Z = FMath::Abs(ToMoon.Z) * 0.8f + 0.25f;
+		ToMoon.Normalize();
+		Moon->SetWorldRotation((-ToMoon).Rotation());
+	}
 
 	const float Day = Smooth(SunElevation, -3.f, 3.f);
 	const float Night = 1.f - Smooth(SunElevation, -10.f, -1.f);

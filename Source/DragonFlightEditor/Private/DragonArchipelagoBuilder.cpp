@@ -453,6 +453,7 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 				V.Scaling = EGrassScaling::Uniform;
 				V.RandomRotation = true; V.AlignToSurface = true;
 				V.bUseGrid = true; V.PlacementJitter = 1.f;
+				V.bCastDynamicShadow = false; V.bCastContactShadow = true; // grass in the shadow maps costs ~5 ms; contact shadows ground it
 				V.bWeightAttenuatesMaxScale = true; V.MaxScaleWeightAttenuation = 0.4f;
 				G->GrassVarieties.Add(V);
 			}

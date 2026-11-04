@@ -41,6 +41,14 @@ void ADragonGameMode::StartPlay()
 		}
 	}
 
+	// Render scale by preset: Epic draws 75% and TSR upscales; Max (Cinematic) is native.
+	if (UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr)
+	{
+		const float Want = S->GetOverallScalabilityLevel() >= 4 ? 100.f : 75.f;
+		if (IConsoleVariable* SP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage")))
+			SP->Set(Want, ECVF_SetByGameSetting);
+	}
+
 	// Make sure there is a sky even in an empty test map.
 	if (!ADragonSky::Get(this))
 	{
@@ -86,6 +94,22 @@ ADragonPlayerController::ADragonPlayerController()
 void ADragonPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+	// Frame time in the log every 10 s, for judging performance on a given machine.
+	{
+		static double Acc = 0.0, Worst = 0.0; static int32 Frames = 0;
+		Acc += DeltaTime; Worst = FMath::Max(Worst, (double)DeltaTime); ++Frames;
+		if (Acc >= 10.0)
+		{
+			const UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+			static const IConsoleVariable* SP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage"));
+			UE_LOG(LogDragon, Display, TEXT("Perf: %.1f fps avg (%.1f ms), worst frame %.1f ms, preset %d, screen %% %.0f"),
+				Frames / Acc, Acc / Frames * 1000.0, Worst * 1000.0, S ? S->GetOverallScalabilityLevel() : -1, SP ? SP->GetFloat() : -1.f);
+			Acc = 0.0; Worst = 0.0; Frames = 0;
+			// -PerfProfile: one GPU profile into the log once things have settled (third report).
+			static int32 Reports = 0;
+			if (++Reports == 3 && FParse::Param(FCommandLine::Get(), TEXT("PerfProfile"))) ConsoleCommand(TEXT("ProfileGPU"));
+		}
+	}
 	if (WasInputKeyJustPressed(EKeys::Slash) || WasInputKeyJustPressed(EKeys::F1)) bShowHelp = !bShowHelp;
 	if (WasInputKeyJustPressed(EKeys::F2))
 	{
@@ -108,6 +132,8 @@ void ADragonPlayerController::Quality(int32 Level)
 	{
 		S->SetOverallScalabilityLevel(FMath::Clamp(Level, 0, 4));
 		S->ApplySettings(false);
+		if (IConsoleVariable* SP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage")))
+			SP->Set(Level >= 4 ? 100.f : 75.f, ECVF_SetByGameSetting); // see StartPlay
 		S->SaveSettings();
 	}
 }
