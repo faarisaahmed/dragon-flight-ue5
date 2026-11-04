@@ -152,6 +152,24 @@ void ADragonPhotoDirector::PlanShots()
 		Shots.Add(G);
 		break;
 	}
+	// River: the longest one, from above its middle reach, looking downstream.
+	{
+		const FDragonRiver* Best = nullptr;
+		for (const FDragonRiver& R : W->GetRivers()) if (!Best || R.Points.Num() > Best->Points.Num()) Best = &R;
+		if (Best && Best->Points.Num() > 6)
+		{
+			const int32 Mid = Best->Points.Num() / 3;
+			const FVector A = Best->Points[Mid], B = Best->Points[FMath::Min(Mid + 4, Best->Points.Num() - 1)];
+			FVector Dir = B - A; Dir.Z = 0; Dir.Normalize();
+			FShot Rv;
+			Rv.Name = TEXT("97_river");
+			Rv.Location = A - Dir * 8000.0 + FVector(0, 0, 0);
+			Rv.Location.Z = FMath::Max(W->HeightAt(Rv.Location.X, Rv.Location.Y), A.Z) + 6000.0;
+			Rv.Rotation = Look(Rv.Location, B);
+			Rv.Hours = 14.5f;
+			Shots.Add(Rv);
+		}
+	}
 	// The chase again, last, once everything the dragon uses has certainly compiled.
 	FShot Late = Chase; Late.Name = TEXT("99_chase_late");
 	Shots.Add(Late);

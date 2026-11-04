@@ -77,9 +77,15 @@ void ADragonSea::BeginPlay()
 	if (SeaMaterial) { Grid->SetMaterial(0, SeaMaterial); Frame->SetMaterial(0, SeaMaterial); }
 	SetActorLocation(FVector::ZeroVector);
 
-	if (!bLakes) return;
 	const UDragonWorldSubsystem* W = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDragonWorldSubsystem>() : nullptr;
 	if (!W) return;
+	if (bRivers)
+	{
+		if (!RiverMaterial) RiverMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/World/Materials/M_River.M_River"));
+		const int32 NR = BuildRivers(*W);
+		UE_LOG(LogDragon, Display, TEXT("Sea: %d rivers"), NR);
+	}
+	if (!bLakes) return;
 	int32 N = 0;
 	for (const FDragonLake& L : W->GetLakes())
 	{
@@ -160,4 +166,73 @@ bool ADragonSea::BuildLake(const UDragonWorldSubsystem& W, const FDragonLake& L,
 	if (LakeMaterial) C->SetMaterial(0, LakeMaterial);
 	LakeSurfaces.Add(C);
 	return true;
+}
+
+int32 ADragonSea::BuildRivers(const UDragonWorldSubsystem& W)
+{
+	// Each river is a ribbon at its water surface, a little wider than the channel so the
+	// banks swallow its edges; UVs in metres (across, along) carry the flow, and vertex
+	// colour R marks where the bed steepens into rapids.
+	TArray<FVector> V; TArray<int32> T; TArray<FVector> Nm; TArray<FVector2D> UV; TArray<FColor> Col; TArray<FProcMeshTangent> Tan;
+	int32 Count = 0;
+	for (const FDragonRiver& R : W.GetRivers())
+	{
+		const int32 NP = R.Points.Num();
+		if (NP < 2 || R.Widths.Num() != NP) continue;
+		// Catmull-Rom, 4 steps per span, so bends are curves.
+		TArray<FVector> P; TArray<float> Wd;
+		for (int32 i = 0; i < NP - 1; ++i)
+		{
+			const FVector& P0 = R.Points[FMath::Max(i - 1, 0)]; const FVector& P1 = R.Points[i];
+			const FVector& P2 = R.Points[i + 1]; const FVector& P3 = R.Points[FMath::Min(i + 2, NP - 1)];
+			for (int32 k = 0; k < 4; ++k)
+			{
+				const float t = k / 4.f, t2 = t * t, t3 = t2 * t;
+				FVector Q = 0.5f * ((2.f * P1) + (-P0 + P2) * t + (2.f * P0 - 5.f * P1 + 4.f * P2 - P3) * t2 + (-P0 + 3.f * P1 - 3.f * P2 + P3) * t3);
+				Q.Z = FMath::Lerp(P1.Z, P2.Z, t); // water never climbs: no overshoot in height
+				P.Add(Q); Wd.Add(FMath::Lerp(R.Widths[i], R.Widths[i + 1], t));
+			}
+		}
+		P.Add(R.Points.Last()); Wd.Add(R.Widths.Last());
+		const int32 Base = V.Num();
+		double Along = 0.0;
+		for (int32 i = 0; i < P.Num(); ++i)
+		{
+			const FVector Prev = P[FMath::Max(i - 1, 0)], Next = P[FMath::Min(i + 1, P.Num() - 1)];
+			FVector2D Dir(Next.X - Prev.X, Next.Y - Prev.Y);
+			if (!Dir.Normalize()) Dir = FVector2D(1, 0);
+			const FVector Side(-Dir.Y, Dir.X, 0.0);
+			// A shallow V across: the edges sit 0.6 m under the surface and a metre past the
+			// mapped width, so the banks cut their own ragged shoreline through it.
+			const double Half = Wd[i] * 0.5 + 100.0;
+			if (i > 0) Along += FVector::Dist2D(P[i], P[i - 1]);
+			const double Run = FMath::Max(1.0, FVector::Dist2D(Prev, Next));
+			const float Steep = FMath::Clamp(float((Prev.Z - Next.Z) / Run - 0.04) * 4.f, 0.f, 1.f);
+			const FColor C(uint8(Steep * 255.f), 0, 0, 255);
+			const FVector Edge(0, 0, -60.0);
+			V.Add(P[i] + Side * Half + Edge); V.Add(P[i]); V.Add(P[i] - Side * Half + Edge);
+			UV.Add(FVector2D(-Half / 100.0, Along / 100.0)); UV.Add(FVector2D(0.0, Along / 100.0)); UV.Add(FVector2D(Half / 100.0, Along / 100.0));
+			for (int k = 0; k < 3; ++k) { Nm.Add(FVector::UpVector); Col.Add(C); Tan.Add(FProcMeshTangent(Dir.X, Dir.Y, 0)); }
+			if (i > 0)
+			{
+				for (int32 s2 = 0; s2 < 2; ++s2)
+				{
+					const int32 A = Base + (i - 1) * 3 + s2, B = A + 1, Cc = A + 3, D = A + 4;
+					T.Append({ A, Cc, B, B, Cc, D, A, B, Cc, B, D, Cc }); // both faces
+				}
+			}
+		}
+		++Count;
+	}
+	if (T.Num() == 0) return 0;
+	Rivers = NewObject<UProceduralMeshComponent>(this, TEXT("Rivers"));
+	Rivers->SetAbsolute(true, true, true);
+	Rivers->SetupAttachment(RootComponent);
+	Rivers->RegisterComponent();
+	Rivers->SetWorldLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
+	Rivers->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Rivers->SetCastShadow(false);
+	Rivers->CreateMeshSection(0, V, T, Nm, UV, Col, Tan, false);
+	if (RiverMaterial) Rivers->SetMaterial(0, RiverMaterial);
+	return Count;
 }

@@ -3,6 +3,9 @@
 #include "DragonVillage.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 #include "DragonFlight.h"
 #include "DragonPawn.h"
 #include "DragonHUD.h"
@@ -104,6 +107,13 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 			static const IConsoleVariable* SP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage"));
 			UE_LOG(LogDragon, Display, TEXT("Perf: %.1f fps avg (%.1f ms), worst frame %.1f ms, preset %d, screen %% %.0f"),
 				Frames / Acc, Acc / Frames * 1000.0, Worst * 1000.0, S ? S->GetOverallScalabilityLevel() : -1, SP ? SP->GetFloat() : -1.f);
+			// -PerfFile: the same line into Saved/Perf.txt (Shipping builds have no log).
+			if (FParse::Param(FCommandLine::Get(), TEXT("PerfFile")))
+			{
+				const FString Line = FString::Printf(TEXT("%.1f fps avg (%.1f ms), worst %.1f ms, screen %% %.0f\n"),
+					Frames / Acc, Acc / Frames * 1000.0, Worst * 1000.0, SP ? SP->GetFloat() : -1.f);
+				FFileHelper::SaveStringToFile(Line, *(FPaths::ProjectSavedDir() / TEXT("Perf.txt")), FFileHelper::EEncodingOptions::AutoDetect, &IFileManager::Get(), FILEWRITE_Append);
+			}
 			Acc = 0.0; Worst = 0.0; Frames = 0;
 			// -PerfProfile: one GPU profile into the log once things have settled (third report).
 			static int32 Reports = 0;

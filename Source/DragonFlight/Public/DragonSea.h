@@ -37,6 +37,7 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") TObjectPtr<UMaterialInterface> SeaMaterial;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") TObjectPtr<UMaterialInterface> LakeMaterial;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") TObjectPtr<UMaterialInterface> RiverMaterial;
 
 	/** Half-width of the wave grid, metres (must match the material's GridHalf). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") float GridHalfM = 1500.f;
@@ -48,6 +49,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") float FarM = 250000.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") bool bLakes = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sea") bool bRivers = true;
 
 	UPROPERTY(VisibleAnywhere, Category = "Sea") TObjectPtr<USceneComponent> Root;
 	UPROPERTY(VisibleAnywhere, Category = "Sea") TObjectPtr<UProceduralMeshComponent> Grid;
@@ -56,5 +58,7 @@ public:
 private:
 	void BuildSeaMeshes();
 	bool BuildLake(const UDragonWorldSubsystem& W, const FDragonLake& L, int32 Index);
+	int32 BuildRivers(const UDragonWorldSubsystem& W);
+	UPROPERTY(Transient) TObjectPtr<UProceduralMeshComponent> Rivers;
 	UPROPERTY(Transient) TArray<TObjectPtr<UProceduralMeshComponent>> LakeSurfaces;
 };

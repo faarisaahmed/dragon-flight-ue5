@@ -26,6 +26,7 @@
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionVertexNormalWS.h"
+#include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionLandscapeGrassOutput.h"
 #include "LandscapeGrassType.h"
 #include "Materials/MaterialExpressionCameraPositionWS.h"
@@ -701,7 +702,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		"  float4( 0.906, -0.423, 12.5, 0.05),\n"
 		"  float4( 0.669,  0.743,  8.3, 0.03),\n"
 		"  float4(-0.139,  0.990,  5.1, 0.018) };\n");
-	auto MakeWater = [&](const TCHAR* Name, bool bSea)
+	auto MakeWater = [&](const TCHAR* Name, bool bSea, bool bRiver = false)
 	{
 		UMaterial* M = NewMaterial(Name);
 		if (!M) return;
@@ -765,7 +766,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Surf->Description = TEXT("Sea surface");
 		Surf->OutputType = CMOT_Float3;
 		In(Surf, { TEXT("P"), TEXT("O"), TEXT("Cam"), TEXT("T"), TEXT("Amp"), TEXT("Half"), TEXT("DS"), TEXT("FoamAmt"), TEXT("WS"),
-			TEXT("Tex"), TEXT("FoamT"), TEXT("H"), TEXT("SS"), TEXT("SD") });
+			TEXT("Tex"), TEXT("FoamT"), TEXT("H"), TEXT("SS"), TEXT("SD"), TEXT("UV"), TEXT("VC"), TEXT("Flow") });
 		Surf->AdditionalOutputs.Reset();
 		for (const TCHAR* N : { TEXT("FoamOut"), TEXT("Rough") }) { FCustomOutput O; O.OutputName = N; O.OutputType = CMOT_Float1; Surf->AdditionalOutputs.Add(O); }
 		{ FCustomOutput O; O.OutputName = TEXT("Scatter"); O.OutputType = CMOT_Float3; Surf->AdditionalOutputs.Add(O); }
@@ -789,10 +790,12 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"  n.xy -= d * k * A * cos(f); }\n"
 			// ripples
 			"float near = 1.0 / (1.0 + dist / 700.0);\n"
+			// rivers: ripples ride the current (UV = metres across, metres along the channel)
+			"float2 c = Flow > 0.0 ? float2(UV.x, UV.y - T * Flow) : p.xy;\n"
 			"float2 q = 0;\n"
-			"q += (Texture2DSample(Tex, TexSampler, p.xy / (31.0 * DS) + T * float2(0.010, 0.006)).xy * 2 - 1) * 0.55;\n"
-			"q += (Texture2DSample(Tex, TexSampler, p.xy / (11.0 * DS) + T * float2(-0.019, 0.023)).xy * 2 - 1) * 0.45 * near;\n"
-			"q += (Texture2DSample(Tex, TexSampler, p.xy / (3.7 * DS) + T * float2(0.047, -0.033)).xy * 2 - 1) * 0.35 * near * near;\n"
+			"q += (Texture2DSample(Tex, TexSampler, c / (31.0 * DS) + T * float2(0.010, 0.006)).xy * 2 - 1) * 0.55;\n"
+			"q += (Texture2DSample(Tex, TexSampler, c / (11.0 * DS) + T * float2(-0.019, 0.023)).xy * 2 - 1) * 0.45 * near;\n"
+			"q += (Texture2DSample(Tex, TexSampler, c / (3.7 * DS) + T * float2(0.047, -0.033)).xy * 2 - 1) * 0.35 * near * near;\n"
 			"float3 N = normalize(float3(n.xy / max(n.z, 0.2) + q * 0.32, 1.0));\n"
 			// depth from the baked terrain (sea level 0; v -> metres)
 			"float2 muv = p.xy / WS + 0.5;\n"
@@ -813,7 +816,11 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float patch = smoothstep(0.50, 0.80, Texture2DSample(FoamT, FoamTSampler, p.xy / 310.0 + T * float2(0.0021, 0.0013)).r * 0.6\n"
 			"            + Texture2DSample(FoamT, FoamTSampler, p.xy / 97.0 - T * float2(0.0030, 0.0042)).r * 0.5);\n"
 			"float crest = saturate((hz - 0.60) * 2.0) * smoothstep(0.58, 0.88, ft) * patch * 0.75 * (1.0 - smoothstep(250.0, 900.0, dist));\n"
-			"FoamOut = saturate((surf + crest) * FoamAmt);\n"
+			// rapids: white water where the channel steepens (vertex colour R), streaming with the flow
+			"float rap = 0.0;\n"
+			"if (Flow > 0.0) { float rf = Texture2DSample(FoamT, FoamTSampler, float2(UV.x, UV.y - T * Flow * 1.3) / 5.0).r;\n"
+			"  rap = VC * 0.7 * smoothstep(0.45, 0.85, rf + VC * 0.2); }\n"
+			"FoamOut = saturate((surf + crest) * FoamAmt + rap);\n"
 			"Rough = lerp(0.035, 0.6, FoamOut);\n"
 			"Scatter = lerp(SS, SD, saturate(depth / 25.0));\n"
 			"return N;\n");
@@ -833,6 +840,14 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialExpressions(HT, TEXT(""), Surf, TEXT("H"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(ShallowS, TEXT(""), Surf, TEXT("SS"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(DeepS, TEXT(""), Surf, TEXT("SD"));
+		{
+			UMaterialExpressionTextureCoordinate* TC = Expr<UMaterialExpressionTextureCoordinate>(M, -1100, 900);
+			UMaterialExpressionVertexColor* VCx = Expr<UMaterialExpressionVertexColor>(M, -1100, 980);
+			auto* FlowP = Scalar(TEXT("FlowSpeed"), bRiver ? 1.4f : 0.f, 1060);
+			UMaterialEditingLibrary::ConnectMaterialExpressions(TC, TEXT(""), Surf, TEXT("UV"));
+			UMaterialEditingLibrary::ConnectMaterialExpressions(VCx, TEXT("R"), Surf, TEXT("VC"));
+			UMaterialEditingLibrary::ConnectMaterialExpressions(FlowP, TEXT(""), Surf, TEXT("Flow"));
+		}
 		M->bTangentSpaceNormal = false; // the grid is flat and unrotated: we write a world normal
 		UMaterialEditingLibrary::ConnectMaterialProperty(Surf, TEXT(""), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Surf, TEXT("Rough"), MP_Roughness);
@@ -852,6 +867,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Finish(M);
 	};
 	MakeWater(TEXT("M_Sea"), true);
+	MakeWater(TEXT("M_River"), false, true);
 	MakeWater(TEXT("M_Lake"), false);
 
 	// --- M_Rain: streaks on a camera-following curtain ------------------------
