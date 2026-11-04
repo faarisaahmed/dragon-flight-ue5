@@ -507,12 +507,25 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialExpressionMultiply* Glow = Expr<UMaterialExpressionMultiply>(M, -300, -400);
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Through, TEXT(""), Glow, TEXT("A"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(T, TEXT("R"), Glow, TEXT("B"));
+		// Light through the wing takes the skin's own colour: a dark hide passes a dim, deep red,
+		// never a bright orange panel. Gain lifts the (linear, very dark) albedo back into range.
+		UMaterialExpressionScalarParameter* Gain = Expr<UMaterialExpressionScalarParameter>(M, -600, -500);
+		Gain->ParameterName = TEXT("GlowGain"); Gain->DefaultValue = 8.f;
+		UMaterialExpressionMultiply* Alb = Expr<UMaterialExpressionMultiply>(M, -450, -300);
+		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), Alb, TEXT("A"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Gain, TEXT(""), Alb, TEXT("B"));
+		UMaterialExpressionMultiply* Glow2 = Expr<UMaterialExpressionMultiply>(M, -150, -400);
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Glow, TEXT(""), Glow2, TEXT("A"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Alb, TEXT(""), Glow2, TEXT("B"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(D, TEXT("RGB"), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(N, TEXT("RGB"), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("R"), MP_AmbientOcclusion);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("G"), MP_Roughness);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Glow, TEXT(""), MP_SubsurfaceColor);
-		UMaterialEditingLibrary::ConnectMaterialProperty(T, TEXT("R"), MP_Opacity); // how much light scatters through
+		UMaterialEditingLibrary::ConnectMaterialProperty(Glow2, TEXT(""), MP_SubsurfaceColor);
+		UMaterialExpressionMultiply* Op = Expr<UMaterialExpressionMultiply>(M, -300, 550);
+		UMaterialEditingLibrary::ConnectMaterialExpressions(T, TEXT("R"), Op, TEXT("A"));
+		Op->ConstB = 0.6f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Op, TEXT(""), MP_Opacity); // how much light scatters through
 		Finish(M);
 	}
 
@@ -547,10 +560,14 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("B"), MP_Metallic);
 		// Warm blood-red scatter, kept faint: this is thick hide, not a lizard's ear.
 		UMaterialExpressionVectorParameter* Sss = Expr<UMaterialExpressionVectorParameter>(M, -350, 300);
-		Sss->ParameterName = TEXT("SubsurfaceTint"); Sss->DefaultValue = FLinearColor(0.45f, 0.10f, 0.05f);
+		Sss->ParameterName = TEXT("SubsurfaceTint"); Sss->DefaultValue = FLinearColor(2.4f, 0.9f, 0.7f);
 		UMaterialExpressionScalarParameter* SssAmt = Expr<UMaterialExpressionScalarParameter>(M, -350, 400);
 		SssAmt->ParameterName = TEXT("SubsurfaceAmount"); SssAmt->DefaultValue = 0.18f;
-		UMaterialEditingLibrary::ConnectMaterialProperty(Sss, TEXT(""), MP_SubsurfaceColor);
+		// Scatter scaled by the albedo, so near-black hide stays black instead of glowing orange.
+		UMaterialExpressionMultiply* SssC = Expr<UMaterialExpressionMultiply>(M, -150, 300);
+		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), SssC, TEXT("A"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sss, TEXT(""), SssC, TEXT("B"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(SssC, TEXT(""), MP_SubsurfaceColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(SssAmt, TEXT(""), MP_Opacity);
 		Finish(M);
 	}
@@ -1250,6 +1267,7 @@ bool FDragonArchipelagoBuilder::Build(const FDragonBuildOptions& Options)
 	const double T0 = FPlatformTime::Seconds();
 	if (Options.bDragonOnly)
 	{
+		CreateMasterMaterials(); // the skin and membrane parents the instances hang off
 		const bool bOk = ImportDragon();
 		Log(FString::Printf(TEXT("dragon-only done in %.0f s"), FPlatformTime::Seconds() - T0));
 		return bOk;

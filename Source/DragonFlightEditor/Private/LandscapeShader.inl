@@ -68,27 +68,54 @@ TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0)
 TOPLAYER(Snow,    6.0, wSnow,    float3(1.0, 1.0, 1.02), 0.9)
 TOPLAYER(Mud,     3.0, wMud,     float3(0.75, 0.72, 0.70), 0.55)
 
-// Cliffs: triplanar, so a vertical face is not a smear of stretched pixels.
+// Cliffs: triplanar, so a vertical face is not a smear of stretched pixels. On top of
+// the scanned rock, the structure that makes a sea cliff read from a kilometre out:
+// stacked lava-flow strata (bands a few metres thick, each its own tone, a ledge at
+// each base), dark runoff streaks down the face, and a grey basalt cast.
 [branch] if (wCliff > 0.002)
 {
-	float S = 14.0;
 	float3 bw = pow(abs(N), 4.0); bw /= (bw.x + bw.y + bw.z);
-	float2 ux = pm.zy / S, uy = pm.xz / S, uz = pm.xy / S;
-	float3 c = Texture2DSample(CliffD, CliffDSampler, ux).rgb * bw.x
-	         + Texture2DSample(CliffD, CliffDSampler, uy).rgb * bw.y
-	         + Texture2DSample(CliffD, CliffDSampler, uz).rgb * bw.z;
-	float3 a = Texture2DSample(CliffA, CliffASampler, ux).rgb * bw.x
-	         + Texture2DSample(CliffA, CliffASampler, uy).rgb * bw.y
-	         + Texture2DSample(CliffA, CliffASampler, uz).rgb * bw.z;
-	float3 tX = UNPACK(Texture2DSample(CliffN, CliffNSampler, ux).xy * 2.0 - 1.0);
-	float3 tY = UNPACK(Texture2DSample(CliffN, CliffNSampler, uy).xy * 2.0 - 1.0);
-	float3 tZ = UNPACK(Texture2DSample(CliffN, CliffNSampler, uz).xy * 2.0 - 1.0);
-	float3 nX = float3(tX.xy + N.zy, abs(tX.z) * N.x).zyx;
-	float3 nY = float3(tY.xy + N.xz, abs(tY.z) * N.y).xzy;
-	float3 nZ = float3(tZ.xy + N.xy, abs(tZ.z) * N.z);
-	float3 wn = normalize(nX * bw.x + nY * bw.y + nZ * bw.z);
+	float3 c = 0, a = 0, wn = 0;
+	[unroll] for (int t = 0; t < 2; ++t)
+	{
+		float S = t == 0 ? 14.0 : 63.0;
+		float ft = t == 0 ? 1.0 - fd : fd;
+		float2 ux = pm.zy / S, uy = pm.xz / S, uz = pm.xy / S;
+		c += ft * (Texture2DSample(CliffD, CliffDSampler, ux).rgb * bw.x
+		         + Texture2DSample(CliffD, CliffDSampler, uy).rgb * bw.y
+		         + Texture2DSample(CliffD, CliffDSampler, uz).rgb * bw.z);
+		a += ft * (Texture2DSample(CliffA, CliffASampler, ux).rgb * bw.x
+		         + Texture2DSample(CliffA, CliffASampler, uy).rgb * bw.y
+		         + Texture2DSample(CliffA, CliffASampler, uz).rgb * bw.z);
+		float3 tX = UNPACK(Texture2DSample(CliffN, CliffNSampler, ux).xy * 2.0 - 1.0);
+		float3 tY = UNPACK(Texture2DSample(CliffN, CliffNSampler, uy).xy * 2.0 - 1.0);
+		float3 tZ = UNPACK(Texture2DSample(CliffN, CliffNSampler, uz).xy * 2.0 - 1.0);
+		float3 nX = float3(tX.xy + N.zy, abs(tX.z) * N.x).zyx;
+		float3 nY = float3(tY.xy + N.xz, abs(tY.z) * N.y).xzy;
+		float3 nZ = float3(tZ.xy + N.xy, abs(tZ.z) * N.z);
+		wn += ft * (nX * bw.x + nY * bw.y + nZ * bw.z);
+	}
+	// Strata: bands wander with the large noise so they never read as contour lines.
+	float zw = h + nz2 * 7.0 + nz * 4.0;
+	float bandH = 6.5;
+	float band = frac(zw / bandH), bid = floor(zw / bandH);
+	float hsh = frac(sin(bid * 12.9898 + 4.1) * 43758.5453);
+	float tone = lerp(0.62, 1.08, hsh);
+	float ledge = 1.0 - smoothstep(0.0, 0.14, band);          // the shelf at each band's base
+	float joint = smoothstep(0.86, 1.0, band);                 // the dark seam under the shelf above
+	// Runoff streaks: noise stretched down the face along its horizontal tangent.
+	float2 tg = normalize(float2(-N.y, N.x) + 1e-4);
+	float along = dot(pm.xy, tg);
+	float streak = Texture2DSample(FarRockD, FarRockDSampler, float2(along / 38.0, h / 900.0)).r;
+	float stain = smoothstep(0.35, 0.75, streak);
+	float grey = dot(c, float3(0.3, 0.59, 0.11));
+	c = lerp(float3(grey, grey, grey), c, 0.35) * float3(0.80, 0.80, 0.84);
+	c *= tone * (1.0 - joint * 0.45) * (1.0 - stain * 0.35);
+	// Shelves catch light and hold a little moss.
+	wn = normalize(wn) + float3(0, 0, ledge * 0.85);
+	c = lerp(c, c * float3(0.75, 0.95, 0.55) + float3(0.01, 0.02, 0.0), ledge * 0.55 * saturate(h / 20.0));
 	float k = wCliff / wSum;
-	C += c * float3(0.78, 0.78, 0.80) * k; Nw += wn * k; R += a.g * k; AO += a.r * k;
+	C += c * k; Nw += normalize(wn) * k; R += saturate(a.g + joint * 0.1) * k; AO += a.r * (1.0 - joint * 0.35) * k;
 }
 
 // ---- Far field: aerial scans take over the albedo with distance ------------
@@ -107,6 +134,10 @@ float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 float wet = smoothstep(0.35, 0.85, flow) * (1.0 - sn) * (1.0 - wCliff / wSum * 0.6) * step(1.0, h);
 C = lerp(C, C * float3(0.62, 0.72, 0.55), wet * 0.75);
 R *= 1.0 - wet * 0.35;
+// Splash zone: the bottom few metres of every shore are wet, dark and glossy.
+float splash = (1.0 - smoothstep(0.5, 3.5, h + nz2 * 0.8)) * step(-2.0, h);
+C *= 1.0 - splash * 0.45;
+R = lerp(R, R * 0.35, splash);
 NormalWS = normalize(Nw + N * 0.001);
 Rough = saturate(R);
 AmbOcc = saturate(AO);
