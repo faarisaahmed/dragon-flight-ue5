@@ -15,7 +15,11 @@ void UDragonWorldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 FString UDragonWorldSubsystem::DataDir()
 {
-	return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data/World"));
+	// Content/WorldData holds just what the game reads at runtime (the builder copies it there,
+	// and packaging stages it); Data/World is the full bake, used by the tools and editor.
+	static const FString Runtime = FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir() / TEXT("WorldData"));
+	static const bool bRuntime = FPaths::FileExists(Runtime / TEXT("World.json"));
+	return bRuntime ? Runtime : FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data/World"));
 }
 
 bool UDragonWorldSubsystem::Load()

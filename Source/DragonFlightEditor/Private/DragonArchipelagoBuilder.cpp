@@ -64,6 +64,28 @@
 
 #include "LandscapeShader.inl"
 
+// The full world bake (tools and builder read and write here; the game reads Content/WorldData).
+static FString BakeDir() { return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data/World")); }
+
+/** Copy just what the game reads at runtime into Content/WorldData (staged by packaging). */
+static void CopyRuntimeData()
+{
+	const FString Src = BakeDir();
+	const FString Dst = FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir() / TEXT("WorldData"));
+	IFileManager& FM = IFileManager::Get();
+	FM.DeleteDirectory(*Dst, false, true);
+	FM.MakeDirectory(*Dst, true);
+	FString Res = TEXT("8129");
+	FFileHelper::LoadFileToString(Res, *(Src / TEXT("LandscapeRes.txt")));
+	Res.TrimStartAndEndInline();
+	for (const FString& F : { FString(TEXT("World.json")), FString(TEXT("LandscapeRes.txt")), FString::Printf(TEXT("Heightmap_%s.r16"), *Res),
+		FString(TEXT("Masks_4096.png")), FString(TEXT("Masks2_4096.png")), FString(TEXT("Flow_4096.png")) })
+	{
+		if (FM.FileExists(*(Src / F))) FM.Copy(*(Dst / F), *(Src / F));
+	}
+}
+
+
 namespace
 {
 	const TCHAR* GroundLayers[] = { TEXT("Cliff"), TEXT("Scree"), TEXT("Grass"), TEXT("Heath"), TEXT("Forest"), TEXT("Sand"), TEXT("Shingle"), TEXT("Snow"), TEXT("Mud") };
@@ -179,7 +201,7 @@ namespace
 	TSharedPtr<FJsonObject> LoadWorldJson()
 	{
 		FString Text;
-		if (!FFileHelper::LoadFileToString(Text, *(UDragonWorldSubsystem::DataDir() / TEXT("World.json")))) return nullptr;
+		if (!FFileHelper::LoadFileToString(Text, *(BakeDir() / TEXT("World.json")))) return nullptr;
 		TSharedPtr<FJsonObject> J;
 		TSharedRef<TJsonReader<>> R = TJsonReaderFactory<>::Create(Text);
 		FJsonSerializer::Deserialize(R, J);
@@ -278,7 +300,7 @@ void FDragonArchipelagoBuilder::ImportGroundTextures()
 
 	// Drainage from the erosion bake: wet gully floors in M_Archipelago.
 	{
-		const FString FFile = UDragonWorldSubsystem::DataDir() / TEXT("Flow_4096.png");
+		const FString FFile = BakeDir() / TEXT("Flow_4096.png");
 		if (UTexture2D* FT = ImportTexture(FFile, TEXT("/Game/World/Data"), TEXT("T_Flow"), false, true))
 		{
 			if (FT->CompressionSettings != TC_Grayscale)
@@ -292,7 +314,7 @@ void FDragonArchipelagoBuilder::ImportGroundTextures()
 	}
 	// The heightmap as a texture, for water depth (shore foam, colour) in M_Sea.
 	{
-		const FString HFile = UDragonWorldSubsystem::DataDir() / TEXT("Heightmap_4033.png");
+		const FString HFile = BakeDir() / TEXT("Heightmap_4033.png");
 		if (UTexture2D* HT = ImportTexture(HFile, TEXT("/Game/World/Data"), TEXT("T_Height"), false, true))
 		{
 			if (HT->CompressionSettings != TC_Grayscale || HT->SRGB || HT->Filter != TF_Bilinear)
@@ -309,11 +331,11 @@ void FDragonArchipelagoBuilder::ImportGroundTextures()
 	}
 	// The baked masks, read in the landscape material by world position.
 	TArray<FString> Masks;
-	IFileManager::Get().FindFiles(Masks, *(UDragonWorldSubsystem::DataDir() / TEXT("Masks*.png")), true, false);
+	IFileManager::Get().FindFiles(Masks, *(BakeDir() / TEXT("Masks*.png")), true, false);
 	for (const FString& F : Masks)
 	{
 		const bool b2 = F.StartsWith(TEXT("Masks2"));
-		UTexture2D* T = ImportTexture(UDragonWorldSubsystem::DataDir() / F, TEXT("/Game/World/Data"), b2 ? TEXT("T_Masks2") : TEXT("T_Masks"), false, true);
+		UTexture2D* T = ImportTexture(BakeDir() / F, TEXT("/Game/World/Data"), b2 ? TEXT("T_Masks2") : TEXT("T_Masks"), false, true);
 		if (T)
 		{
 			T->CompressionSettings = TC_VectorDisplacementmap; // uncompressed RGBA8: masks must not block-compress
@@ -1366,7 +1388,7 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 		int32 QuadsPerSection = 127, Sections = 2;
 		if (Res == 4033) { QuadsPerSection = 63; Sections = 2; }
 		else if (Res == 16321) { QuadsPerSection = 255; Sections = 1; }
-		const FString File = UDragonWorldSubsystem::DataDir() / FString::Printf(TEXT("Heightmap_%d.r16"), Res);
+		const FString File = BakeDir() / FString::Printf(TEXT("Heightmap_%d.r16"), Res);
 		TArray<uint8> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, *File) || Bytes.Num() != Res * Res * 2)
 		{
@@ -1404,7 +1426,7 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 			Landscape->UpdateNaniteRepresentation(nullptr);
 			Log(TEXT("landscape: Nanite on"));
 		}
-		FFileHelper::SaveStringToFile(FString::FromInt(Res), *(UDragonWorldSubsystem::DataDir() / TEXT("LandscapeRes.txt")));
+		FFileHelper::SaveStringToFile(FString::FromInt(Res), *(BakeDir() / TEXT("LandscapeRes.txt")));
 		Log(FString::Printf(TEXT("landscape %d x %d at %.2f m/quad"), Res, Res, XY / 100.0));
 	}
 
@@ -1480,6 +1502,7 @@ bool FDragonArchipelagoBuilder::Build(const FDragonBuildOptions& Options)
 	}
 	const bool bOk = BuildLevel(Options, Meshes);
 	if (Options.bSave) UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
+	CopyRuntimeData();
 	Log(FString::Printf(TEXT("done in %.0f s"), FPlatformTime::Seconds() - T0));
 	return bOk;
 }

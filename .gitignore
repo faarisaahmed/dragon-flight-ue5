@@ -29,3 +29,9 @@ Data/Dragon/Previews/
 Data/World/CliffPreview/crop_*
 Data/World/ErosionPreview/crop_*
 Data/World/Heightmap.release
+
+# Village kit outputs (regenerate with Tools/VillageKit/build_kit.py)
+Data/Village/*.glb
+Data/Village/Textures/
+Data/Village/Previews/
+Content/WorldData/

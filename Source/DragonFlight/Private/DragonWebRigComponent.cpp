@@ -339,7 +339,12 @@ bool UDragonWebRigComponent::Bind(UPoseableMeshComponent* InMesh)
 		const TArray<FSkeletalMaterial>& Mats = Asset->GetMaterials();
 		for (int32 m = 0; m < Mats.Num(); ++m)
 		{
-			const FString A = Mats[m].MaterialSlotName.ToString(), Bn = Mats[m].ImportedMaterialSlotName.ToString();
+			const FString A = Mats[m].MaterialSlotName.ToString();
+#if WITH_EDITORONLY_DATA
+			const FString Bn = Mats[m].ImportedMaterialSlotName.ToString();
+#else
+			const FString Bn;
+#endif
 			const FString C = Mats[m].MaterialInterface ? Mats[m].MaterialInterface->GetName() : FString();
 			if (A.Contains(TEXT("wing_membrane")) || Bn.Contains(TEXT("wing_membrane")) || C.Contains(TEXT("wing_membrane")))
 			{
