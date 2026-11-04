@@ -68,17 +68,19 @@ const dec = (v) => (v - 32768) * ZSCALE / 128 / 100;
 // stands steep (turf binds it) but scree under any crag.
 // ---------------------------------------------------------------------------
 export const PARAMS = {
-  seed: { amp: 0.6, wavelength: 28 },               // metres
+  seed: { amp: 1.2, wavelength: 28 },               // metres
   levels: [
     // f: grid factor (cell = 5.54 m * f). density: droplets per land cell.
-    { f: 4, density: 1.2, life: 90, radius: 2, inertia: 0.25, Kc: 2.2, Ke: 0.06, Kd: 0.12, evap: 0.012, g: 3, friction: 0.04, minSlope: 0.02, tile: 256 },
-    { f: 2, density: 1.4, life: 80, radius: 2, inertia: 0.2,  Kc: 1.2, Ke: 0.07, Kd: 0.15, evap: 0.015, g: 3, friction: 0.05, minSlope: 0.02, tile: 256 },
-    { f: 1, density: 1.6, life: 64, radius: 1, inertia: 0.15, Kc: 0.6, Ke: 0.08, Kd: 0.2,  evap: 0.02,  g: 3, friction: 0.06, minSlope: 0.02, tile: 256 },
+    // spl: stream-power incision on priority-flood drainage (iters, K, m, Ac m^2, kappa diffusion, fill of pits per iter)
+    { f: 4, spl: { iters: 30, K: 0.006, m: 0.5, Ac: 20000, kappa: 0.0, fill: 0, smax: 0.8 }, density: 0 },
+    { f: 2, spl: { iters: 20, K: 0.006, m: 0.5, Ac: 5000, kappa: 0.0, fill: 0, smax: 0.9 }, density: 0 },
+    { f: 1, density: 6, life: 100, radius: 2, inertia: 0.3, Kc: 1.5, Ke: 0.25, Kd: 0.1, evap: 0.01, g: 2, friction: 0.03, minSlope: 0.02, pitFill: 0.5, tile: 256 },
   ],
-  rounds: 4,                                         // phase sweeps per level
+  rounds: 8,                                         // phase sweeps per level
   thermal: { iters: 30, talus: 0.73, rate: 0.06, cliff0: 1.0, cliff1: 1.4, cliffK: 0.04 },
   strata: { slope0: 0.55, slope1: 1.0, thick: 11, thickVar: 5, strength: 0.75, power: 3, warp: 18 },
-  clamp: 40,                                         // soft limit on |change|, m
+  clampUp: 10, clampDown: 30,                        // soft limits on fill / cut, m
+  cutShare: 0.2,                                     // and a cut is at most 1 m + this share of the height above sea
   seaFade: [-14, -1],                                // change fades out below this depth
   pinMargin: 0.3,                                    // metres off the waterline when pinned
 };
@@ -147,7 +149,7 @@ const OPS = {
       const lith = 0.55 + 0.45 * smooth(-0.5, 0.5, fbm(wx / 420, wz / 420, 3, 77));
       const cliff = smooth(prm.thermal.cliff0, prm.thermal.cliff1, sl);       // 0 soil .. 1 bedrock face
       const sea = h < 0 ? smooth(prm.seaFade[0], prm.seaFade[1], h) : 1;
-      E[i] = Math.round(255 * p * sea * (1 - 0.85 * ice) * lith * (1 - 0.7 * cliff));
+      E[i] = Math.round(255 * p * sea * (1 - smooth(0, 0.4, ice)) * lith * (1 - 0.9 * cliff) * (1 - smooth(1.6, 2.5, sl)));
       K[i] = Math.round(255 * p * sea * (cliff * prm.thermal.cliffK + (1 - cliff)) * (0.7 + 0.3 * lith));
       if (h > 0.5 && p > 0) {
         const r = ridged(wx / prm.seed.wavelength, wz / prm.seed.wavelength, 3, 9) - 0.5;
@@ -204,25 +206,29 @@ const OPS = {
         const dh = hn - h;
         if (F) F[c] += water;
         if (W[nc]) break;                         // river or lake: it carries the load away
-        if (hn < 0) {                             // reached the sea: drop half of it offshore
-          const q = sed * 0.5;
-          H[nc] += q * (1 - nfx) * (1 - nfy); H[nc + 1] += q * nfx * (1 - nfy);
-          H[nc + n] += q * (1 - nfx) * nfy; H[nc + n + 1] += q * nfx * nfy;
-          break;
-        }
+        if (hn < 0) break;                        // reached the sea: the load goes offshore (the sea floor is left as baked)
         const slope = -dh * inv;
-        const cap = Math.max(slope, minSlope) * speed * water * Kc;
+        const cap = Math.min(Math.max(slope, minSlope), 1.2) * speed * water * Kc;   // a waterfall carries no more than a steep chute
         if (dh > 0 || sed > cap) {
-          const q = dh > 0 ? Math.min(dh, sed) : (sed - cap) * Kd;
-          sed -= q;
-          H[c] += q * (1 - fx) * (1 - fy); H[c + 1] += q * fx * (1 - fy);
-          H[c + n] += q * (1 - fx) * fy; H[c + n + 1] += q * fx * fy;
+          // ran into a hollow (part-fill it and soak away) or slowed down (drop the excess).
+          // No corner is built above the higher of here and the next step, so fill stays a floor.
+          const q = dh > 0 ? Math.min(dh, sed) * p.pitFill : (sed - cap) * Kd;
+          const lim = Math.min(h > hn ? h : hn, 0.25 * (a + b + cc + d) + 0.5);   // and none above its neighbours' mean
+          let put = 0, v, w;
+          w = q * (1 - fx) * (1 - fy); v = H[c];         if (v + w > lim) w = Math.max(0, lim - v); H[c] = v + w; put += w;
+          w = q * fx * (1 - fy);       v = H[c + 1];     if (v + w > lim) w = Math.max(0, lim - v); H[c + 1] = v + w; put += w;
+          w = q * (1 - fx) * fy;       v = H[c + n];     if (v + w > lim) w = Math.max(0, lim - v); H[c + n] = v + w; put += w;
+          w = q * fx * fy;             v = H[c + n + 1]; if (v + w > lim) w = Math.max(0, lim - v); H[c + n + 1] = v + w; put += w;
+          sed -= put;
+          if (dh > 0) break;
         } else {
           const want = Math.min((cap - sed) * Ke, -dh);
           let got = 0;
           for (let m = 0; m < BN; m++) {
             const cm = c + BO[m];
-            const q = want * BW[m] * E[cm] * (1 / 255);
+            let q = want * BW[m] * E[cm] * (1 / 255);
+            const room = H[cm] - hn;                // never dig a brush cell below where the water goes next
+            if (q > room) q = room > 0 ? room : 0;
             H[cm] -= q; got += q;
           }
           sed += got;
@@ -295,13 +301,16 @@ const OPS = {
     const A = new Float32Array(j.A), H0 = new Float32Array(j.H0), P = new Uint8Array(j.P);
     const OUT = new Float32Array(j.OUT), U = new Uint16Array(j.U);
     const { n, y0, y1, prm } = j;
-    const D = prm.clamp, m = prm.pinMargin;
+    const DU = prm.clampUp, DD = prm.clampDown, m = prm.pinMargin;
     for (let i = y0 * n; i < y1 * n; i++) {
       const h0 = H0[i];
       let d = A[i] - h0;
       const sea = h0 < 0 ? smooth(prm.seaFade[0], prm.seaFade[1], h0) : 1;
       d *= sea * (P[i] / 255);
-      d = D * Math.tanh(d / D);
+      // Cuts are limited to a share of the height above the sea, so low coastal
+      // ground and the foot of sea cliffs keep their profile (streams hang).
+      const dd = h0 > 0 ? Math.min(DD, prm.cutShare * h0 + 1) : DD;
+      d = d > 0 ? DU * Math.tanh(d / DU) : dd * Math.tanh(d / dd);
       let h = h0 + d;
       if (h0 > 0) { const lo = Math.min(h0, m); if (h < lo) h = lo; }
       else { const cap = h0 > -m ? h0 : -m; if (h > cap) h = cap; }
@@ -370,6 +379,93 @@ const OPS = {
   },
 };
 
+
+// ---------------------------------------------------------------------------
+// Stream-power incision (main thread, coarse grids). Each iteration routes
+// every land cell to the sea (or to a river/lake cell) by priority flood, so
+// pits drain over their lowest saddle; accumulates drainage area down that
+// tree; then lowers each cell toward its receiver with the implicit scheme
+//   h_i <- (h_i + F h_r) / (1 + F),  F = K * E_i * (A_i^m - Ac^m)+ / dist
+// which is unconditionally stable (Braun & Willett 2013). Pit cells are filled
+// a little toward their spill level (sediment), and a light diffusion keeps
+// channel walls from becoming one-cell slots.
+// ---------------------------------------------------------------------------
+function streamPower(L, E, W, n, cell, p) {
+  const N = n * n;
+  const Z = new Float32Array(N), rcv = new Int32Array(N), order = new Int32Array(N), A = new Float32Array(N);
+  const closed = new Uint8Array(N);
+  const hp = new Int32Array(N + 1), hv = new Float32Array(N + 1);
+  let hn = 0;
+  const push = (c, v) => {
+    let k = ++hn;
+    while (k > 1) { const q = k >> 1; if (hv[q] <= v) break; hp[k] = hp[q]; hv[k] = hv[q]; k = q; }
+    hp[k] = c; hv[k] = v;
+  };
+  const pop = () => {
+    const top = hp[1], lc = hp[hn], lv = hv[hn--];
+    let k = 1;
+    for (;;) {
+      let m = k << 1; if (m > hn) break;
+      if (m < hn && hv[m + 1] < hv[m]) m++;
+      if (hv[m] >= lv) break;
+      hp[k] = hp[m]; hv[k] = hv[m]; k = m;
+    }
+    hp[k] = lc; hv[k] = lv;
+    return top;
+  };
+  const OFF = [-1, 1, -n, n, -n - 1, -n + 1, n - 1, n + 1];
+  const DST = [1, 1, 1, 1, Math.SQRT2, Math.SQRT2, Math.SQRT2, Math.SQRT2].map((d) => d * cell);
+  const cellA = cell * cell, Acm = Math.pow(p.Ac, p.m);
+  const isOutlet = (c) => L[c] <= 0 || W[c] === 1;
+  const lap = new Float32Array(N);
+  for (let it = 0; it < p.iters; it++) {
+    closed.fill(0); hn = 0;
+    let cnt = 0;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const c = y * n + x;
+      if (x === 0 || y === 0 || x === n - 1 || y === n - 1) { closed[c] = 1; rcv[c] = -1; Z[c] = L[c]; continue; }
+      if (!isOutlet(c)) continue;
+      closed[c] = 1; rcv[c] = -1; Z[c] = L[c];
+      let edge = false;
+      for (let k = 0; k < 8; k++) if (!isOutlet(c + OFF[k])) { edge = true; break; }
+      if (edge) push(c, L[c]);
+    }
+    while (hn) {
+      const c = pop(), zc = Z[c];
+      if (rcv[c] >= 0 || !isOutlet(c)) order[cnt++] = c;
+      for (let k = 0; k < 8; k++) {
+        const o = c + OFF[k];
+        if (closed[o]) continue;
+        closed[o] = 1; rcv[o] = c;
+        const z = L[o] > zc + 1e-3 ? L[o] : zc + 1e-3;
+        Z[o] = z; push(o, z);
+      }
+    }
+    for (let k = 0; k < cnt; k++) A[order[k]] = cellA;
+    for (let k = cnt - 1; k >= 0; k--) { const c = order[k], r = rcv[c]; if (r >= 0 && !isOutlet(r)) A[r] += A[c]; }
+    for (let k = 0; k < cnt; k++) {
+      const c = order[k], r = rcv[c];
+      const e = E[c] / 255; if (e <= 0) continue;
+      const hr = L[r], h = L[c];
+      if (h > hr) {
+        let d = 0; for (let q = 0; q < 8; q++) if (c + OFF[q] === r) { d = DST[q]; break; }
+        if ((h - hr) / d > p.smax) continue;       // a fall over a crag: streams hang, they don't saw it down
+        const a = Math.pow(A[c], p.m) - Acm;
+        if (a <= 0) continue;
+        const F = p.K * e * a / d;
+        L[c] = (h + F * hr) / (1 + F);
+      } else if (Z[c] > h) L[c] = h + (Z[c] - h) * p.fill * e;
+    }
+    if (p.kappa > 0) {
+      for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
+        const c = y * n + x; if (L[c] <= 0 || !E[c]) { lap[c] = 0; continue; }
+        lap[c] = (L[c - 1] + L[c + 1] + L[c - n] + L[c + n] - 4 * L[c]) * p.kappa * E[c] / 255;
+      }
+      for (let c = 0; c < N; c++) L[c] += lap[c];
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // PNG read/write (no dependencies).
 // ---------------------------------------------------------------------------
@@ -437,6 +533,8 @@ if (isMainThread) {
   const ci = argv.indexOf("--crop");
   const CROP = ci > 0 ? { i0: +argv[ci + 1], j0: +argv[ci + 2], size: +argv[ci + 3] } : null;
   const PRM = PARAMS;
+  const deepMerge = (a, b) => { for (const [k, v] of Object.entries(b)) { if (v && typeof v === "object" && !Array.isArray(v) && a[k] && typeof a[k] === "object") deepMerge(a[k], v); else a[k] = v; } };
+  if (arg("--set")) deepMerge(PRM, JSON.parse(arg("--set")));
   const STAGES = arg("--stages", "seed,h0,h1,h2,thermal,strata").split(",");
   if (!STAGES.includes("seed")) PRM.seed.amp = 0;
   if (!STAGES.includes("thermal")) PRM.thermal.iters = 0;
@@ -466,6 +564,9 @@ if (isMainThread) {
   const H0s = sab(N2 * 4), Hs = sab(N2 * 4), Bs = sab(N2 * 4);
   const H0 = new Float32Array(H0s), H = new Float32Array(Hs);
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) H0[y * n + x] = dec(raw8[(oj + y) * NF + oi + x]);
+  if (argv.includes("--synth")) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const r = Math.hypot(x - n / 2, y - n / 2) * step; H0[y * n + x] = 250 * (1 - r / (n * step * 0.45)) + 8 * fbm(x / 60, y / 60, 3, 5);
+  }
   log(`loaded ${path.basename(src8)}; grid ${n}^2 at (${oi},${oj}); ${THREADS} threads`);
 
   // --- masks -> protection P and ice at the fine grid ---
@@ -502,6 +603,7 @@ if (isMainThread) {
       const i = y * n + x;
       if (H0[i] < -20) continue;
       const wx = -S / 2 + (oi + x) * step;
+      if (argv.includes("--synth")) { P[i] = 255; continue; }
       const w = msamp(watD, wx, wz), pd = msamp(padm, wx, wz);
       const p = (1 - smooth(0.05, 0.6, w)) * (1 - smooth(0.02, 0.5, pd));
       P[i] = Math.round(255 * p);
@@ -510,7 +612,7 @@ if (isMainThread) {
     }
   }
   // Lakes: the basin below its level, plus a 2 m shore, is left alone.
-  for (const L of world.lakes) {
+  if (!argv.includes("--synth")) for (const L of world.lakes) {
     const ia = Math.max(0, Math.floor((L.x0 + S / 2) / step) - oi - 2), ib = Math.min(n - 1, Math.ceil((L.x0 + L.n * L.s + S / 2) / step) - oi + 2);
     const ja = Math.max(0, Math.floor((L.z0 + S / 2) / step) - oj - 2), jb = Math.min(n - 1, Math.ceil((L.z0 + L.n * L.s + S / 2) / step) - oj + 2);
     for (let y = ja; y <= jb; y++) for (let x = ia; x <= ib; x++) {
@@ -573,7 +675,8 @@ if (isMainThread) {
     }
     const before = new Float32Array(new Float32Array(Ls));
     { let bad = 0; for (let k = 0; k < before.length; k++) if (!Number.isFinite(before[k])) bad++; if (bad) log(`level ${li}: ${bad} non-finite before`); }
-    const Fls = li > 0 ? sab(nl * nl * 4) : null;
+    const Fls = lv.density > 0 ? sab(nl * nl * 4) : null;
+    if (lv.spl) streamPower(new Float32Array(Ls), new Uint8Array(Els), new Uint8Array(Wls), nl, cell, lv.spl);
     // tiles
     const T = lv.tile, nt = Math.ceil(nl / T);
     const L = new Float32Array(Ls), EL = new Uint8Array(Els);
@@ -585,7 +688,7 @@ if (isMainThread) {
       }
       if (c) land.push({ tx, ty, c });
     }
-    for (let r = 0; r < PRM.rounds; r++) for (let ph = 0; ph < 4; ph++) {
+    if (lv.density > 0) for (let r = 0; r < PRM.rounds; r++) for (let ph = 0; ph < 4; ph++) {
       const jobs = land.filter((t) => ((t.tx & 1) | ((t.ty & 1) << 1)) === ph).map((t) => ({
         op: "drops", H: Ls, E: Els, W: Wls, F: Fls, n: nl, cell, tx: t.tx, ty: t.ty, T,
         count: Math.round(lv.density * t.c / PRM.rounds), p: lv,
@@ -608,7 +711,8 @@ if (isMainThread) {
       }
     }
     if (Fls) flowLevels.push({ F: new Float32Array(Fls), nl, f, density: lv.density });
-    let mx = 0; for (let k = 0; k < nl * nl; k++) mx = Math.max(mx, Math.abs(L[k] - before[k]));
+    let mx = 0, mk = 0; for (let k = 0; k < nl * nl; k++) { const v = Math.abs(L[k] - before[k]); if (v > mx) { mx = v; mk = k; } }
+    log(`  largest raw change ${(L[mk] - before[mk]).toFixed(1)} m at cell ${mk % nl},${(mk / nl) | 0} (was ${before[mk].toFixed(1)} m)`);
     log(`hydraulic level ${li} (${nl}^2, ${cell.toFixed(1)} m): ${land.length} tiles, max change ${mx.toFixed(1)} m`);
   }
   log(`droplet steps ${(totalSteps / 1e6).toFixed(1)} M`);
@@ -684,15 +788,8 @@ if (isMainThread) {
   else {
     const [hi, hj] = toIJ(0, -5850); spots.push({ name: "home_hearthholm", i: hi, j: hj });
     // steepest stretch of coast on the land the game names (cells just above the sea, steep)
-    let best = -1, bi = 0, bj = 0;
-    for (let y = 300; y < n - 300; y += 7) for (let x = 300; x < n - 300; x += 7) {
-      const i = y * n + x; if (H0[i] < 20 || H0[i] > 60) continue;
-      let lo = 1e9; for (const o of [-6, 6, -6 * n, 6 * n]) lo = Math.min(lo, H0[i + o]);
-      if (lo > 0) continue;
-      const g = (H0[i] - lo) / (6 * step);
-      if (g > best) { best = g; bi = x; bj = y; }
-    }
-    spots.push({ name: "steep_coast", i: bi, j: bj });
+    // the densest stretch of >50 m ground within 33 m of the sea (Wildwing Cliffs)
+    const [ci, cj] = toIJ(-8681, -19311); spots.push({ name: "steep_coast_wildwing", i: ci, j: cj });
     const [mi, mj] = toIJ(-11925, -6750); spots.push({ name: "mountain_wyrmspire", i: mi, j: mj });
   }
   for (const sp of spots) {
@@ -708,7 +805,7 @@ if (isMainThread) {
   }
   log("previews written", spots.map((s) => `${s.name}@(${s.web.x},${s.web.z})`).join(" "));
 
-  if (CROP) {
+  if (CROP || argv.includes("--no-write")) {
     const dump = argv.includes("--dump");
     if (dump) { fs.writeFileSync(path.join(PREV, "crop_h0.f32"), Buffer.from(H0.buffer)); fs.writeFileSync(path.join(PREV, "crop_h1.f32"), Buffer.from(OUT.buffer)); }
     for (const w of workers) w.terminate(); log("crop done"); process.exit(0);
