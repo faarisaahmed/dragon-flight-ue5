@@ -75,7 +75,9 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 	// The Poly Haven cliff and rock scans are already life-size (cliff pieces 20-50 m), so
 	// they are scattered near 1:1 and sparsely; the terrain is the landform, they are detail.
 	Add("Rocks",    EDragonScatterKind::Rock,     "rocks",       12.f,  256.f, 5000.f, FVector2D(0.6f, 1.6f), 0.4f, 0.7f, true,  true,  41);
-	Add("Cliffs",   EDragonScatterKind::Cliff,    "cliffs",      0.5f,  512.f, 12000.f, FVector2D(0.7f, 1.3f), 3.0f, 0.9f, true, true,  53);
+	// Cliff pieces stand upright and are set into steep faces as a skin of real rock
+	// (the 5.5 m landscape grid can only round a sea cliff off); see BuildTile.
+	Add("Cliffs",   EDragonScatterKind::Cliff,    "cliffs",      5.0f,  512.f, 12000.f, FVector2D(0.8f, 1.9f), 2.0f, 0.15f, true, true,  53);
 	Add("Ground",   EDragonScatterKind::Ground,   "ground",      2600.f, 32.f, 160.f,  FVector2D(0.7f, 1.3f), 0.05f, 0.6f, false, false, 67);
 }
 
@@ -217,7 +219,8 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 		break;
 	case EDragonScatterKind::Cliff:
 		if (H < -2.f) return false;
-		P = Smooth(Slope, 0.62f, 0.92f);
+		P = Smooth(Slope, 0.48f, 0.82f);
+		OutScale = 1.f + 0.5f * Smooth(Slope, 0.7f, 0.95f);   // the sheerest faces get the biggest pieces
 		break;
 	case EDragonScatterKind::Ground:
 		if (H < 1.5f) return false;
@@ -370,7 +373,21 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 				const FVector Up = FMath::Lerp(FVector::UpVector, N, L.AlignToSlope).GetSafeNormal();
 				Rot = FQuat::FindBetweenNormals(FVector::UpVector, Up) * Rot;
 			}
-			const FVector Pos(X * M, Y * M, (H - L.SinkM * Scale) * M);
+			FVector Pos(X * M, Y * M, (H - L.SinkM * Scale) * M);
+			if (L.Kind == EDragonScatterKind::Cliff)
+			{
+				// Set the piece into the face: back along the horizontal normal by a third of its
+				// width, so the hill swallows its back and only the weathered front stands proud.
+				const FVector N = GroundNormal(X, Y);
+				const FVector2D Out(N.X, N.Y);
+				if (!Out.IsNearlyZero(0.05))
+				{
+					const FBoxSphereBounds B = Meshes[MeshIdx]->GetBounds();
+					const double Half = FMath::Max(B.BoxExtent.X, B.BoxExtent.Y) * Scale;
+					const FVector2D In = -Out.GetSafeNormal() * Half * 0.35;
+					Pos.X += In.X; Pos.Y += In.Y;
+				}
+			}
 			PerMesh[MeshIdx].Add(FTransform(Rot, Pos, FVector(Scale)));
 		}
 	}

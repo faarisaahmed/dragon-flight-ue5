@@ -510,7 +510,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		// Light through the wing takes the skin's own colour: a dark hide passes a dim, deep red,
 		// never a bright orange panel. Gain lifts the (linear, very dark) albedo back into range.
 		UMaterialExpressionScalarParameter* Gain = Expr<UMaterialExpressionScalarParameter>(M, -600, -500);
-		Gain->ParameterName = TEXT("GlowGain"); Gain->DefaultValue = 8.f;
+		Gain->ParameterName = TEXT("GlowGain"); Gain->DefaultValue = 3.5f;
 		UMaterialExpressionMultiply* Alb = Expr<UMaterialExpressionMultiply>(M, -450, -300);
 		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), Alb, TEXT("A"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Gain, TEXT(""), Alb, TEXT("B"));
@@ -982,6 +982,16 @@ bool FDragonArchipelagoBuilder::ImportDragon()
 					for (const FTextureParameterValue& TP : Src->TextureParameterValues)
 						if (TP.ParameterValue) { BaseTex = TP.ParameterValue; break; }
 			}
+			// Colour maps must be sRGB: Interchange imports a second reference to the same image
+			// (renamed Image_01 etc.) as linear, which washes a black hide out to tan.
+			if (UTexture2D* T2 = Cast<UTexture2D>(BaseTex))
+				if (!T2->SRGB || T2->CompressionSettings != TC_Default)
+				{
+					T2->SRGB = true; T2->CompressionSettings = TC_Default;
+					T2->PostEditChange();
+					UEditorAssetLibrary::SaveLoadedAsset(T2, false);
+					Log(FString::Printf(TEXT("  %s -> sRGB colour"), *T2->GetName()));
+				}
 			const bool bWing = Slot.Contains(TEXT("membrane"), ESearchCase::IgnoreCase) || Slot.Contains(TEXT("wing"), ESearchCase::IgnoreCase);
 			UMaterial* Parent = bWing ? Wing : Skin;
 			if (!Parent) continue;
