@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogDragon, Log, All);
+DRAGONFLIGHT_API DECLARE_LOG_CATEGORY_EXTERN(LogDragon, Log, All);
 
 // The web game measured in metres with Y up. Unreal measures centimetres with
 // Z up. Every conversion goes through these so there is exactly one mapping:

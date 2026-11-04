@@ -63,7 +63,7 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scatter") TArray<FDragonScatterLayer> Layers;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scatter") TArray<FDragonScatterLayer> ScatterLayers;
 
 	/** Milliseconds per frame the generator may spend. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scatter") float BudgetMs = 3.f;
@@ -71,7 +71,7 @@ public:
 	/** Multiplies every radius; set from the graphics preset (foliage quality). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scatter") float DistanceScale = 1.f;
 
-	/** Fills Layers with sensible defaults from meshes found under /Game/World/Models/<group>/. Editor builder calls this. */
+	/** Fills ScatterLayers with sensible defaults from meshes found under /Game/World/Models/<group>/. Editor builder calls this. */
 	void SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>>& MeshesByGroup);
 
 private:

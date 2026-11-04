@@ -48,7 +48,7 @@ ADragonScatter::ADragonScatter()
 
 void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>>& ByGroup)
 {
-	Layers.Reset();
+	ScatterLayers.Reset();
 	auto Add = [&](FName Name, EDragonScatterKind Kind, FName Group, float PerHa, float Tile, float Radius, FVector2D Scale, float Sink, float Align, bool bShadow, bool bCollide, int32 Seed)
 	{
 		const TArray<TSoftObjectPtr<UStaticMesh>>* Meshes = ByGroup.Find(Group);
@@ -56,7 +56,7 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 		FDragonScatterLayer L;
 		L.Name = Name; L.Kind = Kind; L.Meshes = *Meshes; L.PerHectare = PerHa; L.TileM = Tile; L.RadiusM = Radius;
 		L.ScaleRange = Scale; L.SinkM = Sink; L.AlignToSlope = Align; L.bCastShadow = bShadow; L.bCollide = bCollide; L.Seed = Seed;
-		Layers.Add(L);
+		ScatterLayers.Add(L);
 	};
 	//   name        kind                          group          /ha    tile   radius  scale                 sink  align shadow collide seed
 	Add("Trees",    EDragonScatterKind::Tree,     "trees",       140.f, 256.f, 9000.f, FVector2D(0.8f, 1.5f), 0.4f, 0.f, true,  false, 11);
@@ -78,10 +78,10 @@ void ADragonScatter::BeginPlay()
 			WorldSizeM = WS->GetTerrainSize() / M;
 		}
 	}
-	LayerMeshes.SetNum(Layers.Num());
-	for (int32 i = 0; i < Layers.Num(); ++i)
+	LayerMeshes.SetNum(ScatterLayers.Num());
+	for (int32 i = 0; i < ScatterLayers.Num(); ++i)
 	{
-		for (const TSoftObjectPtr<UStaticMesh>& S : Layers[i].Meshes)
+		for (const TSoftObjectPtr<UStaticMesh>& S : ScatterLayers[i].Meshes)
 		{
 			if (UStaticMesh* Mesh = S.LoadSynchronous())
 			{
@@ -235,7 +235,7 @@ FVector ADragonScatter::ViewPointM() const
 void ADragonScatter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (Layers.Num() == 0 || LayerMeshes.Num() != Layers.Num()) return;
+	if (ScatterLayers.Num() == 0 || LayerMeshes.Num() != ScatterLayers.Num()) return;
 
 	const FVector View = ViewPointM();
 	PlanTimer -= DeltaSeconds;
@@ -251,7 +251,7 @@ void ADragonScatter::Tick(float DeltaSeconds)
 		TArray<FTileKey> ToDrop;
 		for (const TPair<FTileKey, FTile>& T : Tiles)
 		{
-			const FDragonScatterLayer& L = Layers[T.Key.Layer];
+			const FDragonScatterLayer& L = ScatterLayers[T.Key.Layer];
 			const FVector2D C((T.Key.X + 0.5) * L.TileM, (T.Key.Y + 0.5) * L.TileM);
 			if (FVector2D::Distance(C, FVector2D(View)) > L.RadiusM * QS * AltBoost * 1.15f + L.TileM) ToDrop.Add(T.Key);
 		}
@@ -259,9 +259,9 @@ void ADragonScatter::Tick(float DeltaSeconds)
 
 		// Queue missing tiles, nearest first.
 		Queue.Reset();
-		for (int32 Li = 0; Li < Layers.Num(); ++Li)
+		for (int32 Li = 0; Li < ScatterLayers.Num(); ++Li)
 		{
-			const FDragonScatterLayer& L = Layers[Li];
+			const FDragonScatterLayer& L = ScatterLayers[Li];
 			if (LayerMeshes[Li].Num() == 0) continue;
 			const float R = L.RadiusM * QS * AltBoost;
 			const int32 X0 = FMath::FloorToInt((View.X - R) / L.TileM), X1 = FMath::FloorToInt((View.X + R) / L.TileM);
@@ -280,8 +280,8 @@ void ADragonScatter::Tick(float DeltaSeconds)
 		}
 		Queue.Sort([&](const FTileKey& A, const FTileKey& B)
 		{
-			const FDragonScatterLayer& LA = Layers[A.Layer];
-			const FDragonScatterLayer& LB = Layers[B.Layer];
+			const FDragonScatterLayer& LA = ScatterLayers[A.Layer];
+			const FDragonScatterLayer& LB = ScatterLayers[B.Layer];
 			const double DA = FVector2D::Distance(FVector2D((A.X + 0.5) * LA.TileM, (A.Y + 0.5) * LA.TileM), FVector2D(View)) / LA.RadiusM;
 			const double DB = FVector2D::Distance(FVector2D((B.X + 0.5) * LB.TileM, (B.Y + 0.5) * LB.TileM), FVector2D(View)) / LB.RadiusM;
 			return DA < DB;
@@ -301,7 +301,7 @@ void ADragonScatter::Tick(float DeltaSeconds)
 
 void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 {
-	const FDragonScatterLayer& L = Layers[Li];
+	const FDragonScatterLayer& L = ScatterLayers[Li];
 	const TArray<UStaticMesh*>& Meshes = LayerMeshes[Li];
 	FTile& Tile = Tiles.Add(FTileKey{ Li, TX, TY });
 	if (Meshes.Num() == 0) return;

@@ -203,8 +203,8 @@ ADragonSky* ADragonSky::Get(const UObject* WorldContext)
 	if (!WorldContext) return nullptr;
 	UWorld* World = WorldContext->GetWorld();
 	if (!World) return nullptr;
-	for (TActorIterator<ADragonSky> It(World); It; ++It) return *It;
-	return nullptr;
+	TActorIterator<ADragonSky> It(World);
+	return It ? *It : nullptr;
 }
 
 void ADragonSky::SetWeather(EDragonWeather NewWeather, bool bInstant)

@@ -609,12 +609,12 @@ TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>> FDragonArchipelagoBuilder::Impo
 					bChanged = true;
 				}
 				// Nanite everything; foliage keeps its area as it simplifies.
-				// VERIFY(5.5): direct NaniteSettings access may be deprecated in favour of
-				// GetNaniteSettings()/SetNaniteSettings(); if it is private, copy, edit and call SetNaniteSettings.
-				PRAGMA_DISABLE_DEPRECATION_WARNINGS
-				Mesh->NaniteSettings.bEnabled = true;
-				Mesh->NaniteSettings.bPreserveArea = Group == TEXT("trees") || Group == TEXT("ground");
-				PRAGMA_ENABLE_DEPRECATION_WARNINGS
+				{
+					FMeshNaniteSettings NS = Mesh->GetNaniteSettings();
+					NS.bEnabled = true;
+					NS.ShapePreservation = (Group == TEXT("trees") || Group == TEXT("ground")) ? ENaniteShapePreservation::PreserveArea : ENaniteShapePreservation::None;
+					Mesh->SetNaniteSettings(NS);
+				}
 				if (Group == TEXT("rocks") || Group == TEXT("cliffs")) Mesh->SetCustomizedCollision(false);
 				Mesh->Build(false);
 				Mesh->PostEditChange();
@@ -748,9 +748,8 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 		HeightData.Add(FGuid(), MoveTemp(Heights));
 		TMap<FGuid, TArray<FLandscapeImportLayerInfo>> LayerData;
 		LayerData.Add(FGuid(), TArray<FLandscapeImportLayerInfo>());
-		// VERIFY(5.5): ALandscapeProxy::Import(Guid, MinX, MinY, MaxX, MaxY, NumSubsections, SubsectionSizeQuads,
-		// HeightData, HeightmapFileName, LayerInfos, AlphamapType[, ImportLayers]) — check the trailing params.
-		Landscape->Import(FGuid::NewGuid(), 0, 0, Res - 1, Res - 1, Sections, QuadsPerSection, HeightData, *File, LayerData, ELandscapeImportAlphamapType::Additive);
+		Landscape->Import(FGuid::NewGuid(), 0, 0, Res - 1, Res - 1, Sections, QuadsPerSection, HeightData, *File, LayerData, ELandscapeImportAlphamapType::Additive,
+			TArrayView<const FLandscapeLayer>());
 		if (ULandscapeInfo* Info = Landscape->GetLandscapeInfo()) Info->UpdateLayerInfoMap(Landscape);
 		Landscape->RegisterAllComponents();
 		FFileHelper::SaveStringToFile(FString::FromInt(Res), *(UDragonWorldSubsystem::DataDir() / TEXT("LandscapeRes.txt")));
