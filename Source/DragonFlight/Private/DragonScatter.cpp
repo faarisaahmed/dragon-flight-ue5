@@ -349,7 +349,7 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 		if (PerMesh[m].Num() == 0) continue;
 		UHierarchicalInstancedStaticMeshComponent* C = NewObject<UHierarchicalInstancedStaticMeshComponent>(this, NAME_None, RF_Transient);
 		C->SetStaticMesh(Meshes[m]);
-		C->SetMobility(EComponentMobility::Static);
+		C->SetMobility(EComponentMobility::Movable); // created at runtime under a movable root
 		C->SetCollisionEnabled(L.bCollide ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
 		C->SetCastShadow(L.bCastShadow);
 		C->bAffectDistanceFieldLighting = L.Kind != EDragonScatterKind::Ground;

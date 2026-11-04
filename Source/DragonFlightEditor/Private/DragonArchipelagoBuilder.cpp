@@ -90,7 +90,16 @@ namespace
 	UMaterial* NewMaterial(const FString& Name)
 	{
 		UMaterial* M = CreateOrLoad<UMaterial, UMaterialFactoryNew>(MatRoot, Name, [](UMaterialFactoryNew*) {});
-		if (M) UMaterialEditingLibrary::DeleteAllMaterialExpressions(M);
+		if (M)
+		{
+			UMaterialEditingLibrary::DeleteAllMaterialExpressions(M);
+			// Some node types (custom outputs such as the Single Layer Water output) can
+			// survive that; a rebuilt material must start empty or it gains duplicates.
+			TArray<UMaterialExpression*> Left(M->GetExpressions());
+			for (UMaterialExpression* E : Left) if (E) UMaterialEditingLibrary::DeleteMaterialExpression(M, E);
+			if (M->GetExpressions().Num() > 0)
+				UE_LOG(LogDragon, Warning, TEXT("[Build] %s still has %d nodes after clearing"), *Name, M->GetExpressions().Num());
+		}
 		return M;
 	}
 
@@ -533,12 +542,15 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 	// Five Gerstner swells (metres), running with the prevailing wind; shared by the
 	// displacement and the normal so the lighting matches the shape exactly.
 	static const TCHAR* GWaves = TEXT(
-		"const float4 Wv[5] = {\n"
-		"  float4( 0.88,  0.47, 92.0, 0.55),\n"
-		"  float4( 0.97,  0.24, 57.0, 0.34),\n"
-		"  float4( 0.62,  0.79, 35.0, 0.20),\n"
-		"  float4( 0.99, -0.12, 21.0, 0.11),\n"
-		"  float4( 0.73,  0.68, 13.0, 0.06) };\n");
+		"const float4 Wv[8] = {\n"
+		"  float4( 0.883,  0.469, 97.0, 0.52),\n"
+		"  float4( 0.978,  0.208, 61.0, 0.31),\n"
+		"  float4( 0.574,  0.819, 43.0, 0.21),\n"
+		"  float4( 0.995, -0.100, 29.0, 0.13),\n"
+		"  float4( 0.342,  0.940, 19.0, 0.08),\n"
+		"  float4( 0.906, -0.423, 12.5, 0.05),\n"
+		"  float4( 0.669,  0.743,  8.3, 0.03),\n"
+		"  float4(-0.139,  0.990,  5.1, 0.018) };\n");
 	auto MakeWater = [&](const TCHAR* Name, bool bSea)
 	{
 		UMaterial* M = NewMaterial(Name);
@@ -584,10 +596,10 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float fade = saturate((Half * 0.94 - r) / (Half * 0.5)) * Amp;\n"
 			"if (fade <= 0.0) return 0;\n"
 			"float3 off = 0;\n"
-			"for (int i = 0; i < 5; i++) {\n"
+			"for (int i = 0; i < 8; i++) {\n"
 			"  float2 d = Wv[i].xy; float L = Wv[i].z; float A = Wv[i].w * fade;\n"
 			"  float k = 6.2832 / L; float c = sqrt(9.81 / k); float f = k * (dot(d, p.xy) - c * T);\n"
-			"  float Q = saturate(0.55 / (k * Wv[i].w * 5.0));\n"
+			"  float Q = saturate(0.55 / (k * Wv[i].w * 8.0));\n"
 			"  off.xy += Q * A * d * cos(f); off.z += A * sin(f); }\n"
 			"return off * 100.0;\n");
 		Disp->PostEditChange();
@@ -614,10 +626,10 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float fade = saturate((Half * 0.94 - r) / (Half * 0.5)) * Amp;\n"
 			// swell normal and height
 			"float3 n = float3(0, 0, 1); float hz = 0;\n"
-			"for (int i = 0; i < 5; i++) {\n"
+			"for (int i = 0; i < 8; i++) {\n"
 			"  float2 d = Wv[i].xy; float L = Wv[i].z; float A = Wv[i].w * fade;\n"
 			"  float k = 6.2832 / L; float c = sqrt(9.81 / k); float f = k * (dot(d, p.xy) - c * T);\n"
-			"  float Q = saturate(0.55 / (k * Wv[i].w * 5.0));\n"
+			"  float Q = saturate(0.55 / (k * Wv[i].w * 8.0));\n"
 			"  n.xy -= d * k * A * cos(f); n.z -= Q * k * A * sin(f); hz += A * sin(f); }\n"
 			// beyond the grid the swell still reads in the lighting, at half strength
 			"float far = (1.0 - fade) * Amp * 0.5;\n"

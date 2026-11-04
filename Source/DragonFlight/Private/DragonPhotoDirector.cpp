@@ -69,6 +69,8 @@ void ADragonPhotoDirector::PlanShots()
 	Shots.Reset();
 	FShot Chase; Chase.Name = TEXT("00_chase"); Chase.bChase = true; Chase.Hours = 15.5f;
 	Shots.Add(Chase);
+	FShot Close; Close.Name = TEXT("00b_dragon"); Close.bDragonClose = true; Close.Hours = 15.5f;
+	Shots.Add(Close);
 
 	const UDragonWorldSubsystem* W = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDragonWorldSubsystem>() : nullptr;
 	if (!W) return;
@@ -140,7 +142,20 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 	}
 	APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
 	if (!PC) return;
-	if (S.bChase)
+	if (S.bDragonClose && Camera)
+	{
+		if (APawn* P = PC->GetPawn())
+		{
+			P->CustomTimeDilation = 0.f; // hold the pose for a sharp portrait
+			const FVector At = P->GetActorLocation() + FVector(0, 0, 100);
+			const FVector F = P->GetActorForwardVector(), R = P->GetActorRightVector();
+			const FVector From = At + F * 1100.0 + R * 850.0 + FVector(0, 0, 260);
+			Camera->SetActorLocationAndRotation(From, (At - From).Rotation());
+			Camera->GetCameraComponent()->SetFieldOfView(40.f);
+			PC->SetViewTarget(Camera);
+		}
+	}
+	else if (S.bChase)
 	{
 		if (APawn* P = PC->GetPawn())
 		{
@@ -150,6 +165,7 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 	}
 	else if (Camera)
 	{
+		Camera->GetCameraComponent()->SetFieldOfView(60.f);
 		Camera->SetActorLocationAndRotation(S.Location, S.Rotation);
 		PC->SetViewTarget(Camera);
 	}
