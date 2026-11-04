@@ -8,7 +8,7 @@ hardware ray tracing, Nanite, virtual shadow maps.
 1. **Access**: the repo is private. Ask Faaris to add your GitHub account as a
    collaborator, then clone it (GitHub Desktop is fine). Install
    [Git LFS](https://git-lfs.com) first.
-2. **Unreal Engine 5.5** (or newer 5.x) from the Epic Games Launcher → Unreal
+2. **Unreal Engine 5.8** (or newer 5.x) from the Epic Games Launcher → Unreal
    Engine → Library → +. Default install folder is fine.
 3. **Visual Studio 2022** (Community is free) with the workload
    *Game development with C++* (it includes the Windows SDK). Needed because the
@@ -45,5 +45,5 @@ See the in-game card (F1). Keyboard + mouse and DualSense/Xbox pads both work.
 
 Send the newest file in `Saved\Logs\` to Faaris. Most likely culprits in this
 early version: a compile error after an engine version mismatch (we build on
-5.5), or the build step failing on a missing download (re-run `Setup.bat`; it
+5.8), or the build step failing on a missing download (re-run `Setup.bat`; it
 skips what's already there).

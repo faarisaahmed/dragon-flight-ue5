@@ -11,4 +11,4 @@ virtual shadow maps, volumetric clouds, a real day/night cycle and weather.
 - **How the world is made:** `Docs/World.md` (baked from the web game's own terrain code)
 - **Flight model:** `Docs/FlightModel_FromWeb.md` (every constant, ported line for line)
 
-Built against **UE 5.5** (the newest version the dev Mac can run); opens in later 5.x.
+Built against **UE 5.8** (developed on an M4 Pro Mac mini).

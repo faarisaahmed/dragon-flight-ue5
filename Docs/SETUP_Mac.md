@@ -1,18 +1,23 @@
 # Setting up on the Mac (dev machine)
 
-The dev Mac is an M1 on macOS 13.5, which caps us at **UE 5.5** (5.6+ needs
-macOS 14). M1 has no Nanite or virtual shadow maps and only software Lumen, so
-the Mac shows a reduced picture; the Windows PC shows the real one.
+Development moved to the **Mac mini** (M4 Pro, 24 GB, macOS 26), which runs
+**UE 5.8**. The old M1 (macOS 13.5) can only run UE 5.5, so it is no longer
+used for the engine. A Mac still shows a reduced picture compared with the
+Windows PC (no DX12 hardware ray tracing path), so judge final looks there.
 
-1. Install the Epic Games Launcher: `brew install --cask epic-games`
-   (asks for your password), sign in, install **UE 5.5** with only the
-   macOS target platform ticked (~45 GB).
-2. Xcode 15.2+ must be selected: `sudo xcode-select -s /Applications/Xcode.app`.
-3. Terrain: `python3 Tools/fetch_world.py` (or bake it: `node Tools/WorldBake/bake.mjs --res 4033`).
-4. Art: `python3 Tools/fetch_assets.py`.
-5. Build + world:
+1. Epic Games Launcher → sign in → Unreal Engine → Library → **+** → **5.8** →
+   Options: macOS only → install to `/Users/Shared/Epic Games` (~40 GB).
+   - Greyed-out **+**: the account has no Unreal licence yet. Accept the EULA at
+     unrealengine.com (or click Download there), sign out of the launcher, ⌘Q, reopen.
+   - **IS-0007** on install: the launcher didn't create
+     `~/Library/Application Support/Epic/EpicGamesLauncher/Data/Manifests/Pending`.
+     Create it, delete the half-made `UE_5.8` folder, install again.
+2. Xcode: UE 5.8 wants **Xcode 26.1.1** (26.4+ is not compatible). Install it beside
+   the App Store Xcode with `brew install xcodes && xcodes install 26.1.1 --experimental-unxip --select`.
+3. Data: `python3 Tools/fetch_world.py` (terrain + dragon) and `python3 Tools/fetch_assets.py` (CC0 art).
+4. Build + world:
    ```sh
-   UE=/Users/Shared/Epic\ Games/UE_5.5
+   UE=/Users/Shared/Epic\ Games/UE_5.8
    "$UE/Engine/Build/BatchFiles/Mac/Build.sh" DragonFlightEditor Mac Development -Project="$PWD/DragonFlight.uproject"
    "$UE/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor" "$PWD/DragonFlight.uproject" -run=BuildArchipelago -Res=4033 -unattended
    open "$UE/Engine/Binaries/Mac/UnrealEditor.app" --args "$PWD/DragonFlight.uproject"

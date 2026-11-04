@@ -6,21 +6,21 @@ REM   2. compiles the C++ (needs Visual Studio 2022 with "Game development with 
 REM   3. builds the Archipelago map (landscape, water, sky, forests)
 REM   4. opens the editor - press Play (Alt+P)
 REM
-REM Usage:  Setup.bat                (UE 5.5 in the default folder, 8k terrain)
+REM Usage:  Setup.bat                (UE 5.8 in the default folder, 8k terrain)
 REM         Setup.bat max            (16k terrain + 8k ground textures: for a big GPU)
-REM         set UE_ROOT=D:\Epic\UE_5.5 & Setup.bat
+REM         set UE_ROOT=D:\Epic\UE_5.8 & Setup.bat
 REM ---------------------------------------------------------------------------
 setlocal
 cd /d "%~dp0"
 set PROJECT=%~dp0DragonFlight.uproject
 
 if "%UE_ROOT%"=="" (
-  for %%V in (5.8 5.7 5.6 5.5) do (
+  for %%V in (5.9 5.8) do (
     if exist "C:\Program Files\Epic Games\UE_%%V\Engine\Binaries\Win64\UnrealEditor.exe" if "%UE_ROOT%"=="" set "UE_ROOT=C:\Program Files\Epic Games\UE_%%V"
   )
 )
 if "%UE_ROOT%"=="" (
-  echo Could not find Unreal Engine. Install UE 5.5+ from the Epic Games Launcher, or set UE_ROOT.
+  echo Could not find Unreal Engine. Install UE 5.8 from the Epic Games Launcher, or set UE_ROOT.
   exit /b 1
 )
 echo Using %UE_ROOT%

@@ -6,7 +6,7 @@ _Last updated: 2026-11-02 (first overnight session)._
 
 Everything below has been **written but not yet compiled or run** — Unreal
 Engine isn't installed on the dev Mac yet (the Epic launcher needs a login). The
-first job of the next session is to install UE 5.5, compile, fix what the
+first job of the next session is to install UE 5.8 on the Mac mini, compile, fix what the
 compiler finds, and see it.
 
 ## Done
@@ -27,7 +27,7 @@ compiler finds, and see it.
 
 ## Next
 
-1. Install UE 5.5 on the M1, compile, fix errors, run the builder at 4033, look at it.
+1. UE 5.8 on the Mac mini (installing 2026-11-03): compile, fix errors, run the builder at 4033, look at it.
 2. Wire the volumetric cloud material's parameters to the weather (the sky logs their names).
 3. Rain and storm (Niagara), lightning, wind audio, music.
 4. Water polish: river widths/flow, surf on rocks, underwater.
