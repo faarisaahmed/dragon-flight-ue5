@@ -138,9 +138,12 @@ def cottage_b(rng):
 
 
 def turf_unit(m, rng, x_f, y0, L_in, W_in, Hw=1.7, pitch=40, T_base=1.6, T_top=0.9, sides=(True, True),
-              front='door', carve='none', back=True, grass=80):
+              front='door', carve='none', back=True, grass=80, coarse=False):
     """One Icelandic-style turf house: sod walls on three sides with rounded back corners,
-    a turf roof running down onto them, and a tarred timber front gable at x = x_f."""
+    a turf roof running down onto them, and a tarred timber front gable at x = x_f.
+    coarse: lighter sod-wall mesh for rows of several houses."""
+    wk = dict(dh=0.05, grass_top=30, grass_face=3.0) if coarse else {}
+    ds = 0.09 if coarse else 0.06
     cy = W_in / 2 + 0.55
     x_b = x_f - L_in - 0.55
     He = Hw + 0.1
@@ -155,17 +158,17 @@ def turf_unit(m, rng, x_f, y0, L_in, W_in, Hw=1.7, pitch=40, T_base=1.6, T_top=0
         return Hw + (hg - Hw) * w
     if back and sides[0] and sides[1]:
         corners = [V((x_f, cy, 0)), V((x_b, cy, 0)), V((x_b, -cy, 0)), V((x_f, -cy, 0))]
-        turf_wall(m, fillet_path(corners, 1.3), rng, H, T_base, T_top)
+        turf_wall(m, fillet_path(corners, 1.3, ds=ds), rng, H, T_base, T_top, **wk)
     else:
         if sides[1]:
-            turf_wall(m, fillet_path([V((x_f, cy, 0)), V((x_b - 0.4, cy, 0))], 1.0), rng, lambda p: Hw, T_base, T_top)
+            turf_wall(m, fillet_path([V((x_f, cy, 0)), V((x_b - 0.4, cy, 0))], 1.0, ds=ds), rng, lambda p: Hw, T_base, T_top, **wk)
         if sides[0]:
-            turf_wall(m, fillet_path([V((x_b - 0.4, -cy, 0)), V((x_f, -cy, 0))], 1.0), rng, lambda p: Hw, T_base, T_top)
+            turf_wall(m, fillet_path([V((x_b - 0.4, -cy, 0)), V((x_f, -cy, 0))], 1.0, ds=ds), rng, lambda p: Hw, T_base, T_top, **wk)
         if back:
-            turf_wall(m, fillet_path([V((x_b, cy + 0.5, 0)), V((x_b, -cy - 0.5, 0))], 1.0), rng, H, T_base, T_top,
+            turf_wall(m, fillet_path([V((x_b, cy + 0.5, 0)), V((x_b, -cy - 0.5, 0))], 1.0, ds=ds), rng, H, T_base, T_top, **wk,
                       cap_ends=False)
     roof_frame(m, rf, rng)
-    turf_roof(m, rf, rng, thick=0.26, grass_density=grass, grass_h=0.22, end_taper=(False, True))
+    turf_roof(m, rf, rng, thick=0.26, grass_density=grass, grass_h=0.22, end_taper=(False, True), res=0.18 if coarse else 0.14)
     bargeboards(m, rf, rng, carve=carve, ends=(False, True), top_lift=0.34, ext=0.35 if carve == 'none' else 0.5)
     # timber front gable
     z0 = 0.28
@@ -221,7 +224,7 @@ def turf_b(rng):
         if k == 0:
             sides = (True, True)
         turf_unit(m, rng, 4.0 + xf, yc, L_in, w, Hw=hw, pitch=40 + k * 2, sides=sides, front=front,
-                  back=True, carve='horn' if k == 1 else 'none', grass=45)
+                  back=True, carve='horn' if k == 1 else 'none', grass=14, coarse=True)
         y += 2 * cy
     barrel(m, V((5.3, 1.2, 0)), rng, r=0.28, h=0.75)
     fish_rack(m, frame_from(V((7.5, -6.0, 0)), V((0, 1, 0)), V((-1, 0, 0))), 4.0, rng)
@@ -848,7 +851,7 @@ def hallhouse_b(rng):
     for x in (-8.5, -4.5, 6.0, 9.5):
         window(m, wall_frame(V((x, W / 2 + r * 0.9, z0 + 1.3)), V((0, 1, 0))), 0.55, 0.45, rng, shutter=(x > 0))
     roof_frame(m, rf, rng, purlins=4)
-    turf_roof(m, rf, rng, thick=0.25, grass_density=28, grass_h=0.22)
+    turf_roof(m, rf, rng, thick=0.25, grass_density=40, grass_h=0.22)
     bargeboards(m, rf, rng, carve='scroll', top_lift=0.32, w=0.34, ext=0.8)
     smoke_louvre(m, rf, -5.0, rng)
     smoke_louvre(m, rf, 5.5, rng)

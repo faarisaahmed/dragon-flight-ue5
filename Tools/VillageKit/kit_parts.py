@@ -57,7 +57,7 @@ class GableRoof:
         z = self.Hr(a) - (self.Hr(a) - self.He) * b
         t = (a - self.x0) / (self.L / 2)
         s = max(0.0, 1 - t * t)
-        z -= self.sag * s * (1 - 0.65 * min(b, 1.0))
+        z -= self.sag * s * max(0.25, 1 - 0.65 * b)   # no crease at the wall line
         z += 0.025 * noise.noise(V((a * 0.4 + self.seed, y * 0.4, self.seed)))
         return z
 

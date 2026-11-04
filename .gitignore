@@ -35,3 +35,4 @@ Data/Village/*.glb
 Data/Village/Textures/
 Data/Village/Previews/
 Content/WorldData/
+__pycache__/
