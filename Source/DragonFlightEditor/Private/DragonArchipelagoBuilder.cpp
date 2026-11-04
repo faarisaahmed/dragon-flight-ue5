@@ -551,18 +551,30 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Sheen->PostEditChange();
 		UMaterialExpressionScalarParameter* Amt = Expr<UMaterialExpressionScalarParameter>(M, -700, -400);
 		Amt->ParameterName = TEXT("Sheen"); Amt->DefaultValue = 0.35f;
-		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), Sheen, TEXT("Albedo"));
+		// Hide tint: the web textures were painted for a darker renderer; under a real sun
+		// the black hide needs pulling down to read black.
+		UMaterialExpressionVectorParameter* Tint = Expr<UMaterialExpressionVectorParameter>(M, -700, -550);
+		Tint->ParameterName = TEXT("Tint"); Tint->DefaultValue = FLinearColor(1.f, 1.f, 1.f);
+		UMaterialExpressionMultiply* Tinted = Expr<UMaterialExpressionMultiply>(M, -500, -300);
+		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), Tinted, TEXT("A"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Tint, TEXT(""), Tinted, TEXT("B"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Tinted, TEXT(""), Sheen, TEXT("Albedo"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Amt, TEXT(""), Sheen, TEXT("Amount"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Sheen, TEXT(""), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(N, TEXT("RGB"), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("R"), MP_AmbientOcclusion);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("G"), MP_Roughness);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("B"), MP_Metallic);
+		// Matte hide: a low specular level, or every grazing view toward the sun turns the
+		// near-black skin to a tan sheen.
+		UMaterialExpressionScalarParameter* Spec = Expr<UMaterialExpressionScalarParameter>(M, -350, 200);
+		Spec->ParameterName = TEXT("Specular"); Spec->DefaultValue = 0.06f; // <0.4 F0 also damps the grazing Fresnel term (UE scales it by 50*F0)
+		UMaterialEditingLibrary::ConnectMaterialProperty(Spec, TEXT(""), MP_Specular);
 		// Warm blood-red scatter, kept faint: this is thick hide, not a lizard's ear.
 		UMaterialExpressionVectorParameter* Sss = Expr<UMaterialExpressionVectorParameter>(M, -350, 300);
-		Sss->ParameterName = TEXT("SubsurfaceTint"); Sss->DefaultValue = FLinearColor(2.4f, 0.9f, 0.7f);
+		Sss->ParameterName = TEXT("SubsurfaceTint"); Sss->DefaultValue = FLinearColor(0.7f, 0.28f, 0.24f);
 		UMaterialExpressionScalarParameter* SssAmt = Expr<UMaterialExpressionScalarParameter>(M, -350, 400);
-		SssAmt->ParameterName = TEXT("SubsurfaceAmount"); SssAmt->DefaultValue = 0.18f;
+		SssAmt->ParameterName = TEXT("SubsurfaceAmount"); SssAmt->DefaultValue = 0.1f;
 		// Scatter scaled by the albedo, so near-black hide stays black instead of glowing orange.
 		UMaterialExpressionMultiply* SssC = Expr<UMaterialExpressionMultiply>(M, -150, 300);
 		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), SssC, TEXT("A"));
@@ -969,7 +981,6 @@ bool FDragonArchipelagoBuilder::ImportDragon()
 		// The web model's own colour textures, rendered through our skin and membrane
 		// materials (scale sheen, a little subsurface, light through the wing).
 		UMaterial* Skin = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_DragonSkin.M_DragonSkin")));
-		UMaterial* Wing = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_Membrane.M_Membrane")));
 		for (FSkeletalMaterial& SM : Mesh->GetMaterials())
 		{
 			const FString Slot = SM.MaterialSlotName.ToString();
@@ -993,14 +1004,23 @@ bool FDragonArchipelagoBuilder::ImportDragon()
 					Log(FString::Printf(TEXT("  %s -> sRGB colour"), *T2->GetName()));
 				}
 			const bool bWing = Slot.Contains(TEXT("membrane"), ESearchCase::IgnoreCase) || Slot.Contains(TEXT("wing"), ESearchCase::IgnoreCase);
-			UMaterial* Parent = bWing ? Wing : Skin;
+			// The wing uses the skin material too, with more light let through: the foliage
+			// shading model washed the dark membrane out to tan wherever the sun hit it.
+			UMaterial* Parent = Skin;
 			if (!Parent) continue;
+			// Fresh every time: values set on a reloaded instance were not reaching the render.
+			{
+				const FString Existing = Dest / FString::Printf(TEXT("MI_Dragon_%s"), *Slot);
+				if (UEditorAssetLibrary::DoesAssetExist(Existing)) UEditorAssetLibrary::DeleteAsset(Existing);
+			}
 			UMaterialInstanceConstant* MI = CreateOrLoad<UMaterialInstanceConstant, UMaterialInstanceConstantFactoryNew>(Dest, FString::Printf(TEXT("MI_Dragon_%s"), *Slot),
 				[Parent](UMaterialInstanceConstantFactoryNew* F) { F->InitialParent = Parent; });
 			if (!MI) continue;
 			MI->SetParentEditorOnly(Parent);
 			if (BaseTex) UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, TEXT("BaseColor"), BaseTex);
-			if (bWing) UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Translucency"), FLinearColor(0.30f, 0.09f, 0.05f));
+			if (bWing) UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("SubsurfaceAmount"), 0.15f);
+			if (bWing || Slot == TEXT("acmat_0"))
+				UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), FLinearColor(0.45f, 0.45f, 0.5f));
 			UMaterialEditingLibrary::UpdateMaterialInstance(MI);
 			UEditorAssetLibrary::SaveLoadedAsset(MI, false);
 			SM.MaterialInterface = MI;

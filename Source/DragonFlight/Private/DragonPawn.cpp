@@ -137,6 +137,8 @@ void ADragonPawn::BeginPlay()
 	DragonMesh->SetRelativeRotation(FRotator(0.f, DragonMeshYaw, 0.f));
 	const bool bHasMesh = DragonMesh->GetSkinnedAsset() != nullptr;
 	DragonMesh->SetVisibility(bHasMesh);
+	// The hero is always on screen: keep full detail (and LOD0's materials) at chase distance.
+	DragonMesh->SetForcedLOD(1);
 	StandIn->SetStandInVisible(!bHasMesh);
 	if (bHasMesh)
 	{

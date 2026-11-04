@@ -125,6 +125,9 @@ void ADragonPhotoDirector::PlanShots()
 	H.Rotation = Look(H.Location, Home);
 	H.Hours = 16.5f;
 	Shots.Add(H);
+	// The chase again, last, once everything the dragon uses has certainly compiled.
+	FShot Late = Chase; Late.Name = TEXT("99_chase_late");
+	Shots.Add(Late);
 }
 
 bool ADragonPhotoDirector::Busy() const
