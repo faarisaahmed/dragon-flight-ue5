@@ -28,3 +28,4 @@ Data/Dragon/Previews/
 # dev crops from the world bake tools
 Data/World/CliffPreview/crop_*
 Data/World/ErosionPreview/crop_*
+Data/World/Heightmap.release
