@@ -3,6 +3,8 @@
 #include "DragonGameMode.h"
 #include "DragonSky.h"
 #include "DragonWorldSubsystem.h"
+#include "DragonScatter.h"
+#include "EngineUtils.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Engine/GameInstance.h"
@@ -12,6 +14,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Paths.h"
 #include "UnrealClient.h"
+#include "RenderUtils.h"
 #if WITH_EDITOR
 #include "ShaderCompiler.h"
 #include "TextureCompiler.h"
@@ -28,6 +31,9 @@ void ADragonPhotoDirector::BeginPlay()
 {
 	Super::BeginPlay();
 	OutDir = FPaths::ProjectSavedDir() / TEXT("Screenshots/Auto");
+	UE_LOG(LogDragon, Display, TEXT("[Photo] platform %s: Nanite %d (runtime %d), VSM %d, Lumen GI %d"),
+		*LexToString(GMaxRHIShaderPlatform), UseNanite(GMaxRHIShaderPlatform), DoesRuntimeSupportNanite(GMaxRHIShaderPlatform, true, true),
+		UseVirtualShadowMaps(GMaxRHIShaderPlatform, GMaxRHIFeatureLevel), DoesPlatformSupportLumenGI(GMaxRHIShaderPlatform));
 	IFileManager::Get().MakeDirectory(*OutDir, true);
 
 	int32 Quality = 3;
@@ -46,6 +52,8 @@ void ADragonPhotoDirector::BeginPlay()
 	// Hold the dragon still while shaders compile, so it is still in the air for the chase shot.
 	if (APawn* P = UGameplayStatics::GetPlayerPawn(this, 0)) P->CustomTimeDilation = 0.f;
 
+	// Photos don't need a steady frame rate: let the vegetation fill in quickly.
+	for (TActorIterator<ADragonScatter> It(GetWorld()); It; ++It) It->BudgetMs = 60.f;
 	Camera = GetWorld()->SpawnActor<ACameraActor>();
 	if (Camera)
 	{
@@ -219,6 +227,10 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 		return;
 	}
 
+	// Hold each view until the vegetation around it has been generated.
+	bool bScatterBusy = false;
+	for (TActorIterator<ADragonScatter> It(GetWorld()); It; ++It) bScatterBusy |= It->IsBusy();
+	if (!bShotRequested && bScatterBusy && Timer < 60.f) { Timer += DeltaSeconds * 0.25f; return; }
 	Timer += DeltaSeconds;
 	const FShot& S = Shots[Index];
 	const float Settle = S.bChase ? 4.f : SettleSeconds;

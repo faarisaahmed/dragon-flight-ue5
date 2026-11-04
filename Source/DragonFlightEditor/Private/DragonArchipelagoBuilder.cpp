@@ -37,6 +37,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
 #include "EngineUtils.h"
+#include "RenderUtils.h"
 #include "Animation/Skeleton.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerStart.h"
@@ -1155,6 +1156,16 @@ bool FDragonArchipelagoBuilder::BuildLevel(const FDragonBuildOptions& Options, c
 			TArrayView<const FLandscapeLayer>());
 		if (ULandscapeInfo* Info = Landscape->GetLandscapeInfo()) Info->UpdateLayerInfoMap(Landscape);
 		Landscape->RegisterAllComponents();
+		// Nanite landscape where the platform has it (M2+ Macs, DX12 SM6 PCs): full-resolution
+		// geometry at every distance instead of LOD popping, which is what lets 5 m cliffs read.
+		if (UseNanite(GMaxRHIShaderPlatform))
+		{
+			// bEnableNanite is protected; set it through reflection like the editor's details panel.
+			if (FBoolProperty* P = FindFProperty<FBoolProperty>(ALandscapeProxy::StaticClass(), TEXT("bEnableNanite")))
+				P->SetPropertyValue_InContainer(Landscape, true);
+			Landscape->UpdateNaniteRepresentation(nullptr);
+			Log(TEXT("landscape: Nanite on"));
+		}
 		FFileHelper::SaveStringToFile(FString::FromInt(Res), *(UDragonWorldSubsystem::DataDir() / TEXT("LandscapeRes.txt")));
 		Log(FString::Printf(TEXT("landscape %d x %d at %.2f m/quad"), Res, Res, XY / 100.0));
 	}

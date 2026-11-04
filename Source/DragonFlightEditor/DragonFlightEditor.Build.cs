@@ -14,7 +14,7 @@ public class DragonFlightEditor : ModuleRules
 			"UnrealEd", "Landscape", "LandscapeEditor", "Water", "AssetTools", "AssetRegistry",
 			"MaterialEditor", "Json", "JsonUtilities", "ImageWrapper", "Foliage",
 			"LevelEditor", "EditorScriptingUtilities", "Slate", "SlateCore", "ToolMenus",
-			"MeshDescription", "StaticMeshDescription", "MeshUtilitiesCommon"
+			"MeshDescription", "StaticMeshDescription", "MeshUtilitiesCommon", "RenderCore", "RHI"
 		});
 	}
 }

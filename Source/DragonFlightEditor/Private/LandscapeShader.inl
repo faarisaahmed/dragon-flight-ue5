@@ -58,12 +58,12 @@ float3 C = 0; float3 Nw = 0; float R = 0; float AO = 0;
 	float3 wn = normalize(float3(tn.xy + N.xy, abs(tn.z) * N.z)); \
 	float k = W / wSum; C += c * (TINT) * k; Nw += wn * k; R += saturate(a.g * (RMUL)) * k; AO += a.r * k; }
 
-TOPLAYER(Scree,   6.0, wScree,   float3(0.95, 0.95, 0.97), 1.0)
-TOPLAYER(Grass,   3.0, wGrass,   float3(0.88, 0.95, 0.80) * (0.9 + 0.12 * nz), 1.0)
-TOPLAYER(Heath,   4.0, wHeath,   float3(0.95, 0.92, 0.82) * (0.9 + 0.1 * nz2), 1.0)
-TOPLAYER(Forest,  4.0, wForest,  float3(0.78, 0.78, 0.74), 1.0)
-TOPLAYER(Sand,    5.0, wSand,    float3(0.92, 0.90, 0.86), 1.0)
-TOPLAYER(Shingle, 4.0, wShingle, float3(0.85, 0.86, 0.88), 1.0)
+TOPLAYER(Scree,   6.0, wScree,   float3(0.72, 0.72, 0.74), 1.0)
+TOPLAYER(Grass,   3.0, wGrass,   float3(0.58, 0.74, 0.44) * (0.85 + 0.18 * nz), 1.0)
+TOPLAYER(Heath,   4.0, wHeath,   float3(0.70, 0.70, 0.52) * (0.85 + 0.15 * nz2), 1.0)
+TOPLAYER(Forest,  4.0, wForest,  float3(0.62, 0.62, 0.56), 1.0)
+TOPLAYER(Sand,    5.0, wSand,    float3(0.42, 0.42, 0.44), 1.0)
+TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0)
 TOPLAYER(Snow,    6.0, wSnow,    float3(1.0, 1.0, 1.02), 0.9)
 TOPLAYER(Mud,     3.0, wMud,     float3(0.75, 0.72, 0.70), 0.55)
 
@@ -87,14 +87,14 @@ TOPLAYER(Mud,     3.0, wMud,     float3(0.75, 0.72, 0.70), 0.55)
 	float3 nZ = float3(tZ.xy + N.xy, abs(tZ.z) * N.z);
 	float3 wn = normalize(nX * bw.x + nY * bw.y + nZ * bw.z);
 	float k = wCliff / wSum;
-	C += c * float3(0.86, 0.86, 0.88) * k; Nw += wn * k; R += a.g * k; AO += a.r * k;
+	C += c * float3(0.78, 0.78, 0.80) * k; Nw += wn * k; R += a.g * k; AO += a.r * k;
 }
 
 // ---- Far field: aerial scans take over the albedo with distance ------------
 float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 [branch] if (ff > 0.001)
 {
-	float3 farG = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 70.0).rgb * float3(0.85, 0.95, 0.8);
+	float3 farG = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 70.0).rgb * float3(0.62, 0.76, 0.52);
 	float3 farR = Texture2DSample(FarRockD,  FarRockDSampler,  pm.xy / 60.0).rgb * 0.9;
 	float3 farS = Texture2DSample(FarSnowD,  FarSnowDSampler,  pm.xy / 80.0).rgb;
 	float gG = (wGrass + wHeath + wForest) / wSum, gR = (wCliff + wScree + wSand + wShingle + wMud) / wSum, gS = wSnow / wSum;

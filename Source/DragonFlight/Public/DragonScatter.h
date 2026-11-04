@@ -74,6 +74,9 @@ public:
 	/** Fills ScatterLayers with sensible defaults from meshes found under /Game/World/Models/<group>/. Editor builder calls this. */
 	void SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>>& MeshesByGroup);
 
+	/** Tiles still waiting to be generated. */
+	bool IsBusy() const;
+
 private:
 	struct FTileKey
 	{
@@ -109,6 +112,7 @@ private:
 	double WorldSizeM = 45000.0;
 	FVector LastPlanM = FVector(1e12);
 	float PlanTimer = 0.f;
+	float StatTimer = 5.f;
 
 	UPROPERTY(Transient) TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> Pool;
 };

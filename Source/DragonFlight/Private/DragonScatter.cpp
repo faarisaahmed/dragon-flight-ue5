@@ -51,8 +51,18 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 	ScatterLayers.Reset();
 	auto Add = [&](FName Name, EDragonScatterKind Kind, FName Group, float PerHa, float Tile, float Radius, FVector2D Scale, float Sink, float Align, bool bShadow, bool bCollide, int32 Seed)
 	{
-		const TArray<TSoftObjectPtr<UStaticMesh>>* Meshes = ByGroup.Find(Group);
-		if (!Meshes || Meshes->Num() == 0) return;
+		const TArray<TSoftObjectPtr<UStaticMesh>>* Found = ByGroup.Find(Group);
+		if (!Found || Found->Num() == 0) return;
+		// glTF scans carry their lower LODs as separate meshes: keep only full detail.
+		TArray<TSoftObjectPtr<UStaticMesh>> Filtered;
+		for (const TSoftObjectPtr<UStaticMesh>& S : *Found)
+		{
+			const FString N = S.GetAssetName();
+			if (N.Contains(TEXT("_LOD")) && !N.Contains(TEXT("_LOD0"))) continue;
+			Filtered.Add(S);
+		}
+		const TArray<TSoftObjectPtr<UStaticMesh>>* Meshes = &Filtered;
+		if (Meshes->Num() == 0) return;
 		FDragonScatterLayer L;
 		L.Name = Name; L.Kind = Kind; L.Meshes = *Meshes; L.PerHectare = PerHa; L.TileM = Tile; L.RadiusM = Radius;
 		L.ScaleRange = Scale; L.SinkM = Sink; L.AlignToSlope = Align; L.bCastShadow = bShadow; L.bCollide = bCollide; L.Seed = Seed;
@@ -299,6 +309,27 @@ void ADragonScatter::Tick(float DeltaSeconds)
 		if (!Tiles.Contains(K)) BuildTile(K.Layer, K.X, K.Y);
 	}
 	if (Done > 0) Queue.RemoveAt(0, Done, EAllowShrinking::No);
+
+	StatTimer -= DeltaSeconds;
+	if (StatTimer <= 0.f)
+	{
+		StatTimer = 5.f;
+		TArray<int32> Inst; Inst.SetNumZeroed(ScatterLayers.Num());
+		TArray<int32> NT; NT.SetNumZeroed(ScatterLayers.Num());
+		for (const TPair<FTileKey, FTile>& T : Tiles)
+		{
+			++NT[T.Key.Layer];
+			for (const UHierarchicalInstancedStaticMeshComponent* C : T.Value.Components) if (C) Inst[T.Key.Layer] += C->GetInstanceCount();
+		}
+		FString Msg;
+		for (int32 i = 0; i < ScatterLayers.Num(); ++i) Msg += FString::Printf(TEXT(" %s %d tiles/%d inst (%d meshes);"), *ScatterLayers[i].Name.ToString(), NT[i], Inst[i], LayerMeshes[i].Num());
+		UE_LOG(LogDragon, Display, TEXT("Scatter: queue %d;%s"), Queue.Num(), *Msg);
+	}
+}
+
+bool ADragonScatter::IsBusy() const
+{
+	return Queue.Num() > 0;
 }
 
 void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
