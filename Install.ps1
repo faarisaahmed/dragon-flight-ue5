@@ -4,11 +4,11 @@
 #
 #   irm https://raw.githubusercontent.com/faarisaahmed/dragon-flight-ue5/main/Install.ps1 | iex
 #
-# It downloads the project into C:\DragonFlightBuild, builds the game (Setup.bat),
-# installs it to %USERPROFILE%\Games\Dragon Flight with a desktop shortcut, then
-# deletes the build folder. It can also remove Unreal Engine and Visual Studio
-# afterwards. If anything stops it, pasting the same command again carries on
-# where it left off.
+# It downloads the project into C:\DragonFlightBuild, builds the game (Setup.bat)
+# and installs it to %USERPROFILE%\Games\Dragon Flight with a desktop shortcut.
+# The build folder is kept, so running the same command again for a newer
+# version only rebuilds what changed (minutes, not hours). If anything stops it,
+# pasting the same command again carries on where it left off.
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is very slow with the progress bar
@@ -16,8 +16,6 @@ $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is very slow with
 $Repo  = 'faarisaahmed/dragon-flight-ue5'
 $Build = 'C:\DragonFlightBuild'            # short path: Unreal hits Windows' path-length limit in deep folders
 $Game  = Join-Path $env:USERPROFILE 'Games\Dragon Flight'
-$Mark  = Join-Path $env:LOCALAPPDATA 'DragonFlightSetup'
-New-Item -ItemType Directory -Force -Path $Mark | Out-Null
 
 function Say($t, $c = 'White') { Write-Host $t -ForegroundColor $c }
 function Remove-Tree($Path) {
@@ -36,15 +34,17 @@ function Find-VS {
     if ($p) { return $p } else { return $null }
 }
 function Find-UE {
-    foreach ($v in '5.9', '5.8') {
+    foreach ($v in '5.8', '5.9') {
         $d = "C:\Program Files\Epic Games\UE_$v"
         if (Test-Path "$d\Engine\Binaries\Win64\UnrealEditor.exe") { return $d }
     }
     $lid = 'C:\ProgramData\Epic\UnrealEngineLauncher\LauncherInstalled.dat'
     if (Test-Path $lid) {
         $j = Get-Content -Raw $lid | ConvertFrom-Json
-        $e = $j.InstallationList | Where-Object { $_.AppName -match '^UE_5\.(8|9)' } | Sort-Object AppName -Descending | Select-Object -First 1
-        if ($e -and (Test-Path "$($e.InstallLocation)\Engine\Binaries\Win64\UnrealEditor.exe")) { return $e.InstallLocation }
+        foreach ($v in '5.8', '5.9') {
+            $e = $j.InstallationList | Where-Object { $_.AppName -eq "UE_$v" } | Select-Object -First 1
+            if ($e -and (Test-Path "$($e.InstallLocation)\Engine\Binaries\Win64\UnrealEditor.exe")) { return $e.InstallLocation }
+        }
     }
     return $null
 }
@@ -52,20 +52,15 @@ function Find-UE {
 Say ''
 Say '  ==============================================' Cyan
 Say '    Dragon Flight - installer' Cyan
-Say '    First time: 1-2 hours. Leave this window open.' Cyan
+if (Test-Path "$Build\Saved\IslandBuilt.txt") { Say '    Updating: usually 10-30 minutes.' Cyan } else { Say '    First time: 1-2 hours. Leave this window open.' Cyan }
 Say '  ==============================================' Cyan
 Say ''
 
-# --- Room on the disk: ~45 GB while building (+40 GB if Unreal still has to be installed).
+# --- Room on the disk: ~45 GB for the build folder and the game.
 $free = [math]::Round((Get-PSDrive C).Free / 1GB)
-if ($free -lt 50) {
-    Say "Only $free GB free on C:. Building needs about 50 GB for a while (it is all deleted at the end)." Yellow
+if ((-not (Test-Path $Build)) -and $free -lt 50) {
+    Say "Only $free GB free on C:. The build needs about 50 GB." Yellow
     if ((Read-Host 'Try anyway? (Y/N)') -notmatch '^[Yy]') { return }
-}
-
-# Remember whether Visual Studio was already here, so we only ever remove what we installed.
-if (-not (Test-Path "$Mark\vs-state.txt")) {
-    if (Find-VS) { 'had' | Set-Content "$Mark\vs-state.txt" } else { 'installed-by-us' | Set-Content "$Mark\vs-state.txt" }
 }
 
 # --- Get (or update) the project.
@@ -79,6 +74,18 @@ $top = Get-ChildItem $src | Select-Object -First 1
 robocopy $top.FullName $Build /E /NFL /NDL /NJH /NJS /NP | Out-Null   # over an old build: keeps finished steps
 Remove-Item $zip -Force
 Remove-Tree $src
+
+# --- Rebuild the island only when what it is made from has changed.
+$inputs = @('Source\DragonFlightEditor', 'Config', 'Data\World', 'Data\Defaults', 'Tools\fetch_world.py', 'Tools\fetch_assets.py') |
+    ForEach-Object { Join-Path $Build $_ } | Where-Object { Test-Path $_ } |
+    ForEach-Object { Get-ChildItem $_ -Recurse -File | Where-Object { $_.Extension -notin '.r16', '.zip' -and $_.Name -ne 'Heightmap.release' } } |
+    Sort-Object FullName | Get-FileHash -Algorithm MD5 | ForEach-Object { $_.Hash }
+$stamp = (Get-FileHash -InputStream ([IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes(($inputs -join ''))))).Hash
+$stampFile = "$Build\Saved\IslandInputs.txt"
+if ((Test-Path $stampFile) -and ((Get-Content $stampFile) -ne $stamp)) {
+    Say 'The island has changed in this version - it will be rebuilt.' Yellow
+    Remove-Item "$Build\Saved\IslandBuilt.txt" -ErrorAction SilentlyContinue
+}
 
 # --- Build it.
 $env:DF_NOPAUSE = '1'
@@ -102,30 +109,12 @@ if ($code -ne 0) {
     return
 }
 
-# --- Done: clean up.
+# --- Done.
+New-Item -ItemType Directory -Force -Path "$Build\Saved" | Out-Null
+$stamp | Set-Content $stampFile
 Say ''
-Say '=== The game is installed. Cleaning up the build files ===' Green
-Remove-Tree $Build
-Remove-Tree (Join-Path $env:LOCALAPPDATA 'UnrealEngine\Common\DerivedDataCache')
-Say "Done. Dragon Flight is on your desktop (the game is in $Game, about 4 GB)." Green
-Say ''
-$ans = Read-Host 'Also remove Unreal Engine and Visual Studio to free about 50 GB? You only need them to build a newer version. (Y/N)'
-if ($ans -match '^[Yy]') {
-    $ue = Find-UE
-    if ($ue) {
-        Say "Removing Unreal Engine ($ue) - say Yes if Windows asks."
-        Start-Process powershell -Verb RunAs -Wait -ArgumentList "-NoProfile -Command Remove-Item -LiteralPath '$ue' -Recurse -Force"
-        Say '  (If the Epic launcher still lists 5.8, click its little arrow -> Remove.)'
-    }
-    if ((Get-Content "$Mark\vs-state.txt") -eq 'installed-by-us') {
-        Say 'Removing Visual Studio - say Yes if Windows asks.'
-        winget uninstall --id Microsoft.VisualStudio.2022.Community -e --silent
-    } else {
-        Say 'Visual Studio was already on this PC before, so it stays.'
-    }
-}
-Remove-Item -LiteralPath $Mark -Recurse -Force -ErrorAction SilentlyContinue
-
+Say "Done. Dragon Flight is on your desktop (the game is in $Game)." Green
+Say 'For a newer version later, paste the same command again.' Green
 Say ''
 Say 'Starting Dragon Flight. F1 shows the controls, F2 graphics, F5 resolution.' Cyan
 Start-Process (Join-Path $Game 'DragonFlight.exe')

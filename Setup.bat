@@ -42,13 +42,13 @@ echo.
 
 REM --- Unreal Engine -----------------------------------------------------------
 if not "%UE_ROOT%"=="" goto :have_ue
-if exist "C:\Program Files\Epic Games\UE_5.9\Engine\Binaries\Win64\UnrealEditor.exe" set "UE_ROOT=C:\Program Files\Epic Games\UE_5.9"
-if not "%UE_ROOT%"=="" goto :have_ue
 if exist "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" set "UE_ROOT=C:\Program Files\Epic Games\UE_5.8"
+if not "%UE_ROOT%"=="" goto :have_ue
+if exist "C:\Program Files\Epic Games\UE_5.9\Engine\Binaries\Win64\UnrealEditor.exe" set "UE_ROOT=C:\Program Files\Epic Games\UE_5.9"
 if not "%UE_ROOT%"=="" goto :have_ue
 REM Installed somewhere else: the Epic launcher keeps a list.
 set "LID=C:\ProgramData\Epic\UnrealEngineLauncher\LauncherInstalled.dat"
-if exist "%LID%" for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$j = Get-Content -Raw '%LID%' | ConvertFrom-Json; ($j.InstallationList | Where-Object { $_.AppName -match '^UE_5\.(8|9)' } | Sort-Object AppName -Descending | Select-Object -First 1).InstallLocation"`) do set "UE_ROOT=%%P"
+if exist "%LID%" for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$j = Get-Content -Raw '%LID%' | ConvertFrom-Json; ($j.InstallationList | Where-Object { $_.AppName -match '^UE_5\.(8|9)$' } | Sort-Object AppName | Select-Object -First 1).InstallLocation"`) do set "UE_ROOT=%%P"
 if not "%UE_ROOT%"=="" goto :have_ue
 
 echo Unreal Engine 5.8 is not installed.

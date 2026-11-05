@@ -2,8 +2,11 @@
 
 ## Install
 
-1. **Install Unreal Engine 5.8** (free; needs an Epic Games account):
-   Epic Games Launcher → Unreal Engine → Library → **+** next to *Engine
+1. **Install Unreal Engine 5.8** (free; needs an Epic Games account). If
+   5.9 is already installed it is used instead, but 5.8 is what the game is made
+   and tested with, so installing 5.8 next to it is the safer bet. UE 6
+   previews are ignored.
+   In the Epic Games Launcher → Unreal Engine → Library → **+** next to *Engine
    Versions* → **5.8** → Install. Click **Options** first and untick *Starter
    Content*, *Templates*, *Engine Source*, *Editor symbols for debugging* and
    the Android / iOS / Linux platforms — saves about 20 GB.
@@ -17,19 +20,21 @@
    shaders). Say **Yes** if Windows asks to install Visual Studio's C++ tools.
 
 That's it. When it's finished there's a **Dragon Flight** shortcut on the
-desktop and the build files are deleted by themselves. It asks once whether to
-remove Unreal Engine and Visual Studio as well (frees ~50 GB; you'd only need
-them again to build a newer version). The game itself is ~4 GB, in
-`%USERPROFILE%\Games\Dragon Flight`.
+desktop (the game is in `%USERPROFILE%\Games\Dragon Flight`).
 
-**Disk:** about 50 GB free while it builds (plus ~40 GB for Unreal itself);
-~4 GB afterwards.
+**Newer version:** paste the same command again. The build folder
+(`C:\DragonFlightBuild`) is kept, so updates only redo what changed —
+usually 10–30 minutes, not hours.
+
+**Disk:** ~40 GB for Unreal, ~10 GB for Visual Studio, ~45 GB for the build
+folder and the game. To uninstall everything: delete `C:\DragonFlightBuild`
+and `%USERPROFILE%\Games\Dragon Flight`, and remove Unreal Engine (Epic
+launcher) and Visual Studio (Settings → Apps).
 
 **If it stops with an error:** paste the same command again — it carries on
 where it stopped. If it fails the same way, send Faaris a screenshot of the
 window and the newest file in `C:\DragonFlightBuild\Saved\Logs`.
 
-**Newer version:** paste the same command again.
 
 ## Playing
 
