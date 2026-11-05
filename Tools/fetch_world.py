@@ -21,6 +21,7 @@ OUT = os.path.join(ROOT, "Data", "World")
 
 
 DRAGON_TAG = "dragon-v1"
+ASSETS_TAG = "game-assets-v1"   # village kit + the web dragon (SK_Dragon.glb)
 DATA = os.path.join(ROOT, "Data")
 
 
@@ -85,6 +86,20 @@ def main():
                 print("unpacked Dragon.zip")
         else:
             print(f"Get Dragon.zip from https://github.com/{REPO}/releases/tag/{DRAGON_TAG} and unzip it into {DATA}")
+    # The web game's dragon (SK_Dragon.glb, preferred by the builder) and the village kit.
+    for zname, probe in (("DragonWeb.zip", os.path.join(DATA, "Dragon", "SK_Dragon.glb")),
+                         ("Village.zip", os.path.join(DATA, "Village", "longhouse_a.glb"))):
+        if os.path.exists(probe):
+            continue
+        z = os.path.join(DATA, zname)
+        if via_gh([zname], ASSETS_TAG, DATA) or via_token([zname], ASSETS_TAG, DATA):
+            if os.path.exists(z):
+                with zipfile.ZipFile(z) as f:
+                    f.extractall(DATA)
+                os.remove(z)
+                print(f"unpacked {zname}")
+        else:
+            print(f"Get {zname} from https://github.com/{REPO}/releases/tag/{ASSETS_TAG} and unzip it into {DATA}")
     return 0
 
 

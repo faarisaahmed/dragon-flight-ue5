@@ -23,7 +23,8 @@ hardware ray tracing, Nanite, virtual shadow maps.
 Double-click **`Setup.bat`** (or `Setup.bat max` for the 16k terrain and 8k
 ground textures — recommended on an RTX 3080 or better). It:
 
-1. downloads the terrain heightmaps and ~3 GB of CC0 textures and models,
+1. downloads the terrain heightmaps, the dragon, the village houses and ~3 GB
+   of CC0 textures and models,
 2. compiles the C++,
 3. builds the map — landscape, ocean, lakes, rivers, sky, forests
    (first run: 20–60 min, mostly shader compilation and Nanite builds),
@@ -33,9 +34,22 @@ ground textures — recommended on an RTX 3080 or better). It:
 ## Graphics
 
 The first launch benchmarks the PC and, if it rates *Epic*, goes straight to
-**Max (Cinematic)**. **F2** cycles Low → Medium → High → Epic → Max at any time.
-In the console (`~`): `Quality 4` for Max, `r.ScreenPercentage 100` for native
-resolution, `t.MaxFPS 0` to uncap.
+**Max (Cinematic)**. **F2** cycles Low → Medium → High → Epic → Max at any time,
+and **F5** cycles the render resolution: Auto → 720p → 900p → 1080p → 1440p →
+Native (upscaled to the window by TSR). Both are saved. On a big GPU: F2 to Max,
+F5 to Native. In the console (`~`): `Quality 4`, `RenderRes 5`, `t.MaxFPS 0` to
+uncap.
+
+## A standalone game (no editor needed to play)
+
+In a command prompt in the project folder:
+
+    "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="%CD%\DragonFlight.uproject" -platform=Win64 -clientconfig=Shipping -build -cook -stage -pak -archive -archivedirectory="%CD%\Packaged" -unattended
+
+(first time: an hour or more, mostly cooking shaders). The game is then
+`Packaged\Windows\DragonFlight.exe`; zip the whole `Packaged\Windows` folder to
+pass it around (~4 GB). It needs a DirectX 12 GPU (RTX 2060 / RX 6600 or
+better; RTX 3070+ for Epic).
 
 ## Controls
 
