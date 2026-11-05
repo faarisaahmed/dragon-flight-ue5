@@ -35,10 +35,11 @@ def via_gh(names, tag=TAG, out=OUT):
 
 
 def via_token(names, tag=TAG, out=OUT):
+    # The repo is public, so no token is needed; GITHUB_TOKEN is used when set (rate limits).
     tok = os.environ.get("GITHUB_TOKEN")
-    if not tok:
-        return False
-    h = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json", "User-Agent": "fetch_world"}
+    h = {"Accept": "application/vnd.github+json", "User-Agent": "fetch_world"}
+    if tok:
+        h["Authorization"] = f"Bearer {tok}"
     rel = json.load(urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/tags/{tag}", headers=h)))
     for a in rel["assets"]:
         if a["name"] in names:

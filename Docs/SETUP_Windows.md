@@ -5,18 +5,13 @@ hardware ray tracing, Nanite, virtual shadow maps.
 
 ## Once
 
-1. **Access**: the repo is private. Ask Faaris to add your GitHub account as a
-   collaborator, then clone it (GitHub Desktop is fine). Install
-   [Git LFS](https://git-lfs.com) first.
+1. **Get the project**: install [Git LFS](https://git-lfs.com), then clone
+   `https://github.com/faarisaahmed/dragon-flight-ue5` (GitHub Desktop is fine).
 2. **Unreal Engine 5.8** (or newer 5.x) from the Epic Games Launcher → Unreal
    Engine → Library → +. Default install folder is fine.
 3. **Visual Studio 2022** (Community is free) with the workload
    *Game development with C++* (it includes the Windows SDK). Needed because the
    game is C++.
-4. **GitHub CLI** (`winget install GitHub.cli`, then `gh auth login`) so the
-   setup script can download the terrain from the private release. Without it,
-   download the `Heightmap_*.zip` files from the repo's *Releases* page and
-   unzip them into `Data\World\`.
 
 ## Every time you want to (re)build
 
