@@ -37,8 +37,12 @@ public:
 
 	/** 0 Low .. 4 Cinematic ("Max"). */
 	UFUNCTION(Exec) void Quality(int32 Level);
-	/** Sets r.ScreenPercentage so the scene renders ~810 lines (1080 on Max) at any output size. */
+	/** Sets r.ScreenPercentage from the render-resolution setting (Auto: ~810 lines, 1080 on Max). */
 	static void ApplyRenderScale();
+	/** Render resolution: 0 Auto, 1 720p, 2 900p, 3 1080p, 4 1440p, 5 Native. Saved. */
+	UFUNCTION(Exec) void RenderRes(int32 Mode);
+	static int32 GetRenderResMode();
+	static FString GetRenderResLabel();
 	UFUNCTION(Exec) void TimeOfDay(float Hours);
 	UFUNCTION(Exec) void Weather(int32 Preset);
 	UFUNCTION(Exec) void GoTo(const FString& IslandName);

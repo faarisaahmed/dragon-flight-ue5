@@ -60,8 +60,8 @@ void ADragonHUD::DrawHelp()
 		TEXT("LMB / U        fire       RMB / E aim"),
 		TEXT("Hold I or K    land       Space  take off"),
 		TEXT(""),
-		TEXT("F1 help  F2 graphics  F3 time +3h  F4 weather  F6 hide HUD"),
-		TEXT("~ console: GoTo <island>, TimeOfDay <h>, Weather <0-5>, Quality <0-4>"),
+		TEXT("F1 help  F2 graphics  F5 resolution  F3 time +3h  F4 weather  F6 hide HUD"),
+		TEXT("~ console: GoTo <island>, TimeOfDay <h>, Weather <0-5>, Quality <0-4>, RenderRes <0-5>"),
 	};
 	float Y = Canvas->ClipY - 40.f - UE_ARRAY_COUNT(Lines) * 18.f;
 	for (const TCHAR* L : Lines)
@@ -144,7 +144,7 @@ void ADragonHUD::DrawHUD()
 	if (UGameUserSettings* S = GEngine->GetGameUserSettings())
 	{
 		const int32 Q = FMath::Clamp(S->GetOverallScalabilityLevel(), 0, 4);
-		Text(FString::Printf(TEXT("Graphics: %s"), QualityNames[Q]), W - 200.f, 24.f, Dim, 0.75f, false, GEngine->GetSmallFont());
+		Text(FString::Printf(TEXT("Graphics: %s   Resolution: %s"), QualityNames[Q], *ADragonPlayerController::GetRenderResLabel()), W - 360.f, 24.f, Dim, 0.75f, false, GEngine->GetSmallFont());
 	}
 	if (ADragonSky* Sky = ADragonSky::Get(this))
 	{

@@ -3,6 +3,7 @@
 #include "DragonVillage.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
@@ -128,6 +129,14 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 	{
 		if (ADragonSky* Sky = ADragonSky::Get(this)) Sky->SetWeather((EDragonWeather)(((int32)Sky->Weather + 1) % 6));
 	}
+	// Keep the render height right when the window is resized.
+	{
+		static FVector2D LastSize = FVector2D::ZeroVector;
+		FVector2D Size = FVector2D::ZeroVector;
+		if (GEngine && GEngine->GameViewport) GEngine->GameViewport->GetViewportSize(Size);
+		if (Size != LastSize && Size.Y > 0.0) { LastSize = Size; ApplyRenderScale(); }
+	}
+	if (WasInputKeyJustPressed(EKeys::F5)) RenderRes((GetRenderResMode() + 1) % 6);
 	if (WasInputKeyJustPressed(EKeys::F6)) bShowHud = !bShowHud;
 }
 
@@ -169,14 +178,51 @@ void ADragonPlayerController::GoTo(const FString& IslandName)
 	}
 }
 
+namespace
+{
+	const TCHAR* RenderResSection = TEXT("/Script/DragonFlight.DragonGraphics");
+	const float RenderResLines[] = { 0.f, 720.f, 900.f, 1080.f, 1440.f, 100000.f };
+	const TCHAR* RenderResNames[] = { TEXT("Auto"), TEXT("720p"), TEXT("900p"), TEXT("1080p"), TEXT("1440p"), TEXT("Native") };
+
+	float RenderLinesFor(int32 Mode)
+	{
+		if (Mode > 0) return RenderResLines[Mode];
+		const UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+		return (S && S->GetOverallScalabilityLevel() >= 4) ? 1080.f : 810.f;
+	}
+}
+
+int32 ADragonPlayerController::GetRenderResMode()
+{
+	int32 Mode = 0;
+	if (GConfig) GConfig->GetInt(RenderResSection, TEXT("RenderRes"), Mode, GGameUserSettingsIni);
+	return FMath::Clamp(Mode, 0, 5);
+}
+
+FString ADragonPlayerController::GetRenderResLabel()
+{
+	const int32 Mode = GetRenderResMode();
+	if (Mode == 5) return RenderResNames[5];
+	const FString Lines = FString::Printf(TEXT("%dp"), FMath::RoundToInt(RenderLinesFor(Mode)));
+	return Mode == 0 ? FString::Printf(TEXT("Auto (%s)"), *Lines) : Lines;
+}
+
+void ADragonPlayerController::RenderRes(int32 Mode)
+{
+	if (!GConfig) return;
+	GConfig->SetInt(RenderResSection, TEXT("RenderRes"), FMath::Clamp(Mode, 0, 5), GGameUserSettingsIni);
+	GConfig->Flush(false, GGameUserSettingsIni);
+	ApplyRenderScale();
+}
+
 void ADragonPlayerController::ApplyRenderScale()
 {
-	// Render a fixed number of lines whatever the display (TSR upscales to the output): 810 on
-	// Epic and below, 1080 on Max. A 4K screen at native would cost ~5x a 1080p one.
-	const UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+	// Render a fixed number of lines whatever the display (TSR upscales to the output). Auto is
+	// 810 on Epic and below, 1080 on Max; F5 picks a fixed height or Native for a faster machine.
+	// A 4K screen at native costs ~5x a 1080p one.
 	FVector2D Size(1920, 1080);
 	if (GEngine && GEngine->GameViewport) GEngine->GameViewport->GetViewportSize(Size);
-	const float Lines = (S && S->GetOverallScalabilityLevel() >= 4) ? 1080.f : 810.f;
+	const float Lines = RenderLinesFor(GetRenderResMode());
 	const float Pct = FMath::Clamp(Lines / FMath::Max(Size.Y, 1.0) * 100.f, 33.f, 100.f);
 	if (IConsoleVariable* SP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage")))
 		SP->Set(Pct, ECVF_SetByGameSetting);
