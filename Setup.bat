@@ -1,51 +1,147 @@
 @echo off
 REM ---------------------------------------------------------------------------
-REM Dragon Flight - one-click setup on Windows.
-REM   1. downloads the baked terrain and the CC0 textures/models
-REM   2. compiles the C++ (needs Visual Studio 2022 with "Game development with C++")
-REM   3. builds the Archipelago map (landscape, water, sky, forests)
-REM   4. opens the editor - press Play (Alt+P)
+REM Dragon Flight - one-click setup on Windows. Double-click it.
 REM
-REM Usage:  Setup.bat                (UE 5.8 in the default folder, 8k terrain)
-REM         Setup.bat max            (16k terrain + 8k ground textures: for a big GPU)
-REM         set UE_ROOT=D:\Epic\UE_5.8 & Setup.bat
+REM   1. checks for Unreal Engine 5.8 and Visual Studio's C++ tools (installs
+REM      Visual Studio Community + the C++ game workload with winget if missing)
+REM   2. downloads the terrain, the dragon, the village and the CC0 art
+REM   3. compiles the C++ and builds the island
+REM   4. packages the game and puts a "Dragon Flight" shortcut on the desktop
+REM
+REM Usage:  Setup.bat              the game, ready to play (default)
+REM         Setup.bat editor       stop after building the island and open the editor
+REM         Setup.bat max          16k terrain + 8k ground (untested; 32 GB+ RAM)
+REM         set UE_ROOT=D:\Epic\UE_5.8 ^& Setup.bat
+REM
+REM It skips whatever is already done, so re-running after a failure is safe.
+REM After pulling a new version: delete Saved\IslandBuilt.txt to rebuild the island.
 REM ---------------------------------------------------------------------------
-setlocal
+setlocal EnableExtensions
 cd /d "%~dp0"
-set PROJECT=%~dp0DragonFlight.uproject
+set "PROJECT=%~dp0DragonFlight.uproject"
+if not exist "%~dp0Saved\Logs" mkdir "%~dp0Saved\Logs"
 
-if "%UE_ROOT%"=="" (
-  for %%V in (5.9 5.8) do (
-    if exist "C:\Program Files\Epic Games\UE_%%V\Engine\Binaries\Win64\UnrealEditor.exe" if "%UE_ROOT%"=="" set "UE_ROOT=C:\Program Files\Epic Games\UE_%%V"
-  )
-)
-if "%UE_ROOT%"=="" (
-  echo Could not find Unreal Engine. Install UE 5.8 from the Epic Games Launcher, or set UE_ROOT.
-  exit /b 1
-)
-echo Using %UE_ROOT%
-set PY="%UE_ROOT%\Engine\Binaries\ThirdParty\Python3\Win64\python.exe"
-
+set MODE=game
 set RES=8129
 set TEX=4k
 set MAXFLAG=
-if /i "%1"=="max" ( set RES=16321& set TEX=8k& set MAXFLAG=--max )
+for %%A in (%*) do (
+  if /i "%%A"=="editor" set MODE=editor
+  if /i "%%A"=="max" (set RES=16321& set TEX=8k& set MAXFLAG=--max)
+)
 
-echo === 1/4 Downloading terrain and art ===
+echo.
+echo  ==============================================
+echo    Dragon Flight - Windows setup
+echo    First run takes 1-2 hours (mostly shaders).
+echo  ==============================================
+echo.
+
+REM --- Unreal Engine -----------------------------------------------------------
+if not "%UE_ROOT%"=="" goto :have_ue
+if exist "C:\Program Files\Epic Games\UE_5.9\Engine\Binaries\Win64\UnrealEditor.exe" set "UE_ROOT=C:\Program Files\Epic Games\UE_5.9"
+if not "%UE_ROOT%"=="" goto :have_ue
+if exist "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" set "UE_ROOT=C:\Program Files\Epic Games\UE_5.8"
+if not "%UE_ROOT%"=="" goto :have_ue
+REM Installed somewhere else: the Epic launcher keeps a list.
+set "LID=C:\ProgramData\Epic\UnrealEngineLauncher\LauncherInstalled.dat"
+if exist "%LID%" for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$j = Get-Content -Raw '%LID%' | ConvertFrom-Json; ($j.InstallationList | Where-Object { $_.AppName -match '^UE_5\.(8|9)' } | Sort-Object AppName -Descending | Select-Object -First 1).InstallLocation"`) do set "UE_ROOT=%%P"
+if not "%UE_ROOT%"=="" goto :have_ue
+
+echo Unreal Engine 5.8 is not installed.
+echo.
+echo   1. Install the Epic Games Launcher (installing it now if winget can).
+echo   2. Sign in, go to Unreal Engine ^> Library ^> the + next to "Engine Versions",
+echo      pick 5.8 and Install (about 40 GB).
+echo   3. When it has finished, double-click Setup.bat again.
+echo.
+where winget >nul 2>&1 && winget install --id EpicGames.EpicGamesLauncher -e --accept-package-agreements --accept-source-agreements
+pause
+exit /b 1
+
+:have_ue
+if not exist "%UE_ROOT%\Engine\Binaries\Win64\UnrealEditor.exe" (
+  echo UE_ROOT is set to "%UE_ROOT%" but there is no Unreal Editor there.
+  goto :fail
+)
+echo Unreal Engine: %UE_ROOT%
+
+REM --- Visual Studio C++ tools ---------------------------------------------------
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+set VSOK=
+if exist "%VSWHERE%" for /f "usebackq delims=" %%P in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSOK=1
+if defined VSOK goto :have_vs
+echo.
+echo Visual Studio's C++ tools are missing - installing Visual Studio 2022 Community
+echo with "Game development with C++" - free, about 10 GB. Say Yes if Windows asks.
+where winget >nul 2>&1 || goto :no_winget
+winget install --id Microsoft.VisualStudio.2022.Community -e --accept-package-agreements --accept-source-agreements --override "--passive --wait --add Microsoft.VisualStudio.Workload.NativeGame --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended"
+if exist "%VSWHERE%" for /f "usebackq delims=" %%P in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSOK=1
+if defined VSOK goto :have_vs
+echo Visual Studio did not finish installing. Restart the PC and run Setup.bat again.
+goto :fail
+:no_winget
+echo winget is not available. Install Visual Studio 2022 Community from
+echo https://visualstudio.microsoft.com/ with the workload "Game development with C++",
+echo then run Setup.bat again.
+goto :fail
+:have_vs
+echo Visual Studio C++ tools: found
+
+set PY="%UE_ROOT%\Engine\Binaries\ThirdParty\Python3\Win64\python.exe"
+
+echo.
+echo === 1/4 Downloading terrain, dragon, village and art - a few GB ===
 %PY% Tools\fetch_world.py %MAXFLAG% || goto :fail
 %PY% Tools\fetch_assets.py --tex %TEX% || goto :fail
 
+echo.
 echo === 2/4 Compiling ===
 call "%UE_ROOT%\Engine\Build\BatchFiles\Build.bat" DragonFlightEditor Win64 Development -Project="%PROJECT%" -WaitMutex || goto :fail
 
-echo === 3/4 Building the archipelago (first time takes a while: shaders + Nanite) ===
+echo.
+echo === 3/4 Building the island - shaders and Nanite, the long part ===
+if not exist "Content\Maps\Archipelago.umap" goto :build_island
+if not exist "Saved\IslandBuilt.txt" goto :build_island
+echo already built - delete Saved\IslandBuilt.txt to rebuild
+goto :built
+:build_island
 "%UE_ROOT%\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "%PROJECT%" -run=BuildArchipelago -Res=%RES% -unattended -nop4 -nosplash || goto :fail
+echo %RES%> "Saved\IslandBuilt.txt"
+:built
 
-echo === 4/4 Opening the editor - press Play (Alt+P), or File ^> Package Project ^> Windows ===
+if /i not "%MODE%"=="editor" goto :package
+echo.
+echo === Opening the editor - press Play, or Alt+P ===
 start "" "%UE_ROOT%\Engine\Binaries\Win64\UnrealEditor.exe" "%PROJECT%"
 exit /b 0
 
+:package
+echo.
+echo === 4/4 Packaging the game ===
+call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="%PROJECT%" -platform=Win64 -clientconfig=Shipping -build -cook -stage -pak -archive -archivedirectory="%~dp0Packaged" -unattended -nop4 -utf8output || goto :fail
+
+set "EXE=%~dp0Packaged\Windows\DragonFlight.exe"
+if not exist "%EXE%" set "EXE=%~dp0Saved\StagedBuilds\Windows\DragonFlight.exe"
+if not exist "%EXE%" goto :no_exe
+powershell -NoProfile -Command "$s = (New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Dragon Flight.lnk'); $s.TargetPath = '%EXE%'; $s.WorkingDirectory = (Split-Path '%EXE%'); $s.Save()"
+
+echo.
+echo  ==============================================
+echo    Done. "Dragon Flight" is on your desktop.
+echo    The game: %EXE%
+echo    To share it, zip the folder it is in.
+echo  ==============================================
+start "" "%EXE%"
+pause
+exit /b 0
+
+:no_exe
+echo Packaging finished but DragonFlight.exe was not found.
 :fail
 echo.
-echo Setup failed at the step above. See Docs\SETUP_Windows.md, or send the log in Saved\Logs.
+echo Setup stopped at the step above. Run Setup.bat again - it skips finished steps.
+echo If it fails the same way, send the newest file in Saved\Logs and a screenshot
+echo of this window to Faaris.
+pause
 exit /b 1

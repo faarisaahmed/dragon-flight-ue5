@@ -3,29 +3,35 @@
 This is the machine the game is meant to be seen on — max settings, Lumen with
 hardware ray tracing, Nanite, virtual shadow maps.
 
-## Once
+## What you need
 
-1. **Get the project**: install [Git LFS](https://git-lfs.com), then clone
-   `https://github.com/faarisaahmed/dragon-flight-ue5` (GitHub Desktop is fine).
-2. **Unreal Engine 5.8** (or newer 5.x) from the Epic Games Launcher → Unreal
-   Engine → Library → +. Default install folder is fine.
-3. **Visual Studio 2022** (Community is free) with the workload
-   *Game development with C++* (it includes the Windows SDK). Needed because the
-   game is C++.
+- A DirectX 12 GPU (RTX 2060 / RX 6600 or better; RTX 3070 / RX 9070 class for
+  Max), 16 GB RAM (32 GB is comfier), and about **100 GB free disk** (the engine
+  is ~45 GB, Visual Studio ~10 GB, the project, its build and the packaged game ~35 GB).
+- An Epic Games account (free) — the engine only installs through the launcher.
 
-## Every time you want to (re)build
+## Setting it up (one time)
 
-Double-click **`Setup.bat`**. (`Setup.bat max` builds the 16k terrain and 8k
-ground textures — not tried yet; only attempt it after a normal build works,
-and only with 32 GB+ of RAM.) It:
+1. **Unreal Engine 5.8**: Epic Games Launcher → Unreal Engine → Library → the
+   **+** next to *Engine Versions* → 5.8 → Install. (If you skip this,
+   `Setup.bat` installs the launcher and tells you what to click.)
+2. **Get the project**: on https://github.com/faarisaahmed/dragon-flight-ue5
+   click **Code → Download ZIP** and unzip it somewhere with a short path, like
+   `C:\DragonFlight` (or clone it with git — no Git LFS needed).
+3. **Double-click `Setup.bat`** in that folder. It installs Visual Studio's C++
+   tools if they are missing (say *Yes* when Windows asks), downloads the
+   terrain, dragon, village and textures, compiles, builds the island, packages
+   the game and puts a **Dragon Flight** shortcut on the desktop. First run:
+   1–2 hours, mostly shader compiling. Leave it running.
 
-1. downloads the terrain heightmaps, the dragon, the village houses and ~3 GB
-   of CC0 textures and models,
-2. compiles the C++,
-3. builds the map — landscape, ocean, lakes, rivers, sky, forests
-   (first run: 20–60 min, mostly shader compilation and Nanite builds),
-4. opens the editor. Press **Play** (or Alt+P). For a standalone game:
-   *Platforms → Windows → Package Project*.
+Then play from the desktop shortcut. If it stops on an error, run `Setup.bat`
+again (it skips the finished steps); if it fails the same way, send Faaris a
+screenshot of the window and the newest file in `Saved\Logs\`.
+
+Other options: `Setup.bat editor` opens the Unreal editor instead of packaging;
+`Setup.bat max` builds 16k terrain and 8k ground (untested; only after a normal
+build works, and with 32 GB+ RAM). After downloading a newer version, delete
+`Saved\IslandBuilt.txt` so the island is rebuilt.
 
 ## Graphics
 
@@ -36,16 +42,11 @@ Native (upscaled to the window by TSR). Both are saved. On a big GPU: F2 to Max,
 F5 to Native. In the console (`~`): `Quality 4`, `RenderRes 5`, `t.MaxFPS 0` to
 uncap.
 
-## A standalone game (no editor needed to play)
+## Sharing the game
 
-In a command prompt in the project folder:
-
-    "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="%CD%\DragonFlight.uproject" -platform=Win64 -clientconfig=Shipping -build -cook -stage -pak -archive -archivedirectory="%CD%\Packaged" -unattended
-
-(first time: an hour or more, mostly cooking shaders). The game is then
-`Packaged\Windows\DragonFlight.exe`; zip the whole `Packaged\Windows` folder to
-pass it around (~4 GB). It needs a DirectX 12 GPU (RTX 2060 / RX 6600 or
-better; RTX 3070+ for Epic).
+The packaged game is in `Packaged\Windows\` (`DragonFlight.exe`). Zip that
+whole folder (~4 GB) to give it to someone — they just unzip and run it, no
+engine needed.
 
 ## Controls
 
