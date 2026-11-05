@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is very slow with the progress bar
 
 $Repo  = 'faarisaahmed/dragon-flight-ue5'
+$Topic = 'dragonflight-b549fcbc08495fc8'    # where problem reports go (see Tools/fetch_reports.py)
 $Build = 'C:\DragonFlightBuild'            # short path: Unreal hits Windows' path-length limit in deep folders
 $Game  = Join-Path $env:USERPROFILE 'Games\Dragon Flight'
 
@@ -50,12 +51,13 @@ function Find-UE {
 }
 
 function Send-SetupReport($OutFile, $BuildId) {
+    # Posted to a private ntfy.sh topic (free message drop, no account) - Faaris's machines
+    # pick it up into Reports/. Nothing for the tester to do.
     $user = $env:USERNAME
     function Clean($t) { if ($user.Length -ge 2) { $t -replace [regex]::Escape($user), '<user>' } else { $t } }
     $lines = @(); if (Test-Path $OutFile) { $lines = Get-Content $OutFile }
-    # Error lines first (compiler, UAT, Python), then how the output ended.
-    $errs = $lines | Where-Object { $_ -match '(error|Error|ERROR|failed|Failed|Exception|Traceback|not found|cannot|denied)' } | Select-Object -Last 40
-    $tail = $lines | Select-Object -Last 40
+    $errs = $lines | Where-Object { $_ -match '(error|Error|ERROR|failed|Failed|Exception|Traceback|not found|cannot|denied)' } | Select-Object -Last 60
+    $tail = $lines | Select-Object -Last 80
     $gpu = (Get-CimInstance Win32_VideoController | ForEach-Object { "$($_.Name) (driver $($_.DriverVersion))" }) -join '; '
     $os  = (Get-CimInstance Win32_OperatingSystem).Caption
     $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
@@ -63,7 +65,7 @@ function Send-SetupReport($OutFile, $BuildId) {
     $ue  = Find-UE; $vs = Find-VS
     $free = [math]::Round((Get-PSDrive C).Free / 1GB)
     $body = @"
-**Setup failed** (sent from the installer)
+**Setup failed** (sent by the installer)
 
 - Build: ``$BuildId``
 - OS: $os
@@ -81,19 +83,17 @@ $(($errs -join "`n"))
 $(($tail -join "`n"))
 ``````
 "@
-    $body = Clean $body
-    # GitHub refuses very long links: trim until it fits.
-    $enc = [uri]::EscapeDataString($body)
-    while ($enc.Length -gt 7000 -and $body.Length -gt 300) {
-        $body = $body.Substring(0, [int]($body.Length * 0.85)) + "`n...(cut to fit)`n``````"
-        $enc = [uri]::EscapeDataString($body)
-    }
-    $url = "https://github.com/$Repo/issues/new?labels=setup&title=" + [uri]::EscapeDataString('Setup failed') + "&body=$enc"
-    Start-Process $url
-    # Also on the desktop in full, in case the page does not open.
-    $full = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Dragon Flight setup log.txt'
-    Clean (($lines) -join "`r`n") | Set-Content $full
-    Say "The page is opening in your browser. (The full log is also on your desktop: $full)" Green
+    $ok = $true
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes((Clean $body))
+        Invoke-RestMethod -Method Post -Uri "https://ntfy.sh/$Topic" -Body $bytes -ContentType 'text/markdown; charset=utf-8' -Headers @{ Title = 'Setup failed'; Tags = 'warning' } -UseBasicParsing | Out-Null
+        # The whole output as a file too (last 2 MB).
+        $all = [Text.Encoding]::UTF8.GetBytes((Clean ($lines -join "`r`n")))
+        if ($all.Length -gt 2MB) { $all = $all[($all.Length - 2MB)..($all.Length - 1)] }
+        Invoke-RestMethod -Method Put -Uri "https://ntfy.sh/$Topic" -Body $all -Headers @{ Title = 'Setup log'; Tags = 'page_facing_up'; Filename = 'setup-log.txt' } -UseBasicParsing | Out-Null
+    } catch { $ok = $false }
+    if ($ok) { Say 'An error report was sent to Faaris automatically.' Green }
+    else { Say 'Could not send the error report (no internet?).' Yellow }
 }
 
 Say ''
@@ -161,10 +161,8 @@ if ($code -eq 2) {
 if ($code -ne 0) {
     Say ''
     Say 'Something went wrong (see above).' Red
+    Send-SetupReport $out $env:DF_BUILD
     Say 'Pasting the same command again picks up where it stopped - worth one retry.' Yellow
-    if ((Read-Host 'Send an error report to Faaris? A GitHub page opens with it filled in - just press "Submit new issue". (Y/N)') -match '^[Yy]') {
-        Send-SetupReport $out $env:DF_BUILD
-    }
     return
 }
 

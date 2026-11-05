@@ -31,18 +31,13 @@ folder and the game. To uninstall everything: delete `C:\DragonFlightBuild`
 and `%USERPROFILE%\Games\Dragon Flight`, and remove Unreal Engine (Epic
 launcher) and Visual Studio (Settings → Apps).
 
-**If it stops with an error:** paste the same command again — it carries on
-where it stopped. If it fails again, answer **Y** when it offers to send an
-error report: a GitHub page opens with everything filled in, press **Submit
-new issue** (needs a free GitHub account). The full log is also put on the
-desktop.
+**If it stops with an error:** an error report goes to Faaris by itself. Paste
+the same command again — it carries on where it stopped.
 
-**If the game crashes:** start it again — it says so at the top of the screen;
-press **F8** and Submit. **F8** at any other time sends feedback (what you
-were doing, your settings and where you are are filled in; type what you saw,
-and drag a screenshot in if you like). Reports are public issues on the repo;
-your Windows user name is removed from them.
-
+**If the game crashes:** just start it again; it sends the crash report by
+itself. **F8** while playing sends Faaris a screenshot with where you are and
+your settings — press it when something looks wrong, then tell him what you saw.
+(No accounts needed. Your Windows user name is left out of reports.)
 
 ## Playing
 

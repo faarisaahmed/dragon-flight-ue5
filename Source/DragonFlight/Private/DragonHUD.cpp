@@ -62,7 +62,7 @@ void ADragonHUD::DrawHelp()
 		TEXT("Hold I or K    land       Space  take off"),
 		TEXT(""),
 		TEXT("F1 help  F2 graphics  F5 resolution  F3 time +3h  F4 weather  F6 hide HUD"),
-		TEXT("F8 send feedback / a bug report"),
+		TEXT("F8 send Faaris a screenshot (something looks wrong / a bug)"),
 		TEXT("~ console: GoTo <island>, TimeOfDay <h>, Weather <0-5>, Quality <0-4>, RenderRes <0-5>"),
 	};
 	float Y = Canvas->ClipY - 40.f - UE_ARRAY_COUNT(Lines) * 18.f;
@@ -142,8 +142,8 @@ void ADragonHUD::DrawHUD()
 	if (!Prompt.IsEmpty()) Text(Prompt, W * 0.5f, H * 0.72f, Ink, 1.1f, true);
 
 	if (PC && PC->bShowHelp) DrawHelp();
-	if (DragonReport::HasPendingCrash())
-		Text(TEXT("The game crashed last time - press F8 to send a crash report"), W * 0.5f, H * 0.1f, Warm, 1.1f, true);
+	const FString Notice = DragonReport::Notice();
+	if (!Notice.IsEmpty()) Text(Notice, W * 0.5f, H * 0.1f, Warm, 1.1f, true);
 
 	if (UGameUserSettings* S = GEngine->GetGameUserSettings())
 	{

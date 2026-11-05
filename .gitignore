@@ -36,3 +36,6 @@ Data/Village/Textures/
 Data/Village/Previews/
 Content/WorldData/
 __pycache__/
+
+# Tester reports pulled by Tools/fetch_reports.py
+Reports/

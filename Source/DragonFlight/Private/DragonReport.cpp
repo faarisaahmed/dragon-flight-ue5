@@ -3,50 +3,98 @@
 #include "DragonWorldSubsystem.h"
 #include "DragonGameMode.h"
 #include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "GameFramework/GameUserSettings.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformMemory.h"
 #include "HAL/PlatformProcess.h"
+#include "HAL/PlatformTime.h"
+#include "HttpModule.h"
+#include "IImageWrapper.h"
+#include "IImageWrapperModule.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
 #include "Misc/App.h"
 #include "Misc/CommandLine.h"
-#include "Misc/Parse.h"
 #include "Misc/EngineVersion.h"
 #include "Misc/FileHelper.h"
-#include "Engine/GameViewportClient.h"
-#include "Widgets/SWindow.h"
+#include "Misc/Parse.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "RHI.h"
+#include "UnrealClient.h"
+
+const TCHAR* DragonReport::Topic = TEXT("dragonflight-b549fcbc08495fc8");
 
 namespace
 {
-	const TCHAR* IssueUrl = TEXT("https://github.com/faarisaahmed/dragon-flight-ue5/issues/new");
-	// GitHub refuses very long URLs (~8 KB); the body is cut to fit once encoded.
-	constexpr int32 MaxEncodedBody = 7000;
+	FString NoticeText;
+	double NoticeUntil = 0.0;
+
+	void SetNotice(const FString& S, double Seconds = 8.0)
+	{
+		NoticeText = S;
+		NoticeUntil = FPlatformTime::Seconds() + Seconds;
+	}
 
 	FString Anonymise(FString S)
 	{
-		// Paths carry the Windows / macOS user name; reports land in a public repo.
+		// Paths carry the Windows / macOS user name.
 		const FString User = FPlatformProcess::UserName(false);
 		if (User.Len() >= 2) S.ReplaceInline(*User, TEXT("<user>"), ESearchCase::IgnoreCase);
 		return S;
 	}
 
-	FString PendingTitle, PendingBody;
-
-	/** Percent-encoding of the UTF-8 bytes, for a URL query value. */
-	FString UrlEncode(const FString& In)
+	/** HTTP headers must be plain ASCII on one line. */
+	FString HeaderSafe(const FString& In)
 	{
-		const FTCHARToUTF8 Utf8(*In);
 		FString Out;
-		Out.Reserve(Utf8.Length() * 3);
-		for (int32 i = 0; i < Utf8.Length(); ++i)
+		for (TCHAR C : In) Out.AppendChar((C >= 32 && C < 127) ? C : TEXT(' '));
+		return Out.Left(200);
+	}
+
+	FString Url() { return FString(TEXT("https://ntfy.sh/")) + DragonReport::Topic; }
+
+	bool SelfTest() { return FParse::Param(FCommandLine::Get(), TEXT("ReportSelfTest")); }
+
+	/** Posts a text report (bodies over 4 KB arrive as an attached text file, which is fine). */
+	void PostText(const FString& Title, const FString& Tags, const FString& Body, TFunction<void(bool)> Done = nullptr)
+	{
+		if (SelfTest()) FFileHelper::SaveStringToFile(Title + TEXT("\n\n") + Body, *(FPaths::ProjectSavedDir() / TEXT("ReportSelfTest.txt")));
+		TSharedRef<IHttpRequest, ESPMode::ThreadSafe> R = FHttpModule::Get().CreateRequest();
+		R->SetURL(Url());
+		R->SetVerb(TEXT("POST"));
+		R->SetHeader(TEXT("Title"), HeaderSafe(Title));
+		R->SetHeader(TEXT("Tags"), Tags);
+		R->SetHeader(TEXT("Content-Type"), TEXT("text/markdown; charset=utf-8"));
+		R->SetContentAsString(Body);
+		R->OnProcessRequestComplete().BindLambda([Done](FHttpRequestPtr, FHttpResponsePtr Resp, bool bOk)
 		{
-			const uint8 C = (uint8)Utf8.Get()[i];
-			if ((C < 128 && FChar::IsAlnum((TCHAR)C)) || C == '-' || C == '_' || C == '.' || C == '~') Out.AppendChar((TCHAR)C);
-			else Out += FString::Printf(TEXT("%%%02X"), C);
-		}
-		return Out;
+			const bool bGood = bOk && Resp.IsValid() && Resp->GetResponseCode() == 200;
+			UE_LOG(LogDragon, Display, TEXT("Report: sent %s (%d)"), bGood ? TEXT("ok") : TEXT("FAILED"), Resp.IsValid() ? Resp->GetResponseCode() : 0);
+			if (Done) Done(bGood);
+		});
+		R->ProcessRequest();
+	}
+
+	void PostFile(const FString& Title, const FString& Tags, const FString& Message, const FString& FileName, const TArray<uint8>& Data)
+	{
+		TSharedRef<IHttpRequest, ESPMode::ThreadSafe> R = FHttpModule::Get().CreateRequest();
+		R->SetURL(Url());
+		R->SetVerb(TEXT("PUT"));
+		R->SetHeader(TEXT("Title"), HeaderSafe(Title));
+		R->SetHeader(TEXT("Tags"), Tags);
+		R->SetHeader(TEXT("Filename"), FileName);
+		R->SetHeader(TEXT("Message"), HeaderSafe(Message));
+		R->SetContent(Data);
+		R->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr, FHttpResponsePtr Resp, bool bOk)
+		{
+			const bool bGood = bOk && Resp.IsValid() && Resp->GetResponseCode() == 200;
+			UE_LOG(LogDragon, Display, TEXT("Report: screenshot %s (%d)"), bGood ? TEXT("ok") : TEXT("FAILED"), Resp.IsValid() ? Resp->GetResponseCode() : 0);
+			SetNotice(bGood ? TEXT("Screenshot sent to Faaris - tell him what you saw") : TEXT("The screenshot could not be sent (no internet?)"), 6.0);
+		});
+		R->ProcessRequest();
 	}
 
 	FString ReportedPath() { return FPaths::ProjectSavedDir() / TEXT("ReportedCrashes.txt"); }
@@ -66,6 +114,11 @@ namespace
 		}
 		return Best;
 	}
+}
+
+FString DragonReport::Notice()
+{
+	return FPlatformTime::Seconds() < NoticeUntil ? NoticeText : FString();
 }
 
 FString DragonReport::BuildId()
@@ -101,40 +154,6 @@ FString DragonReport::SystemSummary()
 	return Anonymise(L);
 }
 
-void DragonReport::OpenIssue(const FString& Title, const FString& Body, const FString& Label)
-{
-	FString B = Body;
-	FString Enc = UrlEncode(B);
-	while (Enc.Len() > MaxEncodedBody && B.Len() > 200)
-	{
-		// Cut from the middle of the log section, keeping the head (system, error) and the end.
-		B = B.Left(B.Len() * 0.8f - 40) + TEXT("\n…(cut to fit)…\n```\n");
-		Enc = UrlEncode(B);
-	}
-	const FString Url = FString::Printf(TEXT("%s?title=%s&labels=%s&body=%s"), IssueUrl,
-		*UrlEncode(Title), *UrlEncode(Label), *Enc);
-	// -ReportSelfTest: write the link instead of opening it (for testing the reports).
-	if (FParse::Param(FCommandLine::Get(), TEXT("ReportSelfTest")))
-	{
-		FFileHelper::SaveStringToFile(Url, *(FPaths::ProjectSavedDir() / TEXT("ReportSelfTest.txt")));
-		return;
-	}
-	FPlatformProcess::LaunchURL(*Url, nullptr, nullptr);
-	// Get out of the browser's way (a fullscreen game would cover it).
-	if (GEngine && GEngine->GameViewport)
-		if (TSharedPtr<SWindow> W = GEngine->GameViewport->GetWindow()) W->Minimize();
-}
-
-bool DragonReport::HasPendingCrash() { return !PendingBody.IsEmpty(); }
-
-void DragonReport::SendPendingCrash()
-{
-	if (PendingBody.IsEmpty()) return;
-	OpenIssue(PendingTitle, PendingBody, TEXT("crash"));
-	PendingTitle.Reset();
-	PendingBody.Reset();
-}
-
 void DragonReport::CheckPreviousCrash()
 {
 	static bool bChecked = false;
@@ -150,8 +169,8 @@ void DragonReport::CheckPreviousCrash()
 
 	TArray<FString> Lines;
 	if (!FFileHelper::LoadFileToStringArray(Lines, *Log) || Lines.Num() == 0) return;
-	// Where the crash is written up: the first crash line in the last part of the log (UE's
-	// "Critical error" block, a fatal error, a GPU loss, out of memory).
+	// The first crash line in the last part of the log (UE's "Critical error" block, a fatal
+	// error, a GPU loss, out of memory).
 	auto IsCrashLine = [](const FString& L)
 	{
 		return L.Contains(TEXT("=== Critical error: ===")) || L.Contains(TEXT("Fatal error:")) || L.Contains(TEXT("Unhandled Exception"))
@@ -161,14 +180,8 @@ void DragonReport::CheckPreviousCrash()
 	for (int32 i = FMath::Max(0, Lines.Num() - 400); i < Lines.Num() && At == INDEX_NONE; ++i)
 		if (IsCrashLine(Lines[i])) At = i;
 	if (At == INDEX_NONE) return;
-
 	FFileHelper::SaveStringToFile(Reported + Key + TEXT("\n"), *ReportedPath());
 
-	FString Error;
-	for (int32 i = At; i < FMath::Min(Lines.Num(), At + 45); ++i) Error += Lines[i] + TEXT("\n");
-	FString Tail;
-	for (int32 i = FMath::Max(0, At - 30); i < At; ++i) Tail += Lines[i] + TEXT("\n");
-	// Title: the message of the first line that says what went wrong (not the banner).
 	auto Message = [](const FString& L)
 	{
 		FString M = L;
@@ -179,18 +192,42 @@ void DragonReport::CheckPreviousCrash()
 	};
 	FString First = Message(Lines[At]);
 	if (First.Contains(TEXT("=== Critical error")) && At + 1 < Lines.Num()) First = Message(Lines[At + 1]);
-	First = First.Left(90);
-	const FString Body = FString::Printf(TEXT("**Crash report** (sent from the game)\n\n%s\n**Error**\n```\n%s```\n**Just before**\n```\n%s```\n"),
-		*SystemSummary(), *Anonymise(Error), *Anonymise(Tail));
-	PendingTitle = TEXT("Crash: ") + (First.IsEmpty() ? FString(TEXT("game crashed")) : Anonymise(First));
-	PendingBody = Body;
-	UE_LOG(LogDragon, Display, TEXT("Report: the previous run crashed (%s); F8 sends a report"), *Key);
-	if (FParse::Param(FCommandLine::Get(), TEXT("ReportSelfTest"))) SendPendingCrash();
+
+	FString Error;
+	for (int32 i = At; i < FMath::Min(Lines.Num(), At + 80); ++i) Error += Lines[i] + TEXT("\n");
+	FString Before;
+	for (int32 i = FMath::Max(0, At - 150); i < At; ++i) Before += Lines[i] + TEXT("\n");
+	const FString Body = FString::Printf(TEXT("**Crash** (reported by the game on its next start)\n\n%s\n**Error**\n```\n%s```\n**Before it**\n```\n%s```\n"),
+		*SystemSummary(), *Anonymise(Error), *Anonymise(Before));
+	UE_LOG(LogDragon, Display, TEXT("Report: the previous run crashed (%s), sending a report"), *Key);
+	PostText(TEXT("Crash: ") + Anonymise(First).Left(90), TEXT("boom"), Body, [](bool bOk)
+	{
+		SetNotice(bOk ? TEXT("The game crashed last time - a crash report was sent to Faaris") : TEXT("The game crashed last time (the report could not be sent - no internet?)"), 12.0);
+	});
 }
 
-void DragonReport::OpenFeedback(const FString& Where)
+void DragonReport::SendSnapshot(const FString& Where)
 {
-	const FString Body = FString::Printf(TEXT("**What happened / what looks wrong:**\n\n(write here - you can also drag a screenshot into this box)\n\n---\n%s- %s\n"),
-		*SystemSummary(), *Where);
-	OpenIssue(TEXT("Feedback: "), Body, TEXT("feedback"));
+	const FString Summary = SystemSummary() + TEXT("- ") + Anonymise(Where) + TEXT("\n");
+	PostText(TEXT("F8 snapshot"), TEXT("camera"), FString(TEXT("**F8 snapshot** (screenshot follows)\n\n")) + Summary);
+	if (!GEngine || !GEngine->GameViewport) return;
+
+	// The next frame, as pixels: compress to JPEG and send it as an attachment.
+	static FDelegateHandle Handle;
+	if (Handle.IsValid()) UGameViewportClient::OnScreenshotCaptured().Remove(Handle);
+	Handle = UGameViewportClient::OnScreenshotCaptured().AddLambda([Where](int32 W, int32 H, const TArray<FColor>& Pixels)
+	{
+		UGameViewportClient::OnScreenshotCaptured().Remove(Handle);
+		Handle.Reset();
+		IImageWrapperModule& IW = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+		TSharedPtr<IImageWrapper> Jpg = IW.CreateImageWrapper(EImageFormat::JPEG);
+		if (!Jpg.IsValid() || !Jpg->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor), W, H, ERGBFormat::BGRA, 8)) return;
+		const TArray64<uint8> Data64 = Jpg->GetCompressed(88);
+		TArray<uint8> Data(Data64.GetData(), (int32)Data64.Num());
+		if (SelfTest()) FFileHelper::SaveArrayToFile(Data, *(FPaths::ProjectSavedDir() / TEXT("ReportSelfTest.jpg")));
+		SetNotice(TEXT("Sending a screenshot to Faaris..."), 4.0);
+		// (A "Name: value" message would be read as a header line; keep it plain.)
+		PostFile(TEXT("F8 screenshot"), TEXT("camera"), Anonymise(Where.Replace(TEXT("Where: "), TEXT("Screenshot taken "))), FDateTime::Now().ToString(TEXT("shot_%Y%m%d_%H%M%S.jpg")), Data);
+	});
+	FScreenshotRequest::RequestScreenshot(false);
 }
