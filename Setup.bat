@@ -6,7 +6,9 @@ REM   1. checks for Unreal Engine 5.8 and Visual Studio's C++ tools (installs
 REM      Visual Studio Community + the C++ game workload with winget if missing)
 REM   2. downloads the terrain, the dragon, the village and the CC0 art
 REM   3. compiles the C++ and builds the island
-REM   4. packages the game and puts a "Dragon Flight" shortcut on the desktop
+REM   4. packages the game into %USERPROFILE%\Games\Dragon Flight (~4 GB) and puts a
+REM      "Dragon Flight" shortcut on the desktop. After that the project, the engine
+REM      and Visual Studio can be deleted to get the space back.
 REM
 REM Usage:  Setup.bat              the game, ready to play (default)
 REM         Setup.bat editor       stop after building the island and open the editor
@@ -121,9 +123,32 @@ echo.
 echo === 4/4 Packaging the game ===
 call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="%PROJECT%" -platform=Win64 -clientconfig=Shipping -build -cook -stage -pak -archive -archivedirectory="%~dp0Packaged" -unattended -nop4 -utf8output || goto :fail
 
-set "EXE=%~dp0Packaged\Windows\DragonFlight.exe"
-if not exist "%EXE%" set "EXE=%~dp0Saved\StagedBuilds\Windows\DragonFlight.exe"
-if not exist "%EXE%" goto :no_exe
+set "PKG=%~dp0Packaged\Windows"
+if not exist "%PKG%\DragonFlight.exe" set "PKG=%~dp0Saved\StagedBuilds\Windows"
+if not exist "%PKG%\DragonFlight.exe" goto :no_exe
+REM The game is copied out of the project, so the project, the engine and Visual
+REM Studio can all be deleted afterwards and the game still runs.
+set "GAME=%USERPROFILE%\Games\Dragon Flight"
+robocopy "%PKG%" "%GAME%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 goto :fail
+set "EXE=%GAME%\DragonFlight.exe"
+powershell -NoProfile -Command "$s = (New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Dragon Flight.lnk'); $s.TargetPath = '%EXE%'; $s.WorkingDirectory = '%GAME%'; $s.Save()"
+
+echo.
+echo  ==============================================
+echo    Done. "Dragon Flight" is on your desktop.
+echo    The game lives in %GAME% - about 4 GB.
+echo.
+echo    To get the disk space back, you can now delete this project folder
+echo    and uninstall Unreal Engine 5.8 (Epic launcher) and Visual Studio
+echo    (Settings ^> Apps). The game keeps working. To share it, zip
+echo    %GAME%.
+echo  ==============================================
+start "" "%EXE%"
+pause
+exit /b 0
+
+:no_exe
 powershell -NoProfile -Command "$s = (New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Dragon Flight.lnk'); $s.TargetPath = '%EXE%'; $s.WorkingDirectory = (Split-Path '%EXE%'); $s.Save()"
 
 echo.
