@@ -1,6 +1,7 @@
 @echo off
 REM ---------------------------------------------------------------------------
-REM Dragon Flight - one-click setup on Windows. Double-click it.
+REM Dragon Flight - Windows build script. Normally run by Install.ps1 (see
+REM Docs/SETUP_Windows.md); double-clicking it works too.
 REM
 REM   1. checks for Unreal Engine 5.8 and Visual Studio's C++ tools (installs
 REM      Visual Studio Community + the C++ game workload with winget if missing)
@@ -58,8 +59,8 @@ echo      pick 5.8 and Install (about 40 GB).
 echo   3. When it has finished, double-click Setup.bat again.
 echo.
 where winget >nul 2>&1 && winget install --id EpicGames.EpicGamesLauncher -e --accept-package-agreements --accept-source-agreements
-pause
-exit /b 1
+if not defined DF_NOPAUSE pause
+exit /b 2
 
 :have_ue
 if not exist "%UE_ROOT%\Engine\Binaries\Win64\UnrealEditor.exe" (
@@ -114,12 +115,6 @@ echo %RES%> "Saved\IslandBuilt.txt"
 
 if /i not "%MODE%"=="editor" goto :package
 echo.
-echo === Opening the editor - press Play, or Alt+P ===
-start "" "%UE_ROOT%\Engine\Binaries\Win64\UnrealEditor.exe" "%PROJECT%"
-exit /b 0
-
-:package
-echo.
 echo === 4/4 Packaging the game ===
 call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="%PROJECT%" -platform=Win64 -clientconfig=Shipping -build -cook -stage -pak -archive -archivedirectory="%~dp0Packaged" -unattended -nop4 -utf8output || goto :fail
 
@@ -133,30 +128,10 @@ robocopy "%PKG%" "%GAME%" /MIR /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 goto :fail
 set "EXE=%GAME%\DragonFlight.exe"
 powershell -NoProfile -Command "$s = (New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Dragon Flight.lnk'); $s.TargetPath = '%EXE%'; $s.WorkingDirectory = '%GAME%'; $s.Save()"
-
 echo.
-echo  ==============================================
-echo    Done. "Dragon Flight" is on your desktop.
-echo    The game lives in %GAME% - about 4 GB.
-echo.
-echo    To get the disk space back, you can now delete this project folder
-echo    and uninstall Unreal Engine 5.8 (Epic launcher) and Visual Studio
-echo    (Settings ^> Apps). The game keeps working. To share it, zip
-echo    %GAME%.
-echo  ==============================================
-start "" "%EXE%"
-pause
-exit /b 0
-
-:no_exe
-powershell -NoProfile -Command "$s = (New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Dragon Flight.lnk'); $s.TargetPath = '%EXE%'; $s.WorkingDirectory = (Split-Path '%EXE%'); $s.Save()"
-
-echo.
-echo  ==============================================
-echo    Done. "Dragon Flight" is on your desktop.
-echo    The game: %EXE%
-echo    To share it, zip the folder it is in.
-echo  ==============================================
+echo Game installed: %GAME%
+REM Run by Install.ps1: it cleans up and starts the game itself.
+if defined DF_NOPAUSE exit /b 0
 start "" "%EXE%"
 pause
 exit /b 0
@@ -165,8 +140,8 @@ exit /b 0
 echo Packaging finished but DragonFlight.exe was not found.
 :fail
 echo.
-echo Setup stopped at the step above. Run Setup.bat again - it skips finished steps.
-echo If it fails the same way, send the newest file in Saved\Logs and a screenshot
-echo of this window to Faaris.
-pause
+echo Setup stopped at the step above. Running it again skips the finished steps.
+echo If it fails the same way, send Faaris a screenshot of this window and the
+echo newest file in Saved\Logs.
+if not defined DF_NOPAUSE pause
 exit /b 1
