@@ -32,8 +32,16 @@ and `%USERPROFILE%\Games\Dragon Flight`, and remove Unreal Engine (Epic
 launcher) and Visual Studio (Settings → Apps).
 
 **If it stops with an error:** paste the same command again — it carries on
-where it stopped. If it fails the same way, send Faaris a screenshot of the
-window and the newest file in `C:\DragonFlightBuild\Saved\Logs`.
+where it stopped. If it fails again, answer **Y** when it offers to send an
+error report: a GitHub page opens with everything filled in, press **Submit
+new issue** (needs a free GitHub account). The full log is also put on the
+desktop.
+
+**If the game crashes:** start it again — it says so at the top of the screen;
+press **F8** and Submit. **F8** at any other time sends feedback (what you
+were doing, your settings and where you are are filled in; type what you saw,
+and drag a screenshot in if you like). Reports are public issues on the repo;
+your Windows user name is removed from them.
 
 
 ## Playing

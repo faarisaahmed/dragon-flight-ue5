@@ -1,5 +1,6 @@
 #include "DragonGameMode.h"
 #include "DragonPhotoDirector.h"
+#include "DragonReport.h"
 #include "DragonVillage.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
@@ -47,6 +48,7 @@ void ADragonGameMode::StartPlay()
 	}
 
 	ADragonPlayerController::ApplyRenderScale();
+	DragonReport::CheckPreviousCrash();
 
 	// Make sure there is a sky even in an empty test map.
 	if (!ADragonSky::Get(this))
@@ -138,6 +140,25 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 	}
 	if (WasInputKeyJustPressed(EKeys::F5)) RenderRes((GetRenderResMode() + 1) % 6);
 	if (WasInputKeyJustPressed(EKeys::F6)) bShowHud = !bShowHud;
+	if (WasInputKeyJustPressed(EKeys::F8))
+	{
+		if (DragonReport::HasPendingCrash()) DragonReport::SendPendingCrash();
+		else
+		{
+			FString Where = TEXT("Where: unknown");
+			const ADragonPawn* P = Cast<ADragonPawn>(GetPawn());
+			const UDragonWorldSubsystem* WS = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDragonWorldSubsystem>() : nullptr;
+			if (P && WS)
+			{
+				double Dist = 0.0;
+				const FString Island = WS->NearestIsland(P->GetActorLocation(), Dist);
+				const FVector L = P->GetActorLocation() / 100.0;
+				Where = FString::Printf(TEXT("Where: %s%s, at (%.0f, %.0f) m, alt %.0f m, %s"), Dist < 0.0 ? TEXT("over ") : TEXT("near "), *Island, L.X, L.Y, P->GetAltitudeM(), *P->GetModeName());
+			}
+			if (const ADragonSky* Sky = ADragonSky::Get(this)) Where += FString::Printf(TEXT(", %.1f h, weather %d"), Sky->Hours, (int32)Sky->Weather);
+			DragonReport::OpenFeedback(Where);
+		}
+	}
 }
 
 void ADragonPlayerController::Quality(int32 Level)

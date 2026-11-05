@@ -49,6 +49,53 @@ function Find-UE {
     return $null
 }
 
+function Send-SetupReport($OutFile, $BuildId) {
+    $user = $env:USERNAME
+    function Clean($t) { if ($user.Length -ge 2) { $t -replace [regex]::Escape($user), '<user>' } else { $t } }
+    $lines = @(); if (Test-Path $OutFile) { $lines = Get-Content $OutFile }
+    # Error lines first (compiler, UAT, Python), then how the output ended.
+    $errs = $lines | Where-Object { $_ -match '(error|Error|ERROR|failed|Failed|Exception|Traceback|not found|cannot|denied)' } | Select-Object -Last 40
+    $tail = $lines | Select-Object -Last 40
+    $gpu = (Get-CimInstance Win32_VideoController | ForEach-Object { "$($_.Name) (driver $($_.DriverVersion))" }) -join '; '
+    $os  = (Get-CimInstance Win32_OperatingSystem).Caption
+    $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+    $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
+    $ue  = Find-UE; $vs = Find-VS
+    $free = [math]::Round((Get-PSDrive C).Free / 1GB)
+    $body = @"
+**Setup failed** (sent from the installer)
+
+- Build: ``$BuildId``
+- OS: $os
+- CPU: $cpu, RAM: $ram GB, free on C: $free GB
+- GPU: $gpu
+- Unreal: $ue
+- Visual Studio: $vs
+
+**Errors**
+``````
+$(($errs -join "`n"))
+``````
+**End of the output**
+``````
+$(($tail -join "`n"))
+``````
+"@
+    $body = Clean $body
+    # GitHub refuses very long links: trim until it fits.
+    $enc = [uri]::EscapeDataString($body)
+    while ($enc.Length -gt 7000 -and $body.Length -gt 300) {
+        $body = $body.Substring(0, [int]($body.Length * 0.85)) + "`n...(cut to fit)`n``````"
+        $enc = [uri]::EscapeDataString($body)
+    }
+    $url = "https://github.com/$Repo/issues/new?labels=setup&title=" + [uri]::EscapeDataString('Setup failed') + "&body=$enc"
+    Start-Process $url
+    # Also on the desktop in full, in case the page does not open.
+    $full = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Dragon Flight setup log.txt'
+    Clean (($lines) -join "`r`n") | Set-Content $full
+    Say "The page is opening in your browser. (The full log is also on your desktop: $full)" Green
+}
+
 Say ''
 Say '  ==============================================' Cyan
 Say '    Dragon Flight - installer' Cyan
@@ -67,7 +114,10 @@ if ((-not (Test-Path $Build)) -and $free -lt 50) {
 Say '=== Downloading the project ===' Green
 $zip = Join-Path $env:TEMP 'dragon-flight.zip'
 $src = Join-Path $env:TEMP 'dragon-flight-src'
-Invoke-WebRequest "https://github.com/$Repo/archive/refs/heads/main.zip" -OutFile $zip -UseBasicParsing
+# The exact commit, so reports can say which version this is.
+$sha = 'main'
+try { $sha = (Invoke-RestMethod "https://api.github.com/repos/$Repo/commits/main" -UseBasicParsing).sha } catch { }
+Invoke-WebRequest "https://github.com/$Repo/archive/$sha.zip" -OutFile $zip -UseBasicParsing
 Remove-Tree $src
 Expand-Archive $zip -DestinationPath $src -Force
 $top = Get-ChildItem $src | Select-Object -First 1
@@ -89,8 +139,14 @@ if ((Test-Path $stampFile) -and ((Get-Content $stampFile) -ne $stamp)) {
 
 # --- Build it.
 $env:DF_NOPAUSE = '1'
-& cmd.exe /c "$Build\Setup.bat"
+$env:DF_BUILD = $sha.Substring(0, [math]::Min(12, $sha.Length))
+$out = Join-Path $env:TEMP 'dragon-flight-setup.txt'
+# (Windows PowerShell turns a program's error output into errors; with 'Stop' the first one
+# would end the script, so relax it while the build runs.)
+$ErrorActionPreference = 'Continue'
+& cmd.exe /c "$Build\Setup.bat" 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $out
 $code = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
 
 if ($code -eq 2) {
     Say ''
@@ -104,8 +160,11 @@ if ($code -eq 2) {
 }
 if ($code -ne 0) {
     Say ''
-    Say 'Something went wrong (see above). Paste the same command again - it picks up where it stopped.' Red
-    Say "If it fails the same way, send Faaris a screenshot of this window and the newest file in $Build\Saved\Logs." Red
+    Say 'Something went wrong (see above).' Red
+    Say 'Pasting the same command again picks up where it stopped - worth one retry.' Yellow
+    if ((Read-Host 'Send an error report to Faaris? A GitHub page opens with it filled in - just press "Submit new issue". (Y/N)') -match '^[Yy]') {
+        Send-SetupReport $out $env:DF_BUILD
+    }
     return
 }
 

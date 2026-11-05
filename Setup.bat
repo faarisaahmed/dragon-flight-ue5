@@ -116,7 +116,11 @@ echo %RES%> "Saved\IslandBuilt.txt"
 if /i not "%MODE%"=="editor" goto :package
 echo.
 echo === 4/4 Packaging the game ===
-call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="%PROJECT%" -platform=Win64 -clientconfig=Shipping -build -cook -stage -pak -archive -archivedirectory="%~dp0Packaged" -unattended -nop4 -utf8output || goto :fail
+REM The build id (git commit, from Install.ps1) goes with the game, so reports say which version.
+if defined DF_BUILD if exist "Content\WorldData" echo %DF_BUILD%> "Content\WorldData\Build.txt"
+REM Development, not Shipping: same look and nearly the same speed, but it writes a log, so crash
+REM reports (F8) have something to say.
+call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="%PROJECT%" -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive -archivedirectory="%~dp0Packaged" -unattended -nop4 -utf8output || goto :fail
 
 set "PKG=%~dp0Packaged\Windows"
 if not exist "%PKG%\DragonFlight.exe" set "PKG=%~dp0Saved\StagedBuilds\Windows"
