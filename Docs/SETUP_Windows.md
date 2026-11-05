@@ -15,8 +15,9 @@ hardware ray tracing, Nanite, virtual shadow maps.
 
 ## Every time you want to (re)build
 
-Double-click **`Setup.bat`** (or `Setup.bat max` for the 16k terrain and 8k
-ground textures — recommended on an RTX 3080 or better). It:
+Double-click **`Setup.bat`**. (`Setup.bat max` builds the 16k terrain and 8k
+ground textures — not tried yet; only attempt it after a normal build works,
+and only with 32 GB+ of RAM.) It:
 
 1. downloads the terrain heightmaps, the dragon, the village houses and ~3 GB
    of CC0 textures and models,
