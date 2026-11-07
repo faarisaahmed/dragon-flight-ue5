@@ -266,7 +266,7 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 	const FVector Bio = SampleMask3(XM, YM);                  // woodland, volcanic, moorland
 	const float Volc = (float)Bio.Y, Moor = (float)Bio.Z;
 	// Woodland isles grow conifer forest wherever the ground allows; lava and bog don't.
-	const float Forest = FMath::Max(Mk.X, (float)Bio.X * 0.8f) * (1.f - Volc) * (1.f - 0.7f * Moor);
+	const float Forest = FMath::Max(Mk.X, (float)Bio.X * 0.8f) * (1.f - Volc) * (1.f - 0.95f * Moor);
 	const float Veg = Mk.Y, Ice = Mk.Z, Water = Mk.W;
 	const FVector M2 = SampleMask2(XM, YM);
 	const float Slope = M2.X, Pad = M2.Z;
@@ -361,7 +361,7 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 		break;
 	case EDragonScatterKind::Ground:
 		if (H < 1.5f) return false;
-		P = Veg * (1.f - Forest * 0.4f) * (1.f - Smooth(Slope, 0.5f, 0.8f)) * (1.f - Pad * 0.7f) * (1.f - Snowy) * (1.f - 0.7f * Volc);
+		P = Veg * (1.f - Forest * 0.4f) * (1.f - Smooth(Slope, 0.5f, 0.8f)) * (1.f - Pad * 0.7f) * (1.f - Snowy) * (1.f - 0.92f * Volc);
 		break;
 	}
 	return Rand < P;

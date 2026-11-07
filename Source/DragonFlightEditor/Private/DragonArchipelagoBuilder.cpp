@@ -381,6 +381,7 @@ void FDragonArchipelagoBuilder::ImportGroundTextures()
 	IFileManager::Get().FindFiles(Masks, *(BakeDir() / TEXT("Masks*.png")), true, false);
 	for (const FString& F : Masks)
 	{
+		if (F.Contains(TEXT("_web"))) continue;   // the web game's original mask, kept for forests.py
 		const TCHAR* Name = F.StartsWith(TEXT("Masks2")) ? TEXT("T_Masks2") : F.StartsWith(TEXT("Masks3")) ? TEXT("T_Masks3") : TEXT("T_Masks");
 		UTexture2D* T = ImportTexture(BakeDir() / F, TEXT("/Game/World/Data"), Name, false, true);
 		if (T)

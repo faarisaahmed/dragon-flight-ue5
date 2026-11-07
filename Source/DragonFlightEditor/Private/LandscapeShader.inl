@@ -99,7 +99,7 @@ float rush = 0.78 + 0.34 * Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 
 // The scans are dry and golden (grass) or orange (bracken): DESAT keeps their detail and lets
 // the tint set the colour, so the turf is the wet green of a northern island.
 #define DESAT(k) lerp(float3(1, 1, 1), dot(c, float3(0.3, 0.59, 0.11)) / max(c, 0.02), k)
-TOPLAYER(Grass,   3.0, wGrass,   DESAT(0.6) * rush * lerp(lerp(turf, float3(0.36, 0.42, 0.32), cold), float3(0.30, 0.36, 0.20), bio.g) * (0.88 + 0.16 * nz), 1.0)
+TOPLAYER(Grass,   3.0, wGrass,   DESAT(0.6) * rush * lerp(lerp(turf, float3(0.36, 0.42, 0.32), cold), float3(0.22, 0.25, 0.19), bio.g) * (0.88 + 0.16 * nz), 1.0)
 // (moorland: heather, purple-brown, in drifts)
 // (the heath scan is orange bracken: its colour is mostly replaced by the tint, keeping its detail)
 TOPLAYER(Heath,   4.0, wHeath,   DESAT(0.75) * lerp(lerp(lerp(float3(0.42, 0.50, 0.30), float3(0.50, 0.44, 0.42), saturate(nz2 + 0.3)), float3(0.42, 0.45, 0.38), cold), lerp(float3(0.34, 0.24, 0.30), float3(0.27, 0.30, 0.18), saturate(nz * 0.8 + 0.4)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
@@ -175,8 +175,8 @@ float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 // Volcanic isles: young lava under a thin, patchy moss - the ground darkens smoothly toward
 // bare basalt with the large noise (no hard-edged patches), mossier in the hollows.
 {
-	float lava = bio.g * (1.0 - sn) * saturate(0.8 + nz * 0.5 + nz2 * 0.2 - flow * 0.45);
-	C = lerp(C, float3(0.07, 0.066, 0.064) * (0.8 + 0.4 * nz2), lava * 0.88);
+	float lava = bio.g * (1.0 - sn) * saturate(1.35 + nz * 0.4 + nz2 * 0.25 - flow * 0.7);
+	C = lerp(C, float3(0.075, 0.07, 0.068) * (0.8 + 0.4 * nz2), saturate(lava * 1.15));
 	R = lerp(R, 0.9, lava * 0.5);
 }
 // Woods from afar: past the distance the trees are drawn to, the canopy itself is the colour
@@ -211,7 +211,9 @@ AmbOcc = saturate(AO);
 // Where the landscape grass system plants turf and herbs (read by the grass-map pass only).
 float above = step(1.5, h) * (1.0 - splash);
 float soft = saturate(1.0 - (wCliff + wScree + wSand + wShingle + wSnow) / wSum);
-GrassW = saturate(soft * (0.75 + 0.25 * saturate(mk.g * 1.5)) * 1.2 - wForest / wSum * 0.4 + wet * 0.2) * (1.0 - sn) * above;
-HerbW  = saturate((wForest * 0.9 + wHeath * 0.35 + wGrass * 0.12) / wSum + wet * 0.25) * (1.0 - sn) * above;
+// (no lawn on young lava, only moss in its hollows; on the moors the heather, not grass)
+float lavaG = bio.g * saturate(1.35 + nz * 0.4 + nz2 * 0.25 - flow * 0.7);
+GrassW = saturate(soft * (0.75 + 0.25 * saturate(mk.g * 1.5)) * 1.2 - wForest / wSum * 0.4 + wet * 0.2) * (1.0 - sn) * above * (1.0 - 0.92 * lavaG) * (1.0 - 0.6 * bio.b);
+HerbW  = saturate((wForest * 0.9 + wHeath * 0.35 + wGrass * 0.12) / wSum + wet * 0.25) * (1.0 - sn) * above * (1.0 - 0.8 * lavaG);
 return C;
 )HLSL");
