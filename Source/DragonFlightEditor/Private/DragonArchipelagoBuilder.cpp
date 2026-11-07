@@ -1109,8 +1109,14 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float core = exp(-r * r * 7.0);\n"
 			"Alpha = 1.0;\n"
 			"return Col * (m * (0.45 + 0.55 * fbm) + core * 0.8) * Fade * DF;\n") : TEXT(
-			"float m = saturate((1.0 - r) * 1.7 - (1.0 - fbm) * 1.05);\n"
-			"m = m * m * (3.0 - 2.0 * m);\n"
+			// billows: a second, finer noise eats the edge into wisps, so no puff reads as a ball
+			"float2 q2 = UV * 6.3 - Seed * 1.9 + float2(-Age * 1.3, Age * 0.6); float fine = 0.0; { float2 x = q2; float amp = 0.5;\n"
+			"  [unroll] for (int o = 0; o < 3; o++) { float2 i = floor(x), f = frac(x); f = f * f * (3.0 - 2.0 * f);\n"
+			"    float a = frac(sin(dot(i, float2(127.1, 311.7))) * 43758.5453), b = frac(sin(dot(i + float2(1, 0), float2(127.1, 311.7))) * 43758.5453);\n"
+			"    float c = frac(sin(dot(i + float2(0, 1), float2(127.1, 311.7))) * 43758.5453), d = frac(sin(dot(i + float2(1, 1), float2(127.1, 311.7))) * 43758.5453);\n"
+			"    fine += amp * lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y); x = x * 2.1 + 5.3; amp *= 0.5; } }\n"
+			"float m = saturate((1.0 - r * 1.1) * 2.1 - (1.0 - fbm) * 1.25 - (1.0 - fine) * 0.55);\n"
+			"m = m * m * (3.0 - 2.0 * m) * (0.75 + 0.25 * fine);\n"
 			"Alpha = saturate(m * Fade * DF);\n"
 			// a little self-shading: brighter on the upper side, darker in the folds
 			"return Col * (0.7 + 0.45 * fbm - d.y * 0.12);\n"));

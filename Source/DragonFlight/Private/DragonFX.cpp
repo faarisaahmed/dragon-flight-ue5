@@ -262,13 +262,13 @@ void ADragonFX::PlasmaTrail(const FVector& From, const FVector& To, const FVecto
 		P.Kind = EDragonPuff::Glow;
 		P.Pos = FMath::Lerp(From, To, (A0 + A1) * 0.5f);
 		P.Axis = Dir; P.LengthCm = Len / N * 1.6f;
-		P.Life = 0.35f + Rand() * 0.1f;
-		P.Size0 = 110.f; P.Size1 = 30.f; P.GrowPow = 0.8f;
+		P.Life = 0.09f + Rand() * 0.04f;          // a comet's tail of ~60 m, not a beam
+		P.Size0 = 130.f; P.Size1 = 40.f; P.GrowPow = 0.8f;
 		P.Colour0 = FMath::Lerp(PlasmaBlue, PlasmaViolet, 0.35f + 0.3f * Rand()) * 3.f; P.Colour1 = PlasmaViolet * 0.5f;
 		P.FadeIn = 0.f;
 		Spawn(P);
 		FDragonPuff H = P;
-		H.Size0 = 320.f; H.Size1 = 160.f; H.Life = 0.5f; H.LengthCm = Len / N * 1.8f;
+		H.Size0 = 360.f; H.Size1 = 200.f; H.Life = 0.16f; H.LengthCm = Len / N * 1.8f;
 		H.Colour0 = PlasmaViolet * 0.7f; H.Colour1 = PlasmaViolet * 0.1f;
 		Spawn(H);
 	}

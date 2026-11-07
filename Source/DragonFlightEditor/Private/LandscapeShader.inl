@@ -52,8 +52,7 @@ wForest = max(wForest, land * bio.r * 0.85 * (1.0 - smoothstep(0.45, 0.75, slope
 wHeath = lerp(wHeath, wHeath + wGrass * 0.8, bio.b); wGrass *= 1.0 - bio.b * 0.8;
 wMud = max(wMud, bio.b * land * smoothstep(0.35, 0.8, flow + nz * 0.3) * (1.0 - smoothstep(0.1, 0.3, slope)) * 0.8);
 // Volcanic: young lava fields (rough black rock) instead of much of the turf, no woods.
-wScree = max(wScree, bio.g * land * saturate(0.45 + nz * 0.5 + nz2 * 0.25 - mk.g * 0.25) * 0.8);
-wForest *= 1.0 - bio.g; wGrass *= 1.0 - bio.g * 0.5;
+wForest *= 1.0 - bio.g;
 float sn = saturate(wSnow);
 wCliff *= 1.0 - sn * 0.55; wScree *= 1.0 - sn; wSand *= 1.0 - sn; wShingle *= 1.0 - sn;
 wForest *= 1.0 - sn; wGrass *= 1.0 - sn; wHeath *= 1.0 - sn; wMud *= 1.0 - sn;
@@ -154,6 +153,13 @@ float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 	C = lerp(C, farC, ff);
 }
 
+// Volcanic isles: young lava under a thin, patchy moss - the ground darkens smoothly toward
+// bare basalt with the large noise (no hard-edged patches), mossier in the hollows.
+{
+	float lava = bio.g * (1.0 - sn) * saturate(0.55 + nz * 0.55 + nz2 * 0.2 - flow * 0.5);
+	C = lerp(C, float3(0.075, 0.072, 0.07) * (0.8 + 0.4 * nz2), lava * 0.75);
+	R = lerp(R, 0.9, lava * 0.5);
+}
 // Woods from afar: past the distance the trees are drawn to, the canopy itself is the colour
 // you see - a near-black conifer green, a little bluer with distance - not the forest floor.
 {

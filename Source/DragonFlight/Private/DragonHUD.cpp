@@ -144,7 +144,9 @@ void ADragonHUD::DrawPanel(ADragonPlayerController* PC)
 	const float Gap = 6.f * UI, BW = (PW - 2.f * Pad - 3.f * Gap) / 4.f;
 	for (int32 i = 0; i < 4; ++i)
 	{
-		const bool bOn = Sky->Weather == Choices[i].W;
+		// (fair weather counts as sunny on the panel)
+		const EDragonWeather Now = Sky->Weather == EDragonWeather::Fair ? EDragonWeather::Clear : Sky->Weather;
+		const bool bOn = Now == Choices[i].W;
 		if (Button(Choices[i].Name, X0 + Pad + i * (BW + Gap), Y, BW, 32.f * UI, bOn, true))
 		{
 			Sky->bAutoWeather = false;

@@ -451,6 +451,20 @@ void ADragonSky::Apply(float DeltaSeconds)
 	// "Day for night": a generous blue fill at night so the land reads.
 	SkyLight->SetIntensity(FMath::Lerp(1.5f, 3.5f, Night) * (1.f + Live.SunDim * 0.4f));
 
+	// Under heavy cloud the eye does not adapt it all back to a bright day: a storm reads
+	// dark, cold and drained of colour, a rainy day grey (exposure bias and grading follow
+	// the weather; at night the night look already rules).
+	if (Post)
+	{
+		const float Gloom = Live.SunDim * Day;
+		Post->Settings.bOverride_AutoExposureBias = true;
+		Post->Settings.AutoExposureBias = 0.25f - 1.6f * Gloom * Gloom - 0.25f * Live.Rain * Day;
+		Post->Settings.bOverride_ColorSaturation = true;
+		Post->Settings.ColorSaturation = FVector4(1.f, 1.f, 1.f, 1.f - 0.35f * Gloom);
+		Post->Settings.bOverride_ColorGain = true;
+		Post->Settings.ColorGain = FVector4(1.f - 0.06f * Gloom, 1.f - 0.02f * Gloom, 1.f + 0.05f * Gloom, 1.f);
+	}
+
 	Fog->SetFogDensity(0.0045f * Live.Fog);
 	Fog->SetVolumetricFogExtinctionScale(0.6f * FMath::Sqrt(Live.Fog));
 
