@@ -9,6 +9,7 @@
 #include "ProceduralMeshComponent.h"
 #include "DragonSky.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "EngineUtils.h"
 
 ADragonSea::ADragonSea()
 {
@@ -100,6 +101,41 @@ void ADragonSea::BeginPlay()
 		if (BuildLake(*W, L, N)) ++N;
 	}
 	UE_LOG(LogDragon, Display, TEXT("Sea: wave grid %d^2, %d lakes"), GridQuads, N);
+}
+
+ADragonSea* ADragonSea::Get(const UObject* Ctx)
+{
+	UWorld* W = Ctx ? Ctx->GetWorld() : nullptr;
+	if (!W) return nullptr;
+	TActorIterator<ADragonSea> It(W);
+	return It ? *It : nullptr;
+}
+
+float ADragonSea::SurfaceM(double Xm, double Ym) const
+{
+	// Mirrors M_Sea's displacement (DragonArchipelagoBuilder.cpp GWaves / "Swell").
+	static const float Wv[12][4] = {
+		{ 0.883f,  0.469f, 110.0f, 0.550f }, { 0.695f,  0.719f,  73.0f, 0.360f }, { 0.999f,  0.052f,  52.0f, 0.260f },
+		{ 0.375f,  0.927f,  37.0f, 0.180f }, { 0.927f, -0.375f,  27.0f, 0.120f }, { 0.788f,  0.616f,  19.0f, 0.085f },
+		{ 0.974f,  0.225f,  13.5f, 0.060f }, { 0.035f,  0.999f,   9.6f, 0.040f }, { 0.743f, -0.669f,   6.8f, 0.028f },
+		{ 0.530f,  0.848f,   4.9f, 0.020f }, { 0.993f, -0.122f,   3.4f, 0.014f }, { -0.309f, 0.951f,   2.4f, 0.010f } };
+	const UWorld* World = GetWorld();
+	if (!World) return 0.f;
+	double Fade = SeaState;
+	if (const UGameInstance* GI = World->GetGameInstance())
+		if (const UDragonWorldSubsystem* WS = GI->GetSubsystem<UDragonWorldSubsystem>())
+			Fade *= FMath::Clamp((-WS->HeightAt(Xm * 100.0, Ym * 100.0) / 100.0 - 0.5) / 7.0, 0.0, 1.0);
+	if (Fade <= 0.0) return 0.f;
+	const double T = World->GetTimeSeconds();
+	double H = 0.0;
+	for (int32 i = 0; i < 12; ++i)
+	{
+		const double Dx = Wv[i][0], Dy = Wv[i][1], L = Wv[i][2];
+		const double Group = 0.65 + 0.35 * FMath::Sin((Xm * Dy - Ym * Dx) * (UE_DOUBLE_TWO_PI / (L * 7.3)) + i * 1.7) * FMath::Sin((Xm * Dx + Ym * Dy) * (UE_DOUBLE_TWO_PI / (L * 11.0)) + i * 2.3);
+		const double K = UE_DOUBLE_TWO_PI / L, C = FMath::Sqrt(9.81 / K);
+		H += Wv[i][3] * Fade * Group * FMath::Sin(K * (Dx * Xm + Dy * Ym - C * T) + i * 0.9);
+	}
+	return (float)H;
 }
 
 void ADragonSea::Tick(float DeltaSeconds)

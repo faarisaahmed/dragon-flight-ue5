@@ -55,6 +55,13 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Sea") TObjectPtr<UProceduralMeshComponent> Grid;
 	UPROPERTY(VisibleAnywhere, Category = "Sea") TObjectPtr<UProceduralMeshComponent> Frame;
 
+	/** The sea's material instance (the wake simulation feeds it). */
+	class UMaterialInstanceDynamic* GetSeaMID() const { return SeaMID; }
+	/** The sea surface's height (m above sea level) at a world point in metres, now: the same twelve
+	 *  wave trains, packets and shoaling M_Sea draws, so things float on the waves you see. */
+	float SurfaceM(double Xm, double Ym) const;
+	static ADragonSea* Get(const UObject* WorldContext);
+
 private:
 	void BuildSeaMeshes();
 	bool BuildLake(const UDragonWorldSubsystem& W, const FDragonLake& L, int32 Index);

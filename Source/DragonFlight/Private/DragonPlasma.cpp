@@ -1,4 +1,5 @@
 #include "DragonPlasma.h"
+#include "DragonWake.h"
 #include "DragonFX.h"
 #include "DragonSfx.h"
 #include "Components/StaticMeshComponent.h"
@@ -136,6 +137,8 @@ void ADragonPlasma::Explode(const FVector& AtCm, const FVector& Normal, bool bWa
 		else FX->PlasmaBlast(AtCm, Normal, bWater, BlastRadiusM * M * 0.65f);
 	}
 	DragonSfx::PlasmaBlast(this, AtCm, bWater || bAir);
+	if (bWater)
+		if (ADragonWake* Wk = ADragonWake::Get(this)) Wk->Disturb(AtCm, BlastRadiusM * M * 0.35f, -1.4f, 25.f);   // a crater in the sea, rings running out from it
 	// Anything physics-simulating in the blast gets pushed (crates, debris, later: targets).
 	TArray<FOverlapResult> Overlaps;
 	FCollisionShape Shape = FCollisionShape::MakeSphere(BlastRadiusM * M);

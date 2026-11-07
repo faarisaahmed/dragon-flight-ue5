@@ -197,9 +197,65 @@ namespace
 		return ToPCM(X);
 	}
 
+	// ---- A heavy body coming down on the ground ---------------------------------------
+	TArray<int16> MakeThud(uint32 Seed)
+	{
+		// The ground taking a tonne: a deep, short thump felt more than heard, the crunch of
+		// turf and grit under the claws, and a little scatter of stones after.
+		FRng R(Seed);
+		const float Len = 0.9f;
+		const int32 N = (int32)(Len * RATE);
+		TArray<float> X; X.SetNumZeroed(N);
+		float L1 = 0.f, L2 = 0.f, Bp = 0.f, Bl = 0.f; double Ph = 0.0;
+		for (int32 i = 0; i < N; ++i)
+		{
+			const float t = (float)i / RATE;
+			const float W = R.N();
+			const float F = 38.f + 40.f * FMath::Exp(-t * 18.f);
+			Ph += F / RATE;
+			const float Body = FMath::Sin(2.0 * PI * Ph) * FMath::Exp(-t * 9.f) * FMath::Min(1.f, t / 0.004f);
+			L1 += (W - L1) * LpK(180.f); L2 += (L1 - L2) * LpK(120.f);
+			const float Rumble = L2 * 10.f * FMath::Exp(-t * 7.f);
+			Bl += (W - Bl) * LpK(2400.f); Bp += (Bl - Bp) * LpK(500.f);
+			const float Crunch = (Bl - Bp) * 1.6f * FMath::Exp(-t * 14.f) * (0.6f + 0.4f * FMath::Abs(R.N()));
+			const float Grit = (R.U() > 0.9985f ? R.N() : 0.f) * FMath::Exp(-t * 4.f) * 0.8f;
+			X[i] = Body * 1.2f + Rumble + Crunch + Grit;
+		}
+		Normalise(X, 0.95f);
+		return ToPCM(X);
+	}
+
+	// ---- Water hit: a slap and a hiss of falling spray ---------------------------------
+	TArray<int16> MakeSlap(uint32 Seed)
+	{
+		FRng R(Seed);
+		const float Len = 1.6f;
+		const int32 N = (int32)(Len * RATE);
+		TArray<float> X; X.SetNumZeroed(N);
+		float L1 = 0.f, H1 = 0.f, L2 = 0.f, Bub = 0.f; double Ph = 0.0;
+		for (int32 i = 0; i < N; ++i)
+		{
+			const float t = (float)i / RATE;
+			const float W = R.N();
+			L1 += (W - L1) * LpK(900.f);
+			const float Slap = L1 * 3.f * FMath::Exp(-t * 22.f);
+			H1 += (W - H1) * LpK(2500.f); L2 += ((W - H1) - L2) * LpK(9000.f);
+			const float Env = FMath::Min(1.f, t / 0.12f) * FMath::Exp(-FMath::Max(0.f, t - 0.25f) * 2.6f);
+			const float Spray = L2 * 1.1f * Env;
+			// bubbles: short rising chirps
+			if (R.U() > 0.9992f) { Bub = 0.4f + 0.4f * R.U(); Ph = 0.0; }
+			Ph += (300.f + 900.f * (1.f - Bub)) / RATE;
+			const float Chirp = FMath::Sin(2.0 * PI * Ph) * Bub * FMath::Exp(-t * 3.f) * 0.25f;
+			Bub *= 0.9994f;
+			X[i] = Slap + Spray + Chirp;
+		}
+		Normalise(X, 0.9f);
+		return ToPCM(X);
+	}
+
 	struct FBank
 	{
-		TArray<TArray<int16>> Shot, Blast, Splash, ThunderNear, ThunderFar, Flap;
+		TArray<TArray<int16>> Shot, Blast, Splash, ThunderNear, ThunderFar, Flap, Thud, Slap;
 		USoundAttenuation* Near = nullptr;   // shots: heard to ~1.5 km
 		USoundAttenuation* Far = nullptr;    // blasts: to ~6 km, dull with distance
 		uint32 Pick = 1;
@@ -217,6 +273,8 @@ namespace
 				B.ThunderNear.Add(MakeThunder(41 + s, true));
 				B.ThunderFar.Add(MakeThunder(51 + s, false));
 				B.Flap.Add(MakeFlap(61 + s));
+				B.Thud.Add(MakeThud(71 + s));
+				B.Slap.Add(MakeSlap(81 + s));
 			}
 			auto MakeAtt = [](float InnerCm, float FalloffCm, float LpfMaxHz)
 			{
@@ -299,6 +357,22 @@ void DragonSfx::Thunder(const UObject* Ctx, const FVector& At, float DistanceCm)
 	StopAfter(W, C, Wave->Duration / Pitch);
 }
 
+void DragonSfx::Thud(const UObject* Ctx, const FVector& At, float Strength)
+{
+	if (Strength < 0.03f) return;
+	FBank& B = Bank();
+	const int32 i = (B.Pick++) % B.Thud.Num();
+	PlayPCM(Ctx, B.Thud[i], At, FMath::Clamp(Strength, 0.f, 1.2f), 0.85f + 0.3f * (1.f - FMath::Clamp(Strength, 0.f, 1.f)), B.Near);
+}
+
+void DragonSfx::Splash(const UObject* Ctx, const FVector& At, float Strength)
+{
+	if (Strength < 0.03f) return;
+	FBank& B = Bank();
+	const int32 i = (B.Pick++) % B.Slap.Num();
+	PlayPCM(Ctx, B.Slap[i], At, FMath::Clamp(Strength, 0.f, 1.2f), 1.15f - 0.35f * FMath::Clamp(Strength, 0.f, 1.f), B.Near);
+}
+
 void DragonSfx::Wingbeat(const UObject* Ctx, const FVector& At, float Strength, float Seconds)
 {
 	if (Strength < 0.05f) return;
@@ -338,6 +412,8 @@ void UDragonAmbience::BeginPlay()
 		auto Rnd = [&S]() { S->Seed = S->Seed * 1664525u + 1013904223u; return ((S->Seed >> 9) & 0x7FFF) / 16384.f - 1.f; };
 		const float TRain = S->Rain.load(std::memory_order_relaxed), TSurf = S->Surf.load(std::memory_order_relaxed);
 		const float TSea = S->Sea.load(std::memory_order_relaxed), TStorm = S->Storm.load(std::memory_order_relaxed);
+		const float TSkim = S->Skim.load(std::memory_order_relaxed);
+		const float KSkimHp = LpK(1400.f), KSkimLp = LpK(6500.f);
 		const float KRainHp = LpK(1100.f), KRainLp = LpK(7500.f), KSurf = LpK(520.f), KSurf2 = LpK(2600.f), KSea = LpK(380.f);
 		for (int32 i = 0; i < Frames; ++i)
 		{
@@ -368,6 +444,15 @@ void UDragonAmbience::BeginPlay()
 			const float Wash = 0.55f + 0.45f * (float)(FMath::Sin(S->Phase * 2.0 * PI / 5.3) * FMath::Sin(S->Phase * 2.0 * PI / 8.9 + 1.0));
 			S->SeaLpL += (S->BrownL * 5.f - S->SeaLpL) * KSea; S->SeaLpR += (S->BrownR * 5.f - S->SeaLpR) * KSea;
 			L += S->SeaLpL * Wash * S->SmSea * 0.6f; R += S->SeaLpR * Wash * S->SmSea * 0.6f;
+			// A wingtip or claws cutting the water: a tearing hiss with a ragged edge.
+			S->SmSkim += (TSkim - S->SmSkim) * (TSkim > S->SmSkim ? 0.0006f : 0.00008f);
+			if (S->SmSkim > 0.002f)
+			{
+				S->SkimHpL += (NL - S->SkimHpL) * KSkimHp; S->SkimHpR += (NR - S->SkimHpR) * KSkimHp;
+				S->SkimLpL += ((NL - S->SkimHpL) - S->SkimLpL) * KSkimLp; S->SkimLpR += ((NR - S->SkimHpR) - S->SkimLpR) * KSkimLp;
+				const float Rag = 0.6f + 0.4f * FMath::Abs(S->BrownL) * 8.f;
+				L += S->SkimLpL * S->SmSkim * 1.6f * Rag; R += S->SkimLpR * S->SmSkim * 1.6f * Rag;
+			}
 			Out[i * 2] = (int16)FMath::Clamp(L * 12000.f, -32000.f, 32000.f);
 			Out[i * 2 + 1] = (int16)FMath::Clamp(R * 12000.f, -32000.f, 32000.f);
 		}

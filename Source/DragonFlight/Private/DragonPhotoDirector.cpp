@@ -359,6 +359,43 @@ void ADragonPhotoDirector::PlanShots()
 			}
 			if (k == 0)
 			{
+				// Mechanics, scripted: skimming the sea, hovering over it, landing, walking, swimming.
+				const FVector Sea = Coast + D * 60000.0;                  // 600 m out: open water
+				const float Along = (-D).Rotation().Yaw + 90.f;            // parallel to the coast
+				FShot Sk = Fl; Sk.Name = TEXT("40_skim_knife"); Sk.PoseM = FVector(Sea.X, Sea.Y, 900.0) / 100.0; Sk.PoseYaw = Along;
+				Sk.PoseSpeed = 34.f; Sk.Script.bOn = true; Sk.Script.Move = 1.f; Sk.Script.Vertical = -0.45f; Sk.Script.Knife = 1; Sk.SettleS = 2.0f; Sk.Hours = 16.5f;
+				Shots.Add(Sk);
+				FShot Sb = Sk; Sb.Name = TEXT("40b_skim_feet"); Sb.Script.Knife = 0; Sb.Script.Vertical = -0.5f; Sb.PoseM.Z = 3.0; Sb.SettleS = 3.f;
+				Shots.Add(Sb);
+				FShot Hv = Sk; Hv.Name = TEXT("41_hover_water"); Hv.PoseM.Z = 4.0; Hv.PoseSpeed = 0.f; Hv.Script.Move = 0.f; Hv.Script.Knife = 0; Hv.Script.Vertical = 0.f; Hv.SettleS = 4.5f;
+				Shots.Add(Hv);
+				// A gentle patch of turf inland for the landing and the walk.
+				FVector Turf = Coast - D * 45000.0;
+				for (int32 Ring = 0; Ring < 30; ++Ring)
+				{
+					bool bOk = false;
+					for (int32 a = 0; a < 12 && !bOk; ++a)
+					{
+						const FVector Q = Coast - D * 45000.0 + FVector(FMath::Cos(a * 0.5236), FMath::Sin(a * 0.5236), 0.0) * (Ring * 4000.0);
+						const double G0 = W->HeightAt(Q.X, Q.Y);
+						const double Gx = W->HeightAt(Q.X + 1500.0, Q.Y), Gy = W->HeightAt(Q.X, Q.Y + 1500.0), Gx2 = W->HeightAt(Q.X - 1500.0, Q.Y);
+						if (G0 > 800.0 && FMath::Abs(Gx - G0) < 250.0 && FMath::Abs(Gy - G0) < 250.0 && FMath::Abs(Gx2 - G0) < 250.0) { Turf = Q; bOk = true; }
+					}
+					if (bOk) break;
+				}
+				const double TurfZ = W->HeightAt(Turf.X, Turf.Y) / 100.0;
+				FShot La = Fl; La.Name = TEXT("42a_land_flare"); La.PoseM = FVector(Turf.X / 100.0, Turf.Y / 100.0, TurfZ + 16.0); La.PoseYaw = (-D).Rotation().Yaw + 35.f;
+				La.PoseSpeed = 12.f; La.Script.bOn = true; La.Script.bLand = true; La.SettleS = 1.6f; La.Hours = 15.5f;
+				Shots.Add(La);
+				FShot Lb = La; Lb.Name = TEXT("42b_land_touch"); Lb.SettleS = 3.4f; Shots.Add(Lb);
+				FShot Lc = La; Lc.Name = TEXT("42c_land_settled"); Lc.SettleS = 6.f; Shots.Add(Lc);
+				FShot Wa = La; Wa.Name = TEXT("43_walk"); Wa.bPoseGround = true; Wa.PoseM.Z = TurfZ; Wa.Script = ADragonPawn::FDragonScript(); Wa.Script.bOn = true; Wa.Script.WalkFwd = 1.f; Wa.SettleS = 4.f;
+				Shots.Add(Wa);
+				FShot Ga = Wa; Ga.Name = TEXT("43b_gallop"); Ga.Script.bSprint = true; Ga.SettleS = 5.f; Shots.Add(Ga);
+				const FVector Bay = Coast + D * 15000.0;
+				FShot Sw = Sk; Sw.Name = TEXT("44_swim"); Sw.PoseM = FVector(Bay.X, Bay.Y, 500.0) / 100.0; Sw.PoseSpeed = 4.f; Sw.Script = ADragonPawn::FDragonScript();
+				Sw.Script.bOn = true; Sw.Script.bLand = true; Sw.Script.WalkFwd = 1.f; Sw.SettleS = 8.f; Shots.Add(Sw);
+
 				// The same coast in rain, and in a storm, from the player's seat.
 				FShot Rn = Fl; Rn.Name = FString::Printf(TEXT("33_rain_%s"), *Nm); Rn.Weather = (uint8)EDragonWeather::Rain;
 				Shots.Add(Rn);
@@ -441,8 +478,7 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 		if (APawn* P = PC->GetPawn())
 		{
 			P->CustomTimeDilation = 1.f;
-			if (S.bPose)
-				if (ADragonPawn* DP = Cast<ADragonPawn>(P)) DP->PhotoPose(S.PoseM, S.PoseYaw);
+			PosePawn(S);
 			PC->SetViewTarget(P);
 		}
 	}
@@ -465,11 +501,30 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 		W ? W->HeightAt(At.X, At.Y) / 100.0 : -1.0, *Under);
 }
 
+void ADragonPhotoDirector::PosePawn(const FShot& S)
+{
+	if (ADragonPawn* DP = Cast<ADragonPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+	{
+		if (S.bPose && S.bPoseGround) DP->PhotoGround(S.PoseM, S.PoseYaw);
+		else if (S.bPose) DP->PhotoPose(S.PoseM, S.PoseYaw);
+		if (S.PoseSpeed >= 0.f) DP->PhotoSpeed(S.PoseSpeed);
+		DP->SetScript(S.Script);
+	}
+}
+
+void ADragonPhotoDirector::HoldPawn(bool bHold)
+{
+	if (APawn* P = UGameplayStatics::GetPlayerPawn(this, 0)) P->CustomTimeDilation = bHold ? 0.f : 1.f;
+}
+
 void ADragonPhotoDirector::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	const bool bMech = Shots.IsValidIndex(Index) && (Shots[Index].Script.bOn || Shots[Index].PoseSpeed >= 0.f);
+	if (bMech && !bReleased) HoldPawn(true);
 	if (Busy())
 	{
+		if (bMech) HoldPawn(true);   // shaders compiling: everything waits, the dragon too
 		Warmup = 0.f;
 		static double LastLog = 0.0;
 		const double Now = FPlatformTime::Seconds();
@@ -483,8 +538,9 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 #endif
 		return;
 	}
+	if (bMech && bReleased) HoldPawn(false);
 	Warmup += DeltaSeconds;
-	if (Warmup < 5.f) return;
+	if (Warmup < 5.f) { if (bMech) HoldPawn(true); return; }
 
 	if (Index < 0)
 	{
@@ -505,10 +561,22 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 	// Hold each view until the vegetation around it has been generated.
 	bool bScatterBusy = false;
 	for (TActorIterator<ADragonScatter> It(GetWorld()); It; ++It) bScatterBusy |= It->IsBusy();
-	if (!bShotRequested && bScatterBusy && Timer < 60.f) { Timer += DeltaSeconds * 0.25f; return; }
+	if (bMech && !bReleased)
+	{
+		// Hold him still until the trees and grass are in, then start the clock and let go.
+		Wait += DeltaSeconds;
+		if (bScatterBusy && Wait < 90.f) return;
+		// Start the clock from a fresh pose, whatever happened while we waited.
+		bReleased = true; Timer = 0.f; HoldPawn(false);
+		PosePawn(Shots[Index]);
+	}
+	if (!bShotRequested && bScatterBusy && Timer < 60.f && !bMech) { Timer += DeltaSeconds * 0.25f; return; }
 	Timer += DeltaSeconds;
 	const FShot& S = Shots[Index];
-	const float Settle = S.bChase ? 4.f : SettleSeconds;
+	// Scripted shots run on the dragon's own clock, so the shutter catches the moment asked for.
+	if (bMech && S.Script.bOn)
+		if (const ADragonPawn* DP = Cast<ADragonPawn>(UGameplayStatics::GetPlayerPawn(this, 0))) Timer = DP->GetScriptTime();
+	const float Settle = S.SettleS > 0.f ? S.SettleS : S.bChase ? 4.f : SettleSeconds;
 	// Landscape grass builds lazily around the camera; build this view's synchronously.
 	if (!bShotRequested && !bGrassBuilt && Timer >= Settle - 2.f)
 	{
@@ -548,6 +616,13 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 	{
 		const FString File = OutDir / (S.Name + Tag + TEXT(".png"));
 		FScreenshotRequest::RequestScreenshot(File, false, false);
+		if (const APawn* PP = UGameplayStatics::GetPlayerPawn(this, 0))
+		{
+			FRotator AttR = FRotator::ZeroRotator;
+			for (const UActorComponent* C : PP->GetComponents())
+				if (C->GetFName() == TEXT("Attitude")) AttR = Cast<USceneComponent>(C)->GetComponentRotation();
+			UE_LOG(LogDragon, Display, TEXT("[Photo] shutter t=%.2f pawn z=%.2fm attitude pitch=%.1f roll=%.1f"), Timer, PP->GetActorLocation().Z / 100.f, AttR.Pitch, AttR.Roll);
+		}
 		bShotRequested = true;
 		UE_LOG(LogDragon, Display, TEXT("[Photo] %s"), *File);
 	}
@@ -557,6 +632,7 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 		Timer = 0.f;
 		bShotRequested = false;
 		bGrassBuilt = false;
+		bReleased = false; Wait = 0.f;
 		if (Shots.IsValidIndex(Index)) Frame(Shots[Index]);
 	}
 }

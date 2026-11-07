@@ -17,6 +17,12 @@
 #include "Engine/GameViewportClient.h"
 #include "Engine/GameInstance.h"
 #include "WaterBodyActor.h"
+#include "DragonFX.h"
+#include "DragonWake.h"
+#include "DragonSea.h"
+#include "LandscapeProxy.h"
+#include "EngineUtils.h"
+#include "Misc/CommandLine.h"
 #include "InputCoreTypes.h"
 
 using F = FDragonFlightModel;
@@ -34,7 +40,13 @@ namespace
 	constexpr float REVERSE_CONE = 120.f * PI / 180.f, REVERSE_FRAC = 0.5f;
 	constexpr float FLARE_BRAKE = 2.2f, FLARE_SINK = 9.f, FLARE_TOUCH = 1.8f;
 	constexpr float STEP_MAX = 1.1f, ATT_HZ = 3.f, ATT_ZETA = 0.8f, ATT_MAX = 0.7f;
-	constexpr float G = 9.81f, GROUND_MU = 0.9f;
+	constexpr float G = 9.81f, GROUND_MU = 0.95f;
+	// The body on its legs (metres at DragonScale 1): hips 1.25 m up, legs that reach 1.33 m
+	// so his weight squats them 8 cm; a full crouch is 85 cm of give. Damping ratio ~0.55: a
+	// landing settles in one dip and a half, as a big animal's does.
+	constexpr float HIP_H = 1.25f, REST_COMP = 0.08f, LEG_L0 = HIP_H + REST_COMP, COMP_MAX = 0.85f, LEG_ZETA = 0.55f;
+	constexpr float BUOYANCY = 2.5f;      // floats high: back, neck and head out of the water
+	constexpr float HALF_SPAN = 7.4f;     // wingtip from the body's centre line
 
 	// Health (health.js)
 	constexpr float SAFE_CLOSING = 26.f, LETHAL_CLOSING = 130.f;
@@ -160,6 +172,14 @@ void ADragonPawn::BeginPlay()
 		}
 	}
 
+	// The four legs: hips 1.6 m fore and aft of the centre of mass, 0.75 m either side.
+	Legs[0].Hx = 1.6f; Legs[0].Hy = -0.75f;
+	Legs[1].Hx = 1.6f; Legs[1].Hy = 0.75f;
+	Legs[2].Hx = -1.6f; Legs[2].Hy = -0.75f;
+	Legs[3].Hx = -1.6f; Legs[3].Hy = 0.75f;
+	{ TActorIterator<ALandscapeProxy> It(GetWorld()); if (It) Landscape = *It; }
+	bTelemetry = FParse::Param(FCommandLine::Get(), TEXT("DragonTelemetry"));
+
 	// Face away from the camera, as the web game does on its first frame.
 	CamYaw = F::YawToHeading(GetActorRotation().Yaw) + PI;
 	Flight.SetHeading(CamYaw + PI);
@@ -280,6 +300,14 @@ ADragonPawn::FFrameInput ADragonPawn::GatherInput(float Dt)
 	if (AnyPressed({ EKeys::MouseScrollDown })) In.BoomDelta += 6.f / FMath::Max(Dt, 1e-3f) / 22.f;
 	if (AnyPressed({ EKeys::MouseScrollUp })) In.BoomDelta -= 6.f / FMath::Max(Dt, 1e-3f) / 22.f;
 	if (AnyPressed({ EKeys::Gamepad_LeftThumbstick })) Flight.CurrentForwardSpeed = F::SPEED_CRUISE;
+	if (Script.bOn)
+	{
+		// Scripted tests (the photo director): these stand in for the keys.
+		In.Move = Script.Move; In.Vertical = Script.Vertical; In.Turn = Script.Turn;
+		In.WalkFwd = Script.WalkFwd; In.WalkSide = Script.WalkSide; In.Knife = Script.Knife;
+		In.bLand = Script.bLand; In.bSprint = Script.bSprint; In.bUpPressed = Script.bUpPressed;
+		Script.bUpPressed = false;
+	}
 	return In;
 }
 
@@ -294,6 +322,7 @@ void ADragonPawn::Tick(float DeltaSeconds)
 
 	// Pick up anything that moved us (teleport, editor).
 	PrevPosM = PosM;
+	if (Script.bOn) ScriptTime += Dt;
 	const FFrameInput In = GatherInput(Dt);
 
 	Prompt.Reset();
@@ -313,7 +342,7 @@ void ADragonPawn::Tick(float DeltaSeconds)
 		FDragonWebRigInput WI;
 		WI.FS = FS;
 		WI.bBoost = Flight.bBursting;
-		WI.bGrounded = bGrounded;
+		WI.bGrounded = bGrounded && !bApproach;   // flying in, the wings are still working
 		WI.bFlaring = bFlaring;
 		WI.GroundSpeed = FMath::Abs(WalkSpeed) / FMath::Max(DragonScale, 0.01f);
 		WI.MaxGroundSpeed = RUN_SPEED / FMath::Max(DragonScale, 0.01f);
@@ -333,9 +362,10 @@ void ADragonPawn::Tick(float DeltaSeconds)
 
 	TickCamera(Dt, In);
 	WindAudio->SetFlight(bGrounded ? 0.f : Flight.GetSpeedRatio(), bGrounded ? 0.f : Flight.GetTurboT(), bGrounded);
+	if (bGrounded && Ambience && !bSwimming) Ambience->SetSkim(0.f);
 	// Wingbeats: a push of air at the start of each downstroke, loud in a hover or a hard
 	// climb, gone in a glide.
-	if (WebRig && !bGrounded)
+	if (WebRig && (!bGrounded || bApproach))
 	{
 		const float Ph = WebRig->GetWingPhase01();
 		if (Ph < LastWingPhase - 0.5f)
@@ -364,6 +394,17 @@ void ADragonPawn::TickFlight(float Dt, const FFrameInput& In)
 
 	if (bCollide) FlightFloor(Dt);
 	else bFloorContact = false;
+	TickWaterFlight(Dt);
+	if (Script.bOn || bTelemetry)
+	{
+		TelemetryT += Dt;
+		if (TelemetryT >= 0.1f)
+		{
+			TelemetryT = 0.f;
+			UE_LOG(LogDragon, Display, TEXT("[Fly] z=%.2f climb=%.2f speed=%.1f roll=%.1f knife=%.2f charge=%.2f rolldir=%d floor=%d mode=%d"),
+				PosM.Z, Flight.ClimbVel, Flight.ActiveSpeed, FMath::RadiansToDegrees(Flight.CurrentRoll), Flight.KnifeAmount, Flight.KnifeCharge, Flight.RollDir, bFloorContact ? 1 : 0, (int32)Flight.Mode);
+		}
+	}
 
 	const float Ground = FMath::Max(SolidAtM(PosM.X, PosM.Y), SEA_LEVEL);
 	Agl = PosM.Z - Ground;
@@ -373,6 +414,7 @@ void ADragonPawn::TickFlight(float Dt, const FFrameInput& In)
 // --- The flight floor (main.js 2476-2612) -----------------------------------
 void ADragonPawn::FlightFloor(float Dt)
 {
+	const float S = DragonScale;
 	const FVector Fwd = F::Forward(Flight.Heading);
 	float Rock = SolidAtM(PosM.X, PosM.Y);
 	const float Reach = FMath::Abs(Flight.ActiveSpeed) * 0.25f;
@@ -381,8 +423,43 @@ void ADragonPawn::FlightFloor(float Dt)
 		const FVector P = PosM + Fwd * (Reach * i / 3.f);
 		Rock = FMath::Max(Rock, SolidAtM(P.X, P.Y));
 	}
-	const float Floor = FMath::Max(Rock + 6.f, SEA_LEVEL + 10.f);
+	// Over land the wings keep clear of the ground: more room the faster he goes.
+	const float Clear = FMath::Lerp(2.2f, 6.f, Smooth(FMath::Abs(Flight.ActiveSpeed), 12.f, 40.f)) * S;
+	// Over the sea he may come right down: feet a hand above the water, or in a knife edge low
+	// enough for the lower wingtip to cut the surface about half a metre deep (never so deep it
+	// would catch and cartwheel him).
+	const float TipDrop = FMath::Sin(FMath::Min(FMath::Abs(Flight.CurrentRoll), HALF_PI)) * HALF_SPAN * S - BODY_CENTRE * S;
+	// (the surface where he is, waves and all)
+	const float WaterFloor = SeaAtM(PosM.X, PosM.Y) + FMath::Max(-0.1f * S, TipDrop - 0.55f * S);
+	const float Floor = FMath::Max(Rock + Clear, WaterFloor);
 	if (PosM.Z >= Floor) { bFloorContact = false; return; }
+	if (WaterFloor >= Rock + Clear)
+	{
+		// The sea is a surface, not a wall: struck hard it hurts and throws up a wall of water;
+		// brushed, it holds him up and drags.
+		const FVector V = Flight.GetVelocity();
+		if (!bFloorContact && V.Z < -7.f)
+		{
+			const float Str = FMath::Clamp(-V.Z / 25.f, 0.3f, 1.f);
+			DragonSfx::Splash(this, PosM * M, Str);
+			if (ADragonWake* Wk = ADragonWake::Get(this)) Wk->Disturb(PosM * M, 700.f * S, -1.1f * Str, 8.f * Str);
+			WaterSpray(PosM, FVector(V.X, V.Y, 0.f) * 0.25f, 30, 1.2f + 1.5f * Str);
+			Impact(V, FVector::UpVector, true);
+			Flight.BleedSpeed(FMath::Clamp(-V.Z / 40.f, 0.1f, 0.7f));
+		}
+		bFloorContact = true;
+		PosM.Z = FMath::Max(PosM.Z + (Floor - PosM.Z) * F::Damp(14.f, Dt), (double)(Floor - 0.3f * S));
+		Flight.ClimbVel = FMath::Max(Flight.ClimbVel, 0.f);
+		return;
+	}
+	// Slow and just under the floor (lifting off, hovering low): ease up to it, no jolt.
+	if (FMath::Abs(Flight.ActiveSpeed) < 15.f && Floor - PosM.Z < 2.5f * S)
+	{
+		bFloorContact = true;
+		PosM.Z += (Floor - PosM.Z) * F::Damp(6.f, Dt);
+		Flight.ClimbVel = FMath::Max(Flight.ClimbVel, 0.f);
+		return;
+	}
 
 	const bool bFirst = !bFloorContact;
 	bFloorContact = true;
@@ -473,7 +550,7 @@ void ADragonPawn::TeleportToM(const FVector& NewPosM, bool bAirborne)
 {
 	PosM = NewPosM;
 	PrevPosM = NewPosM;
-	if (bAirborne && bGrounded) { bGrounded = false; bFlaring = false; Flight.SetHeading(WalkYaw); }
+	if (bAirborne && bGrounded) { bGrounded = false; bFlaring = false; bApproach = false; bSwimming = false; Flight.SetHeading(WalkYaw); }
 	CamVel = FVector::ZeroVector;
 	FocusLag = FVector::ZeroVector;
 	bCamInit = false;
@@ -485,6 +562,8 @@ void ADragonPawn::PhotoPose(const FVector& NewPosM, float YawDeg)
 	TeleportToM(NewPosM, true);
 	bGrounded = false;
 	bFlaring = false;
+	bApproach = false;
+	bSwimming = false;
 	Flight.SetHeading(F::YawToHeading(YawDeg));
 	CamYaw = Flight.Heading + PI;
 	bCamInit = false;
@@ -508,6 +587,28 @@ void ADragonPawn::PhotoFire(const FVector& TargetM)
 	}
 }
 
+void ADragonPawn::PhotoGround(const FVector& NewPosM, float YawDeg)
+{
+	TeleportToM(NewPosM, false);
+	bGrounded = true; bApproach = false; bFlaring = false; bSwimming = false;
+	WalkYaw = F::YawToHeading(YawDeg);
+	CamYaw = WalkYaw + PI;
+	GroundVel = FVector::ZeroVector;
+	GroundPitch = GroundRoll = GroundPitchVel = GroundRollVel = 0.f;
+	PosM.Z = SolidAtM(PosM.X, PosM.Y);
+	if (WebRig && WebRig->IsBound()) WebRig->SnapFold(1.f);
+	bCamInit = false;
+	ApplyTransform();
+}
+
+void ADragonPawn::PhotoSpeed(float MS)
+{
+	// a fresh start for the manoeuvre meters too
+	Flight.KnifeCharge = F::KNIFE_HOLD; Flight.KnifeAmount = 0.f; Flight.ClimbVel = 0.f; Flight.SetMode(EDragonFlightMode::Level);
+	Flight.Airspeed = Flight.ActiveSpeed = MS;
+	Flight.CurrentForwardSpeed = FMath::Max(MS, 1.f);
+}
+
 // --- Landing (main.js 1183-1236, 2769-2825) --------------------------------
 void ADragonPawn::GroundAttitude(float X, float Y, float H, float& OutPitch, float& OutRoll, float& OutSteep) const
 {
@@ -526,7 +627,8 @@ void ADragonPawn::CheckLanding(float Dt, const FFrameInput& In)
 {
 	const float GroundY = SolidAtM(PosM.X, PosM.Y);
 	const bool bOverLand = GroundY > SEA_LEVEL + 0.5f;
-	const float AglLand = PosM.Z - (GroundY + 6.f);
+	const float AglLand = PosM.Z - GroundY;
+	const float AglSea = PosM.Z - SEA_LEVEL;
 	const bool bSlow = Flight.GetSpeedRatio() < LAND_SPEED_T;
 	bool bTooSteep = false;
 	if (bOverLand && AglLand < LAND_AGL)
@@ -535,13 +637,14 @@ void ADragonPawn::CheckLanding(float Dt, const FFrameInput& In)
 		GroundAttitude(PosM.X, PosM.Y, GroundY, P, R, Steep);
 		bTooSteep = Steep > LAND_SLOPE_MAX;
 	}
-	const bool bCanLand = bOverLand && AglLand < LAND_AGL && bSlow && !bTooSteep;
-	const bool bSinking = Flight.ClimbVel < -3.f;
+	// Over water he can come down to swim, as long as he is slow and low.
+	const bool bCanLand = bSlow && ((bOverLand && AglLand < LAND_AGL && !bTooSteep) || (!bOverLand && AglSea < 14.f));
+	const bool bSinking = Flight.ClimbVel < -3.f && bOverLand;
 
 	if (bCanLand && (In.bLand || bSinking))
 	{
 		LandHold += In.bLand ? Dt : 0.6f * Dt;
-		if (LandHold > LAND_HOLD) { Land(); return; }
+		if (LandHold > LAND_HOLD) { BeginApproach(); return; }
 	}
 	else if (!In.bLand)
 	{
@@ -549,48 +652,271 @@ void ADragonPawn::CheckLanding(float Dt, const FFrameInput& In)
 	}
 
 	// Prompts name the failing condition and the key that fixes it.
-	if (bCanLand) Prompt = TEXT("Hold I or K to land");
+	if (bCanLand) Prompt = bOverLand ? TEXT("Hold I or K to land") : TEXT("Hold I to come down on the water");
 	else if (In.bLand || In.Vertical < -0.5f)
 	{
-		if (!bOverLand && AglLand < 140.f) Prompt = TEXT("No land below — find an island");
-		else if (bOverLand && !bSlow && AglLand < LAND_AGL) Prompt = TEXT("Too fast to land — let go of W");
+		if (bOverLand && !bSlow && AglLand < LAND_AGL) Prompt = TEXT("Too fast to land — let go of W");
 		else if (bTooSteep) Prompt = TEXT("Too steep to stand");
 		else if (bOverLand && AglLand < 260.f) Prompt = TEXT("Too high to land — hold K to drop");
+		else if (!bOverLand && AglSea < 140.f && !bSlow) Prompt = TEXT("Too fast to come down — let go of W");
 	}
 	if (Flight.EdgeT > 0.45f) Prompt = TEXT("He will not go further. The chart ends here.");
 	else if (Flight.EdgeT > 0.02f) Prompt = TEXT("The last of the chart. He is drifting back.");
 }
 
-void ADragonPawn::Land()
+// The flight model hands over to the body: wings still working, legs reaching for the ground.
+// From here on the dragon is a mass on four spring-damper legs; the wings hold him up and
+// brake him until his feet take the weight.
+void ADragonPawn::BeginApproach()
 {
 	bGrounded = true;
-	bFlaring = true;
+	bApproach = true;
+	bFlaring = false;
+	bSwimming = false;
 	WalkYaw = Flight.Heading;
 	Flight.ClearRoll();
 	Flight.Snared = 0.f;
 	LandHold = 0.f;
-	// The incoming velocity is the camera's smoothed measured velocity.
-	GroundVel = CamVel;
-	GroundPitch = Flight.CurrentPitch * 0.f;
-	GroundRoll = 0.f;
-	Unsupported = 0.f;
-	if (WebRig && WebRig->IsBound()) WebRig->BeginFold();
+	GroundVel = Flight.GetVelocity();          // momentum carries over: speed, sink, slip
+	GroundPitch = Flight.CurrentPitch;
+	GroundRoll = -Flight.CurrentRoll;
+	GroundPitchVel = GroundRollVel = 0.f;
+	YawRateG = 0.f;
+	AirTime = 0.f;
+	for (FLeg& L : Legs) { L.bContact = false; L.Comp = 0.f; }
 }
 
-void ADragonPawn::TakeOff()
+void ADragonPawn::TouchDown(float Vz)
 {
-	bGrounded = false;
-	bFlaring = false;
-	Flight.SetHeading(WalkYaw);
-	PosM.Z += 3.f;
-	Flight.ClimbVel = FMath::Max(Flight.ClimbVel, 0.f);
-	if (WebRig && WebRig->IsBound()) WebRig->BeginUnfold();
+	bApproach = false;
+	const float Hard = FMath::Clamp((-Vz - 1.f) / 9.f, 0.f, 1.f);
+	if (WebRig && WebRig->IsBound()) WebRig->BeginFold();
+	DragonSfx::Thud(this, PosM * M, 0.25f + 0.85f * Hard);
+	Shake = FMath::Max(Shake, 0.25f + Hard * 1.2f);
+	// A crash still hurts (closing speed past the safe limit), however it is made.
+	Impact(FVector(GroundVel.X, GroundVel.Y, Vz), FVector::UpVector, false);
+	if (ADragonFX* FX = ADragonFX::Get(this))
+	{
+		// Dust (or powder snow) kicked out from under the feet.
+		const bool bSnow = PosM.Z > 350.f;
+		const int32 N = 6 + FMath::RoundToInt(10.f * Hard);
+		for (int32 i = 0; i < N; ++i)
+		{
+			FDragonPuff P;
+			P.Kind = EDragonPuff::Smoke;
+			const float A = FMath::FRand() * 2.f * PI;
+			const FVector D(FMath::Cos(A), FMath::Sin(A), 0.f);
+			P.Pos = PosM * M + D * (150.f + 200.f * FMath::FRand()) * DragonScale + FVector(0, 0, 40.f);
+			P.Vel = D * (300.f + 700.f * Hard) * (0.5f + FMath::FRand()) + FVector(0, 0, 60.f + 120.f * FMath::FRand());
+			P.Drag = 2.2f; P.Buoyancy = 25.f;
+			P.Life = 1.6f + 1.4f * FMath::FRand();
+			P.Size0 = 120.f; P.Size1 = (350.f + 500.f * Hard) * (0.7f + 0.6f * FMath::FRand());
+			P.Colour0 = bSnow ? FLinearColor(0.9f, 0.92f, 0.95f) : FLinearColor(0.42f, 0.38f, 0.30f);
+			P.Colour1 = bSnow ? FLinearColor(0.86f, 0.88f, 0.92f) : FLinearColor(0.48f, 0.45f, 0.38f);
+			P.Intensity = (0.10f + 0.25f * Hard) * (bSnow ? 1.6f : 1.f); P.FadeIn = 0.05f; P.Spin = FMath::FRand() - 0.5f;
+			FX->Spawn(P);
+		}
+	}
 }
 
-// --- On foot (main.js 2667-2768, groundbody.js simplified) ------------------
+void ADragonPawn::TakeOff(bool bLeap)
+{
+	const FVector Fw = F::Forward(WalkYaw);
+	const float Ahead = FMath::Max(0.f, (float)FVector::DotProduct(FVector(GroundVel.X, GroundVel.Y, 0.f), Fw));
+	const bool bFromWater = bSwimming;
+	bGrounded = false;
+	bApproach = false;
+	bFlaring = false;
+	bSwimming = false;
+	Flight.SetHeading(WalkYaw);
+	Flight.Airspeed = Flight.ActiveSpeed = Ahead;
+	// A leap: legs drive him up (or wings haul him out of the water); falling off an edge he
+	// just opens his wings with the speed he has.
+	Flight.ClimbVel = bLeap ? FMath::Max((float)GroundVel.Z, 0.f) + (bFromWater ? 5.f : 7.5f) : (float)GroundVel.Z;
+	PosM.Z += 0.05f;
+	if (WebRig && WebRig->IsBound()) WebRig->BeginUnfold();
+	if (bLeap)
+	{
+		if (bFromWater)
+		{
+			DragonSfx::Splash(this, PosM * M, 0.8f);
+			if (ADragonWake* Wk = ADragonWake::Get(this)) Wk->Disturb(PosM * M, 450.f * DragonScale, -0.3f, 3.f);
+			WaterSpray(PosM + FVector(0, 0, 0.5f), Fw * 2.f, 22, 1.2f);
+		}
+		else DragonSfx::Thud(this, PosM * M, 0.35f);
+	}
+}
+
+void ADragonPawn::ProbeLegs()
+{
+	// One short trace per foot, from above the hip down past the reach of the leg: the ground
+	// (landscape, rocks, roofs, the sea bed) and which way it faces.
+	UWorld* World = GetWorld();
+	const FVector Fw = F::Forward(WalkYaw), Ri = -F::Left(WalkYaw);
+	const float S = DragonScale;
+	FCollisionQueryParams Q(SCENE_QUERY_STAT(DragonLeg), true, this);
+	FCollisionObjectQueryParams O;
+	O.AddObjectTypesToQuery(ECC_WorldStatic);
+	O.AddObjectTypesToQuery(ECC_WorldDynamic);
+	const UDragonWorldSubsystem* WS = World && World->GetGameInstance() ? World->GetGameInstance()->GetSubsystem<UDragonWorldSubsystem>() : nullptr;
+	for (FLeg& L : Legs)
+	{
+		const FVector Foot = PosM + Fw * (L.Hx * S) + Ri * (L.Hy * S);
+		bool bHit = false;
+		if (World)
+		{
+			TArray<FHitResult> Hits;
+			const FVector From = FVector(Foot.X, Foot.Y, PosM.Z + 3.5f * S) * M, To = FVector(Foot.X, Foot.Y, PosM.Z - 9.f * S) * M;
+			if (World->LineTraceMultiByObjectType(Hits, From, To, O, Q))
+				for (const FHitResult& H : Hits)
+				{
+					const AActor* A = H.GetActor();
+					if (A && (A->IsA<AWaterBody>() || A == this)) continue;
+					L.GroundZ = H.ImpactPoint.Z / M;
+					L.Normal = H.ImpactNormal;
+					bHit = true;
+					break;
+				}
+		}
+		if (!bHit)
+		{
+			const double H0 = WS ? WS->HeightAt(Foot.X * M, Foot.Y * M) / M : -200.0;
+			const double Hx = WS ? WS->HeightAt((Foot.X + 1.0) * M, Foot.Y * M) / M : H0;
+			const double Hy = WS ? WS->HeightAt(Foot.X * M, (Foot.Y + 1.0) * M) / M : H0;
+			L.GroundZ = (float)H0;
+			L.Normal = FVector(H0 - Hx, H0 - Hy, 1.0).GetSafeNormal();
+		}
+		// A foot can't find ground far above the hip: anything that high is a wall, handled
+		// by the body's collision, not something to stand on.
+		L.GroundZ = FMath::Min(L.GroundZ, (float)PosM.Z + 1.6f * S);
+		if (L.Normal.Z < 0.2f) L.Normal = FVector::UpVector;
+	}
+	// He levels himself as an animal does: on a slope the downhill legs reach further and the
+	// uphill ones bend, so his back is tilted only half as much as the ground.
+	const float Zf = 0.5f * (Legs[0].GroundZ + Legs[1].GroundZ), Zr = 0.5f * (Legs[2].GroundZ + Legs[3].GroundZ);
+	const float Zl = 0.5f * (Legs[0].GroundZ + Legs[2].GroundZ), Zrt = 0.5f * (Legs[1].GroundZ + Legs[3].GroundZ);
+	const float Pg = FMath::Atan2(Zf - Zr, 3.2f * S), Rg = -FMath::Atan2(Zrt - Zl, 1.5f * S);
+	const float Pd = 0.5f * Pg, Rd = 0.5f * Rg;
+	for (FLeg& L : Legs)
+	{
+		const float Want = -L.Hx * S * (FMath::Sin(Pg) - FMath::Sin(Pd)) + L.Hy * S * (FMath::Sin(Rg) - FMath::Sin(Rd));
+		L.Reach = FMath::Clamp(Want, -0.45f * S, 0.45f * S);
+	}
+}
+
+void ADragonPawn::StepBody(float h, const FVector& WantV, float Kacc, float AccMax)
+{
+	const float S = FMath::Max(DragonScale, 0.05f);
+	const float K = G / (4.f * REST_COMP * S);           // leg spring, per unit mass: 4 legs hold him up at REST_COMP
+	const float C = LEG_ZETA * 2.f * FMath::Sqrt(4.f * K) / 4.f;
+	const float Ip = 2.6f * S * S, Ir = 0.5f * S * S;   // pitch and roll inertia per unit mass (m^2)
+	const float SinP = FMath::Sin(GroundPitch), SinR = FMath::Sin(GroundRoll);
+
+	FVector Fn = FVector::ZeroVector;   // sum of leg forces (along each foot's ground normal)
+	float Ntot = 0.f, TauP = 0.f, TauR = 0.f;
+	int32 Contacts = 0;
+	for (FLeg& L : Legs)
+	{
+		const float HipZ = PosM.Z + HIP_H * S + L.Hx * S * SinP - L.Hy * S * SinR;
+		const float Comp = (LEG_L0 * S + L.Reach) - (HipZ - L.GroundZ);
+		L.Comp = Comp;
+		L.bContact = Comp > 0.f;
+		if (!L.bContact) continue;
+		// how fast the hip is closing on the ground (rigid body, ground at rest)
+		const float CompRate = -(float)(GroundVel.Z + L.Hx * S * GroundPitchVel * FMath::Cos(GroundPitch) - L.Hy * S * GroundRollVel * FMath::Cos(GroundRoll));
+		float Fl = K * Comp + C * CompRate;
+		if (Comp > COMP_MAX * S) Fl += K * 12.f * (Comp - COMP_MAX * S) + C * 3.f * FMath::Max(0.f, CompRate);   // fully crouched: bone on bone
+		Fl = FMath::Max(0.f, Fl);
+		Fn += L.Normal * Fl;
+		Ntot += Fl * L.Normal.Z;
+		TauP += Fl * L.Hx * S;
+		TauR -= Fl * L.Hy * S;
+		++Contacts;
+	}
+
+	FVector A(0.f, 0.f, -G);
+	A += Fn;
+	const FVector Vh(GroundVel.X, GroundVel.Y, 0.f);
+
+	// Traction: the feet push him toward the speed he wants, and hold him on a slope, as far as
+	// friction (mu x the weight on them) allows. Past that he slides.
+	if (Ntot > 0.f)
+	{
+		FVector Des = (WantV - Vh) * Kacc;
+		if (Des.Size() > AccMax) Des = Des.GetSafeNormal() * AccMax;
+		const FVector FnH(Fn.X, Fn.Y, 0.f);
+		FVector Fric = Des - FnH;
+		const float Cap = GROUND_MU * Ntot;
+		if (Fric.Size() > Cap) Fric = Fric.GetSafeNormal() * Cap;
+		A += Fric;
+	}
+
+	// The sea: buoyancy on the part of him that is under, drag, and paddling.
+	const float Belly = PosM.Z + 0.9f * S, Back = PosM.Z + 2.0f * S;
+	Submerged = FMath::Clamp((SeaZ - Belly) / (Back - Belly), 0.f, 1.f);
+	if (Submerged > 0.f)
+	{
+		// he rides the swell: buoyancy against the surface where it is, damping relative to its motion
+		A.Z += G * BUOYANCY * Submerged;
+		A -= FVector(GroundVel.X * 0.45f, GroundVel.Y * 0.45f, (GroundVel.Z - SeaVz) * 2.6f) * Submerged;
+		A -= GroundVel * (0.06f * (float)GroundVel.Size() * Submerged);
+		if (Ntot <= 0.f || Submerged > 0.4f)
+		{
+			FVector Paddle = (WantV - Vh) * 3.f;
+			if (Paddle.Size() > 3.f) Paddle = Paddle.GetSafeNormal() * 3.f;
+			A += Paddle * Submerged;
+		}
+	}
+
+	// Flying in: the wings carry most of him and brake hard (backwinging), easing him down at a
+	// sink rate that slows as the ground comes up. K or C comes down faster; W keeps a little way on.
+	if (bApproach)
+	{
+		const float Hag = (float)PosM.Z - FMath::Max(Legs[0].GroundZ, FMath::Max(Legs[2].GroundZ, SeaZ));
+		// drop in briskly, flare hard in the last few metres
+		float SinkT = -FMath::Lerp(1.6f, 7.f, FMath::Clamp((Hag - 1.5f) / 9.f, 0.f, 1.f));
+		if (ApproachDrop) SinkT = -8.f;
+		const float Lift = FMath::Clamp(G + (SinkT - (float)GroundVel.Z) * 4.5f, 0.f, 1.9f * G);
+		A.Z += Lift;
+		A += (WantV * 0.25f - Vh) * 1.4f;
+		// the body pitches up into the flare
+		GroundPitchVel += ((0.32f - GroundPitch) * 26.f - GroundPitchVel * 7.f) * h;
+		GroundRollVel += ((0.f - GroundRoll) * 26.f - GroundRollVel * 7.f) * h;
+	}
+
+	GroundVel += A * h;
+	PosM += GroundVel * h;
+
+	// Rigid-body attitude: the legs' torques, a little damping, and with no feet down he rights himself.
+	GroundPitchVel += (TauP / Ip - GroundPitchVel * 1.5f) * h;
+	GroundRollVel += (TauR / Ir - GroundRollVel * 1.5f) * h;
+	if (Contacts == 0 && !bApproach)
+	{
+		GroundPitchVel += (-GroundPitch * 8.f - GroundPitchVel * 3.f) * h;
+		GroundRollVel += (-GroundRoll * 8.f - GroundRollVel * 3.f) * h;
+	}
+	if (Submerged > 0.f)
+	{
+		GroundPitchVel += (-GroundPitch * 10.f - GroundPitchVel * 4.f) * Submerged * h;
+		GroundRollVel += (-GroundRoll * 14.f - GroundRollVel * 5.f) * Submerged * h;
+	}
+	GroundPitch = FMath::Clamp(GroundPitch + GroundPitchVel * h, -0.9f, 0.9f);
+	GroundRoll = FMath::Clamp(GroundRoll + GroundRollVel * h, -0.9f, 0.9f);
+	LegContacts = Contacts;
+	LegLoad = Ntot / G;
+}
+
+// --- On foot (and in the water): a mass on four spring-damper legs ------------
 void ADragonPawn::TickGround(float Dt, const FFrameInput& In)
 {
-	if (In.bUpPressed || In.bPadUpTakeoff) { TakeOff(); return; }
+	const float S = FMath::Max(DragonScale, 0.05f);
+	if (In.bUpPressed || In.bPadUpTakeoff)
+	{
+		// Mid-approach: go round. On the ground or in the water: leap (or haul) into the air.
+		TakeOff(!bApproach);
+		return;
+	}
+	ApproachDrop = bApproach && In.Vertical < -0.5f;
 
 	const bool bRunning = In.bSprint || In.bPadRun;
 	const float FwdIn = FMath::Clamp(In.WalkFwd, -1.f, 1.f);
@@ -599,104 +925,307 @@ void ADragonPawn::TickGround(float Dt, const FFrameInput& In)
 	const float CamFwd = CamYaw + PI;
 	const FVector Wish = F::Forward(CamFwd) * FwdIn + F::Forward(CamFwd - HALF_PI) * SideIn;
 	const float GearT = FMath::Clamp((FMath::Abs(WalkSpeed) - WALK_SPEED) / (RUN_SPEED - WALK_SPEED), 0.f, 1.f);
+	const bool bInWater = Submerged > 0.35f && LegLoad < 0.5f;
+	// He can only turn with feet on the ground, paddling, or with the wings in the air.
+	const float Grip = bApproach ? 0.35f : bInWater ? 0.6f : FMath::Clamp(LegLoad, 0.f, 1.f);
 	float Align = 1.f;
 	bool bReversing = false;
-	if (Mag > 0.01f && !bFlaring)
+	float WantYawRate = 0.f;
+	if (Mag > 0.01f)
 	{
 		const float WishYaw = FMath::Atan2(Wish.X, Wish.Y);
 		const float Off = F::AngleDelta(WalkYaw, WishYaw);
-		if (FMath::Abs(Off) > REVERSE_CONE && WalkSpeed < 1.5f)
+		if (FMath::Abs(Off) > REVERSE_CONE && WalkSpeed < 1.5f && !bInWater && !bApproach)
 		{
-			// Asked to go behind him from a walk or stand: he backs up.
 			bReversing = true;
 			const float Back = F::AngleDelta(WalkYaw, FMath::Atan2(-Wish.X, -Wish.Y));
-			WalkYaw += FMath::Clamp(Back, -WALK_TURN * 0.35f * Dt, WALK_TURN * 0.35f * Dt);
+			WantYawRate = FMath::Clamp(Back * 4.f, -WALK_TURN * 0.35f, WALK_TURN * 0.35f);
 			Align = -FMath::Max(0.f, FMath::Cos(Back));
 		}
 		else
 		{
-			const float Turn = FMath::Lerp(WALK_TURN, RUN_TURN, GearT) * Dt;
-			WalkYaw += FMath::Clamp(Off, -Turn, Turn);
+			const float MaxRate = bInWater ? 1.2f : FMath::Lerp(WALK_TURN, RUN_TURN, GearT);
+			WantYawRate = FMath::Clamp(Off * 5.f, -MaxRate, MaxRate);
 			Align = FMath::Max(0.f, FMath::Cos(F::AngleDelta(WalkYaw, WishYaw)));
 		}
 	}
-	const float Gear = bReversing ? WALK_SPEED * REVERSE_FRAC : (bRunning ? RUN_SPEED : WALK_SPEED);
+	// yaw has inertia too: it spins up and down
+	YawRateG += (WantYawRate * Grip - YawRateG) * F::Damp(9.f, Dt);
+	WalkYaw += YawRateG * Dt;
+
+	const float Gear = bInWater ? (bRunning ? 4.2f : 2.4f) : bReversing ? WALK_SPEED * REVERSE_FRAC : (bRunning ? RUN_SPEED : WALK_SPEED);
 	const FVector Fw = F::Forward(WalkYaw);
-	const FVector Want = Fw * (Mag * Align * Gear);
-	const float Accel = bRunning ? RUN_ACCEL : WALK_ACCEL;
+	const FVector WantV = Fw * (Mag * Align * Gear * S);
+	// Walking pace picks up quickly; a gallop takes a few strides to build and to stop.
+	const float Kacc = bRunning ? 2.2f : 3.6f;
+	const float AccMax = (bRunning ? 6.5f : 4.5f) * S;
 
-	const float GroundZ = SolidAtM(PosM.X, PosM.Y);
-	const float Hag = PosM.Z - GroundZ;
+	// Walls and big rocks: the body (a sphere at the chest) can't pass through them. Low
+	// things are the legs' business: they step up onto anything under ~1 m.
+	const FVector Start = PosM;
+	ProbeLegs();
+	{
+		const float NewSea = SeaAtM(PosM.X, PosM.Y);
+		SeaVz = FMath::Lerp(SeaVz, (NewSea - SeaZ) / FMath::Max(Dt, 1e-3f), 0.5f);
+		SeaZ = NewSea;
+	}
+	const float VzBefore = GroundVel.Z;
+	const bool bWasApproach = bApproach;
+	const bool bWasSwimming = bSwimming;
+	const int32 NSub = FMath::Clamp(FMath::CeilToInt(Dt / (1.f / 240.f)), 1, 32);
+	const float H = Dt / NSub;
+	for (int32 i = 0; i < NSub; ++i)
+	{
+		StepBody(H, WantV, Kacc, AccMax);
+		if (bApproach && LegContacts > 0) { TouchDown(VzBefore); }
+	}
 
-	if (bFlaring)
+	// The body's collision, against everything but the ground itself.
+	if (UWorld* World = GetWorld())
 	{
-		// Gravity off; brake, and sink toward the ground gently.
-		GroundVel.X *= FMath::Exp(-FLARE_BRAKE * Dt);
-		GroundVel.Y *= FMath::Exp(-FLARE_BRAKE * Dt);
-		const float Sink = -FMath::Lerp(FLARE_TOUCH, FLARE_SINK, FMath::Clamp(Hag / 8.f, 0.f, 1.f));
-		GroundVel.Z += (Sink - GroundVel.Z) * F::Damp(4.f, Dt);
-		PosM += GroundVel * Dt;
-		if (PosM.Z <= GroundZ + 0.02f) { PosM.Z = GroundZ; bFlaring = false; GroundVel.Z = 0.f; }
-	}
-	else
-	{
-		// Drive toward the wanted velocity, limited by friction on the slope.
-		FVector Hor(GroundVel.X, GroundVel.Y, 0.f);
-		FVector Drive = (Want - Hor) * Accel;
-		float P, R, Steep;
-		GroundAttitude(PosM.X, PosM.Y, GroundZ, P, R, Steep);
-		const float Cap = GROUND_MU * G * FMath::Cos(FMath::Min(Steep, 1.4f));
-		if (Drive.Size() > Cap * 1.6f) Drive = Drive.GetSafeNormal() * Cap * 1.6f;
-		Hor += Drive * Dt;
-		// Steep slopes beat friction: he slides downhill.
-		if (Steep > 0.75f)
+		const FVector Move(PosM.X - Start.X, PosM.Y - Start.Y, 0.f);
+		if (Move.SizeSquared() > 1e-6)
 		{
-			const FVector Downhill = (F::Forward(WalkYaw) * -FMath::Sin(P) + (-F::Left(WalkYaw)) * -FMath::Sin(R)).GetSafeNormal();
-			Hor += Downhill * G * (FMath::Sin(Steep) - GROUND_MU * 0.6f * FMath::Cos(Steep)) * Dt;
+			const float Rad = 0.95f * S;
+			const FVector Chest = FVector(0, 0, 1.75f * S) + Fw * (1.2f * S);
+			FCollisionQueryParams Q(SCENE_QUERY_STAT(DragonBody), false, this);
+			if (Landscape.IsValid()) Q.AddIgnoredActor(Landscape.Get());
+			FCollisionObjectQueryParams O;
+			O.AddObjectTypesToQuery(ECC_WorldStatic);
+			O.AddObjectTypesToQuery(ECC_WorldDynamic);
+			FHitResult Hit;
+			const FVector A0 = (Start + Chest) * M, A1 = (FVector(PosM.X, PosM.Y, Start.Z) + Chest) * M;
+			if (World->SweepSingleByObjectType(Hit, A0, A1, FQuat::Identity, O, FCollisionShape::MakeSphere(Rad * M), Q)
+				&& !(Hit.GetActor() && Hit.GetActor()->IsA<AWaterBody>()) && Hit.ImpactNormal.Z < 0.75f)
+			{
+				// Stop at the contact and slide along it; what was going into it is lost.
+				const FVector Nh = FVector(Hit.ImpactNormal.X, Hit.ImpactNormal.Y, 0.f).GetSafeNormal();
+				const FVector Allowed = Move * Hit.Time + (Move * (1.f - Hit.Time) - Nh * FVector::DotProduct(Move * (1.f - Hit.Time), Nh));
+				PosM.X = Start.X + Allowed.X; PosM.Y = Start.Y + Allowed.Y;
+				const float Into = FVector::DotProduct(FVector(GroundVel.X, GroundVel.Y, 0.f), Nh);
+				if (Into < 0.f) { GroundVel.X -= Nh.X * Into; GroundVel.Y -= Nh.Y * Into; }
+				if (Into < -6.f) { DragonSfx::Thud(this, Hit.ImpactPoint, FMath::Clamp(-Into / 15.f, 0.f, 1.f)); Shake = FMath::Max(Shake, 0.4f); }
+			}
 		}
-		// Walls: something ahead taller than a step removes the velocity into it.
-		const FVector Dir = Hor.GetSafeNormal();
-		if (!Dir.IsNearlyZero())
+		// The ground itself as a wall: a rise ahead too tall to step (a crag, a cut bank).
+		const FVector Hv(GroundVel.X, GroundVel.Y, 0.f);
+		const FVector Dir = Hv.GetSafeNormal();
+		if (!Dir.IsNearlyZero() && LegContacts > 0)
 		{
-			const float Ahead = SolidAtM(PosM.X + Dir.X * 1.75f, PosM.Y + Dir.Y * 1.75f);
-			if (Ahead - GroundZ > STEP_MAX) Hor -= Dir * FMath::Max(0.0, FVector::DotProduct(Hor, Dir));
-		}
-		GroundVel = FVector(Hor.X, Hor.Y, 0.f);
-		PosM.X += Hor.X * Dt;
-		PosM.Y += Hor.Y * Dt;
-		const float NewGround = SolidAtM(PosM.X, PosM.Y);
-		// Walked off an edge / onto water -> he takes to the air.
-		if (NewGround <= SEA_LEVEL + 0.3f) { PosM.Z = FMath::Max(NewGround, SEA_LEVEL); TakeOff(); return; }
-		if (PosM.Z - NewGround > 2.5f)
-		{
-			Unsupported += Dt;
-			PosM.Z -= FMath::Min(PosM.Z - NewGround, (double)(9.f * Dt + Unsupported * G * Dt));
-			if (Unsupported > 0.55f) { TakeOff(); return; }
-		}
-		else
-		{
-			Unsupported = 0.f;
-			// Legs absorb the terrain: follow it with a little spring.
-			PosM.Z += (NewGround - PosM.Z) * F::Damp(18.f, Dt);
-			if (PosM.Z < NewGround) PosM.Z = NewGround;
+			const float Here = FMath::Max(Legs[0].GroundZ, Legs[1].GroundZ);
+			const float Ahead = SolidAtM(PosM.X + Dir.X * 2.9f * S, PosM.Y + Dir.Y * 2.9f * S);
+			if (Ahead - Here > STEP_MAX * S && Ahead > PosM.Z + STEP_MAX * S)
+			{
+				const float Into = FVector::DotProduct(Hv, Dir);
+				GroundVel.X -= Dir.X * Into; GroundVel.Y -= Dir.Y * Into;
+				PosM.X = Start.X; PosM.Y = Start.Y;
+			}
 		}
 	}
+
+	// In and out of the water.
+	bSwimming = Submerged > 0.25f && LegLoad < 0.6f;
+	if (bApproach && Submerged > 0.1f)
+	{
+		// Settled onto the water: wings fold, he swims.
+		bApproach = false;
+		if (WebRig && WebRig->IsBound()) WebRig->BeginFold();
+		DragonSfx::Splash(this, PosM * M, 0.3f);
+	}
+	if (Submerged > 0.08f && !bWasSwimming && VzBefore < -1.5f && SinceSplash > 0.6f)
+	{
+		const float Str = FMath::Clamp(-VzBefore / 8.f, 0.15f, 1.f);
+		DragonSfx::Splash(this, PosM * M, Str);
+		if (ADragonWake* Wk = ADragonWake::Get(this)) Wk->Disturb((PosM + FVector(0, 0, 0.5f)) * M, 400.f * S, -0.35f * Str, 4.f * Str);
+		WaterSpray(PosM + FVector(0, 0, 0.6f), FVector(GroundVel.X, GroundVel.Y, 0.f) * 0.3f, 10 + FMath::RoundToInt(20 * Str), 0.6f + Str);
+		SinceSplash = 0.f;
+		if (bWasApproach && WebRig && WebRig->IsBound()) WebRig->BeginFold();
+		bApproach = false;
+	}
+	SinceSplash += Dt;
+	if (bSwimming || (Submerged > 0.05f && FVector(GroundVel.X, GroundVel.Y, 0.f).Size() > 0.6f))
+	{
+		// He pushes a bow wave and leaves a wake; each stroke of the legs a ripple.
+		WakeTimer -= Dt;
+		const float Sp = FVector(GroundVel.X, GroundVel.Y, 0.f).Size();
+		if (ADragonWake* Wk = ADragonWake::Get(this))
+			Wk->Disturb((PosM + Fw * 2.2f * S) * M, 140.f * S, -(0.03f + 0.04f * Sp), 0.08f * Sp);
+		if (WakeTimer <= 0.f && Sp > 0.5f)
+		{
+			WakeTimer = 0.55f;
+			if (ADragonWake* Wk = ADragonWake::Get(this)) Wk->Disturb(PosM * M, 260.f * S, -0.12f, 0.3f);
+		}
+	}
+
+	// Off an edge with nothing under the feet: he falls a moment, then opens his wings.
+	if (LegContacts == 0 && !bApproach && Submerged < 0.05f)
+	{
+		AirTime += Dt;
+		if (AirTime > 0.3f && GroundVel.Z < -2.5f) { TakeOff(false); return; }
+	}
+	else AirTime = 0.f;
+
 	WalkSpeed = FVector::DotProduct(FVector(GroundVel.X, GroundVel.Y, 0.f), Fw);
-
-	// Body attitude: damped spring toward the plane through his feet.
+	// While still flying in, the rig keeps flying: feed it the approach as a slow, sinking flight.
+	if (bApproach)
 	{
-		float P, R, Steep;
-		GroundAttitude(PosM.X, PosM.Y, SolidAtM(PosM.X, PosM.Y), P, R, Steep);
-		P = FMath::Clamp(P, -ATT_MAX, ATT_MAX);
-		R = FMath::Clamp(R, -ATT_MAX, ATT_MAX);
-		const float W = 2.f * PI * ATT_HZ;
-		GroundPitchVel += ((P - GroundPitch) * W * W - 2.f * ATT_ZETA * W * GroundPitchVel) * Dt;
-		GroundRollVel += ((R - GroundRoll) * W * W - 2.f * ATT_ZETA * W * GroundRollVel) * Dt;
-		GroundPitch += GroundPitchVel * Dt;
-		GroundRoll += GroundRollVel * Dt;
+		Flight.Airspeed = Flight.ActiveSpeed = FVector(GroundVel.X, GroundVel.Y, 0.f).Size();
+		Flight.ClimbVel = GroundVel.Z;
 	}
 	Agl = 0.f;
-	Prompt = TEXT("");
+	Prompt = bApproach ? TEXT("Landing — Space to go round") : bSwimming ? TEXT("Swimming — Space to take off") : TEXT("");
+
+	// Telemetry for the scripted tests.
+	if (Script.bOn || bTelemetry)
+	{
+		TelemetryT += Dt;
+		if (TelemetryT >= 0.1f)
+		{
+			TelemetryT = 0.f;
+			UE_LOG(LogDragon, Display, TEXT("[Body] %s z=%.2f vz=%.2f vh=%.2f pitch=%.1f roll=%.1f legs=%d load=%.2f comp=%.2f/%.2f/%.2f/%.2f sub=%.2f"),
+				bApproach ? TEXT("approach") : bSwimming ? TEXT("swim") : TEXT("ground"), PosM.Z, GroundVel.Z, FVector(GroundVel.X, GroundVel.Y, 0.f).Size(),
+				FMath::RadiansToDegrees(GroundPitch), FMath::RadiansToDegrees(GroundRoll), LegContacts, LegLoad,
+				Legs[0].Comp, Legs[1].Comp, Legs[2].Comp, Legs[3].Comp, Submerged);
+		}
+	}
+}
+
+// --- Over the water in flight: wingtips, feet and downwash ----------------------
+void ADragonPawn::WaterSpray(const FVector& AtM, const FVector& VelM, int32 N, float Size)
+{
+	ADragonFX* FX = ADragonFX::Get(this);
+	if (!FX) return;
+	for (int32 i = 0; i < N; ++i)
+	{
+		FDragonPuff P;
+		P.Kind = EDragonPuff::Spray;
+		const float A = FMath::FRand() * 2.f * PI;
+		const FVector Out(FMath::Cos(A), FMath::Sin(A), 0.f);
+		P.Pos = AtM * M + Out * 40.f * Size;
+		P.Vel = (VelM + Out * (1.5f + 2.5f * FMath::FRand()) * Size + FVector(0, 0, (2.5f + 4.5f * FMath::FRand()) * FMath::Sqrt(Size))) * M;
+		P.Drag = 0.9f; P.Gravity = 980.f;
+		P.Life = 0.5f + 0.6f * FMath::FRand();
+		P.Size0 = 12.f * Size; P.Size1 = (45.f + 50.f * FMath::FRand()) * Size; P.Stretch = 0.010f;
+		P.Colour0 = FLinearColor(0.95f, 0.97f, 1.f); P.Colour1 = FLinearColor(0.9f, 0.92f, 0.95f);
+		P.Intensity = 0.42f; P.FadeIn = 0.02f;
+		FX->Spawn(P);
+		if ((i & 3) == 0)
+		{
+			// and a drift of fine mist that hangs where the spray was
+			FDragonPuff Mi;
+			Mi.Kind = EDragonPuff::Smoke;
+			Mi.Pos = P.Pos + FVector(0, 0, 30.f);
+			Mi.Vel = P.Vel * 0.25f;
+			Mi.Drag = 2.f; Mi.Buoyancy = 10.f;
+			Mi.Life = 1.2f + FMath::FRand();
+			Mi.Size0 = 60.f * Size; Mi.Size1 = (220.f + 160.f * FMath::FRand()) * Size;
+			Mi.Colour0 = FLinearColor(0.93f, 0.95f, 0.98f); Mi.Colour1 = FLinearColor(0.9f, 0.92f, 0.95f);
+			Mi.Intensity = 0.14f; Mi.FadeIn = 0.1f; Mi.Spin = FMath::FRand() - 0.5f;
+			FX->Spawn(Mi);
+		}
+	}
+}
+
+void ADragonPawn::TickWaterFlight(float Dt)
+{
+	const float S = DragonScale;
+	float Skim = 0.f;
+	SprayTimer -= Dt;
+	ADragonWake* Wk = nullptr;
+	const FVector Fw = F::Forward(Flight.Heading), Ri = -F::Left(Flight.Heading);
+	const FVector V = Flight.GetVelocity();
+	const float Speed = (float)V.Size();
+	const FVector Centre = PosM + FVector(0, 0, BODY_CENTRE * S);
+	if (Centre.Z - SEA_LEVEL > 40.f * S) { if (Ambience) Ambience->SetSkim(0.f); return; }
+	if (SolidAtM(PosM.X, PosM.Y) > SEA_LEVEL - 0.3f) { if (Ambience) Ambience->SetSkim(0.f); return; }
+	Wk = ADragonWake::Get(this);
+
+	// The wingtips, from the body's roll (UE roll + = right wing down), a little behind the shoulders.
+	const float R = -Flight.CurrentRoll;
+	for (int32 Side = -1; Side <= 1; Side += 2)
+	{
+		const FVector Tip = Centre - Fw * (1.2f * S) + Ri * (Side * FMath::Cos(R) * HALF_SPAN * S) + FVector(0, 0, -Side * FMath::Sin(R) * HALF_SPAN * S);
+		const float Depth = SeaAtM(Tip.X, Tip.Y) - (float)Tip.Z;
+		if (Depth < -0.25f) continue;
+		// It cuts the surface: a moving point pushing water aside (the V of a wake falls out of
+		// the wave equation), a sheet of spray thrown up and back, and a drag on that wing.
+		const float D = FMath::Clamp(Depth + 0.25f, 0.f, 0.9f);
+		const float SpT = FMath::Clamp(Speed / 40.f, 0.2f, 1.6f);
+		if (Wk) Wk->Disturb(Tip * M, (50.f + 70.f * D) * S, -(0.08f + 0.25f * D) * FMath::Min(SpT, 1.f), 3.f + 6.f * D);
+		Skim = FMath::Max(Skim, FMath::Clamp(0.35f + D * SpT, 0.f, 1.f));
+		if (SprayTimer <= 0.f)
+		{
+			const FVector Throw = -V * 0.12f + Ri * (Side * 2.5f) + FVector(0, 0, 3.5f * SpT);
+			WaterSpray(FVector(Tip.X, Tip.Y, SeaAtM(Tip.X, Tip.Y) + 0.1f), Throw, 2 + FMath::RoundToInt(3 * D * SpT), 0.5f + 0.8f * D * SpT);
+		}
+		if (!bTipWet[(Side + 1) / 2]) { DragonSfx::Splash(this, Tip * M, 0.25f + 0.4f * D * SpT); bTipWet[(Side + 1) / 2] = true; }
+		// Water grabs the wing: speed bleeds and he is pulled round toward it, a little.
+		Flight.ScrapeSpeed(FMath::Clamp(Dt * 0.12f * D, 0.f, 0.05f));
+		Flight.Heading += Side * 0.10f * D * Dt;
+	}
+	{
+		// feet and tail trailing in the water
+		const float SeaHere = SeaAtM(PosM.X, PosM.Y);
+		const float FeetDepth = SeaHere - (float)PosM.Z;
+		if (FeetDepth > -0.3f)
+		{
+			const float D = FMath::Clamp(FeetDepth + 0.3f, 0.f, 1.f);
+			const float SpT = FMath::Clamp(Speed / 30.f, 0.2f, 1.6f);
+			if (Wk) { Wk->Disturb((PosM - Fw * 0.8f * S + Ri * 0.6f * S) * M, 60.f * S, -(0.08f + 0.2f * D), 3.f); Wk->Disturb((PosM - Fw * 0.8f * S - Ri * 0.6f * S) * M, 60.f * S, -(0.08f + 0.2f * D), 3.f); }
+			if (SprayTimer <= 0.f) WaterSpray(FVector(PosM.X, PosM.Y, SeaHere + 0.1f) - Fw * S, -V * 0.15f + FVector(0, 0, 2.5f), 3, 0.6f + 0.6f * D);
+			Skim = FMath::Max(Skim, FMath::Clamp(0.3f + D, 0.f, 1.f));
+			Flight.ScrapeSpeed(FMath::Clamp(Dt * 0.25f * D, 0.f, 0.06f));
+			if (!bFeetWet) { DragonSfx::Splash(this, PosM * M, 0.3f + 0.4f * D); bFeetWet = true; }
+		}
+		else bFeetWet = false;
+	}
+	for (int32 i = 0; i < 2; ++i)
+	{
+		const FVector Tip = Centre - Fw * (1.2f * S) + Ri * ((i * 2 - 1) * FMath::Cos(R) * HALF_SPAN * S) + FVector(0, 0, -(i * 2 - 1) * FMath::Sin(R) * HALF_SPAN * S);
+		if (SeaAtM(Tip.X, Tip.Y) - Tip.Z < -0.6f) bTipWet[i] = false;
+	}
+
+	// Downwash: hovering or slow and low, the wings blow a ring of ripples and a skirt of spray
+	// off the sea, pulsing with each downstroke.
+	const float Alt = (float)(Centre.Z - SEA_LEVEL);
+	const float Wash = FMath::Square(FMath::Clamp(1.f - Alt / (18.f * S), 0.f, 1.f)) * (1.f - Smooth(Speed, 8.f, 30.f));
+	if (Wash > 0.02f && Wk)
+	{
+		const float Amp = WebRig && WebRig->IsBound() ? FMath::Clamp(WebRig->GetWingAmp() / 0.6f, 0.3f, 1.3f) : 1.f;
+		const FVector Under(PosM.X, PosM.Y, SEA_LEVEL);
+		Wk->Disturb(Under * M, 550.f * S, -0.05f * Wash * Amp, 0.15f * Wash);
+		const float Ph = WebRig && WebRig->IsBound() ? WebRig->GetWingPhase01() : 0.f;
+		if (Ph < LastWashPhase - 0.5f)
+		{
+			Wk->Disturb(Under * M, 650.f * S, -0.22f * Wash * Amp, 0.8f * Wash);
+			if (ADragonFX* FX = ADragonFX::Get(this))
+				for (int32 k = 0; k < 8; ++k)
+				{
+					FDragonPuff P;
+					P.Kind = EDragonPuff::Smoke;
+					const float A = (k + FMath::FRand()) * PI / 4.f;
+					const FVector D(FMath::Cos(A), FMath::Sin(A), 0.f);
+					P.Pos = Under * M + D * 500.f * S + FVector(0, 0, 40.f);
+					P.Vel = D * (700.f + 500.f * FMath::FRand()) * Wash + FVector(0, 0, 60.f);
+					P.Drag = 1.6f; P.Buoyancy = 15.f;
+					P.Life = 1.5f + FMath::FRand();
+					P.Size0 = 150.f; P.Size1 = 500.f + 300.f * FMath::FRand();
+					P.Colour0 = FLinearColor(0.92f, 0.94f, 0.97f); P.Colour1 = FLinearColor(0.88f, 0.9f, 0.94f);
+					P.Intensity = 0.18f * Wash * Amp; P.FadeIn = 0.1f; P.Spin = FMath::FRand() - 0.5f;
+					FX->Spawn(P);
+				}
+		}
+		LastWashPhase = Ph;
+		Skim = FMath::Max(Skim, Wash * 0.35f);
+	}
+	if (SprayTimer <= 0.f) SprayTimer = 0.035f;
+	if (Ambience) Ambience->SetSkim(Skim);
+}
+
+float ADragonPawn::SeaAtM(float X, float Y) const
+{
+	if (!SeaActor.IsValid()) SeaActor = ADragonSea::Get(this);
+	return SEA_LEVEL + (SeaActor.IsValid() ? SeaActor->SurfaceM(X, Y) : 0.f);
 }
 
 // ===========================================================================
@@ -869,7 +1398,15 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 	FovV += (VTarget - FovV) * F::Damp(FOV_LAMBDA, Dt);
 	const float HFov = 2.f * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(FovV) * 0.5f) * ViewAspect()));
 
-	Camera->SetWorldLocationAndRotation(CamPosM * M, Rot);
+	FVector CamOut = CamPosM;
+	if (Shake > 0.f)
+	{
+		// A hard landing or a knock: a short, heavy jolt.
+		ShakeT += Dt;
+		CamOut += FVector(FMath::Sin(ShakeT * 37.f), FMath::Sin(ShakeT * 29.f + 1.f), FMath::Sin(ShakeT * 43.f + 2.f) * 1.6f) * (0.11f * Shake * DragonScale);
+		Shake = FMath::Max(0.f, Shake - Dt * 2.4f);
+	}
+	Camera->SetWorldLocationAndRotation(CamOut * M, Rot);
 	Camera->SetFieldOfView(FMath::Clamp(HFov, 40.f, 150.f));
 }
 
@@ -962,7 +1499,7 @@ void ADragonPawn::ApplyTransform()
 
 FString ADragonPawn::GetModeName() const
 {
-	if (bGrounded) return bFlaring ? TEXT("Landing") : (FMath::Abs(WalkSpeed) > 9.f ? TEXT("Galloping") : TEXT("Walking"));
+	if (bGrounded) return bApproach ? TEXT("Landing") : bSwimming ? TEXT("Swimming") : FMath::Abs(WalkSpeed) > 9.f ? TEXT("Galloping") : FMath::Abs(WalkSpeed) > 0.4f ? TEXT("Walking") : TEXT("Standing");
 	switch (Flight.Mode)
 	{
 	case EDragonFlightMode::Drop: return TEXT("Drop");

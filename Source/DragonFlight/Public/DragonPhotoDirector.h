@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "DragonPawn.h"
 #include "DragonPhotoDirector.generated.h"
 
 class ACameraActor;
@@ -46,6 +47,10 @@ private:
 		FVector PoseM = FVector::ZeroVector;
 		float PoseYaw = 0.f;
 		bool bDragonFires = false;   // chase shot: the dragon fires at Target (cm), bursting PlasmaLead s before the shutter
+		bool bPoseGround = false;    // chase shot: standing on the ground at PoseM instead of flying
+		float PoseSpeed = -1.f;      // m/s of flight at the pose (-1: leave it)
+		ADragonPawn::FDragonScript Script;   // scripted keys for the shot (tests of the mechanics)
+		float SettleS = 0.f;         // seconds from pose to shutter (0: the default)
 	};
 
 	void PlanShots();
@@ -59,6 +64,10 @@ private:
 	bool bShotRequested = false;
 	bool bGrassBuilt = false;
 	bool bFired = false;
+	bool bReleased = false;
+	float Wait = 0.f;       // mechanics shots: the dragon is held still until the world is ready
+	void HoldPawn(bool bHold);
+	void PosePawn(const FShot& S);
 	FString OutDir;
 	FString Tag;
 

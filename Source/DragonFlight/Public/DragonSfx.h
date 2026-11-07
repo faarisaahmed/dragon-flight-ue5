@@ -25,6 +25,10 @@ namespace DragonSfx
 	void Thunder(const UObject* WorldContext, const FVector& At, float DistanceCm);
 	/** One wingbeat's push of air: Strength 0..1, Seconds = length of the downstroke. */
 	void Wingbeat(const UObject* WorldContext, const FVector& At, float Strength, float Seconds);
+	/** The dragon's weight coming down: touchdown, a hard step. Strength 0..1. */
+	void Thud(const UObject* WorldContext, const FVector& At, float Strength);
+	/** Water struck: a slap and falling spray. Strength 0..1. */
+	void Splash(const UObject* WorldContext, const FVector& At, float Strength);
 }
 
 /**
@@ -43,6 +47,8 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	UPROPERTY(EditAnywhere, Category = "Ambience") float MasterVolume = 0.8f;
+	/** The pawn: how hard a wingtip, claws or the belly are cutting the water this frame (0..1). */
+	void SetSkim(float V) { if (State) State->Skim.store(FMath::Clamp(V, 0.f, 1.f), std::memory_order_relaxed); }
 
 private:
 	struct FState
@@ -51,6 +57,8 @@ private:
 		std::atomic<float> Surf{ 0.f };    // 0..1
 		std::atomic<float> Sea{ 0.f };     // 0..1 open-water wash
 		std::atomic<float> Storm{ 0.f };   // 0..1 wind roar under the rain
+		std::atomic<float> Skim{ 0.f };    // 0..1 something cutting through the water close by
+		float SkimHpL = 0, SkimHpR = 0, SkimLpL = 0, SkimLpR = 0, SmSkim = 0;
 		// audio thread
 		float RainLpL = 0, RainLpR = 0, RainHpL = 0, RainHpR = 0;
 		float SurfLp1L = 0, SurfLp1R = 0, SurfLp2L = 0, SurfLp2R = 0;

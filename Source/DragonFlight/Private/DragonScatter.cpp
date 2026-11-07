@@ -86,7 +86,7 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 		ScatterLayers.Add(L);
 	};
 	//   name        kind                          group          /ha    tile   radius  scale                 sink  align shadow collide seed
-	Add("Trees",    EDragonScatterKind::Tree,     "trees",       320.f, 256.f, 6000.f, FVector2D(0.8f, 1.5f), 0.4f, 0.f, true,  false, 11);
+	Add("Trees",    EDragonScatterKind::Tree,     "trees",       450.f, 256.f, 4500.f, FVector2D(0.9f, 1.6f), 0.4f, 0.f, true,  false, 11);
 	Add("Saplings", EDragonScatterKind::Sapling,  "trees",       40.f,  192.f, 2500.f, FVector2D(0.35f, 0.7f), 0.2f, 0.f, true,  false, 23);
 	Add("DeadWood", EDragonScatterKind::DeadWood, "deadwood",    8.f,   192.f, 1500.f, FVector2D(0.8f, 1.4f), 0.2f, 0.8f, true, false, 37);
 	// The Poly Haven cliff and rock scans are already life-size (cliff pieces 20-50 m), so

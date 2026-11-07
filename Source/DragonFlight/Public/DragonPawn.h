@@ -106,9 +106,29 @@ public:
 	/** Photo mode: one bolt from the mouth at TargetM (m), as if the player fired. */
 	void PhotoFire(const FVector& TargetM);
 	FVector GetPosM() const { return PosM; }
+	/** Photo mode: standing on the ground at PosM (m), facing UE yaw YawDeg. */
+	void PhotoGround(const FVector& PosM, float YawDeg);
+	/** Photo mode: set the flight speed (m/s) and the cruise speed W holds. */
+	void PhotoSpeed(float MS);
+
+	/** Scripted input for automated tests (the photo director): replaces the keys while bOn. */
+	struct FDragonScript
+	{
+		bool bOn = false;
+		float Move = 0.f, Vertical = 0.f, Turn = 0.f, WalkFwd = 0.f, WalkSide = 0.f;
+		int32 Knife = 0;
+		bool bLand = false, bSprint = false, bUpPressed = false;
+	};
+	void SetScript(const FDragonScript& In) { Script = In; ScriptTime = 0.f; }
+	/** Seconds the dragon itself has lived since SetScript (his own clock, for timing test shots). */
+	float GetScriptTime() const { return ScriptTime; }
+	bool IsSwimming() const { return bSwimming; }
+	bool IsApproaching() const { return bApproach; }
 
 	/** Ground height (m) under a UE-axis point in metres, excluding water and the dragon. */
 	float SolidAtM(float X, float Y) const;
+	/** The sea surface (m) at a point in metres: sea level plus the waves M_Sea is drawing there now. */
+	float SeaAtM(float X, float Y) const;
 
 private:
 	// --- Input ---------------------------------------------------------------
@@ -134,8 +154,14 @@ private:
 	void TickGround(float Dt, const FFrameInput& In);
 	void FlightFloor(float Dt);
 	void CheckLanding(float Dt, const FFrameInput& In);
-	void Land();
-	void TakeOff();
+	void BeginApproach();
+	void TouchDown(float Vz);
+	/** bLeap: a deliberate take-off (legs drive up, or wings haul out of the water); false: he has run or fallen off an edge. */
+	void TakeOff(bool bLeap = true);
+	void ProbeLegs();
+	void StepBody(float h, const FVector& WantV, float Kacc, float AccMax);
+	void TickWaterFlight(float Dt);
+	void WaterSpray(const FVector& AtM, const FVector& VelM, int32 N, float Size);
 	void GroundAttitude(float X, float Y, float H, float& OutPitch, float& OutRoll, float& OutSteep) const;
 	float Impact(const FVector& V, const FVector& N, bool bWater);
 	void TickHealth(float Dt);
@@ -165,8 +191,31 @@ private:
 	float WalkSpeed = 0.f;
 	FVector GroundVel = FVector::ZeroVector;
 	float GroundPitch = 0.f, GroundRoll = 0.f, GroundPitchVel = 0.f, GroundRollVel = 0.f;
-	float Unsupported = 0.f;
 	float LandHold = 0.f;
+
+	// The body on its legs (TickGround / StepBody): a mass on four spring-damper legs, each
+	// foot finding the ground with a trace; traction limited by friction; buoyancy in the sea.
+	struct FLeg { float Hx = 0.f, Hy = 0.f; float GroundZ = -1e4f; FVector Normal = FVector::UpVector; float Comp = 0.f; float Reach = 0.f; bool bContact = false; };
+	FLeg Legs[4];
+	int32 LegContacts = 0;
+	float LegLoad = 0.f;          // weight on the legs, in g
+	bool bApproach = false;       // flying in to land: wings working, feet not yet down
+	bool ApproachDrop = false;    // K held: come down faster
+	bool bSwimming = false;
+	float Submerged = 0.f;
+	float AirTime = 0.f;
+	float YawRateG = 0.f;
+	float WakeTimer = 0.f, SprayTimer = 0.f, SinceSplash = 99.f, LastWashPhase = 0.f;
+	bool bTipWet[2] = { false, false };
+	bool bFeetWet = false;
+	float Shake = 0.f, ShakeT = 0.f;
+	TWeakObjectPtr<AActor> Landscape;
+	mutable TWeakObjectPtr<class ADragonSea> SeaActor;
+	float SeaZ = 0.f, SeaVz = 0.f;   // the surface under him and how fast it is rising
+	FDragonScript Script;
+	float ScriptTime = 0.f;
+	bool bTelemetry = false;
+	float TelemetryT = 0.f;
 	bool bFloorContact = false;
 
 	// Health

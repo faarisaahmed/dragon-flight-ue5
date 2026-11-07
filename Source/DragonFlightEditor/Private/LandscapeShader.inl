@@ -99,7 +99,7 @@ float rush = 0.78 + 0.34 * Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 
 TOPLAYER(Grass,   3.0, wGrass,   rush * lerp(lerp(turf, float3(0.44, 0.48, 0.36), cold), float3(0.50, 0.58, 0.30), bio.g) * (0.88 + 0.16 * nz), 1.0)
 // (moorland: heather, purple-brown, in drifts)
 TOPLAYER(Heath,   4.0, wHeath,   lerp(lerp(lerp(float3(0.58, 0.60, 0.40), float3(0.62, 0.50, 0.46), saturate(nz2 + 0.3)), float3(0.50, 0.47, 0.40), cold), lerp(float3(0.36, 0.26, 0.28), float3(0.30, 0.32, 0.20), saturate(nz * 0.8 + 0.4)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
-TOPLAYER(Forest,  4.0, wForest,  float3(0.36, 0.38, 0.27), 1.0)   // shaded needle litter and moss under the pines
+TOPLAYER(Forest,  4.0, wForest,  float3(0.19, 0.23, 0.13), 1.0)   // needle litter and moss in the shade of the pines
 TOPLAYER(Sand,    5.0, wSand,    lerp(float3(0.42, 0.42, 0.44), float3(0.10, 0.10, 0.11), bio.g), 1.0)   // black sand on the volcanic isles
 TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0)
 TOPLAYER(Snow,    6.0, wSnow,    float3(1.22, 1.24, 1.28), 0.75)
@@ -178,7 +178,7 @@ float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 // Woods from afar: past the distance the trees are drawn to, the canopy itself is the colour
 // you see - a near-black conifer green, a little bluer with distance - not the forest floor.
 {
-	float canopy = (wForest / wSum) * smoothstep(1800.0, 4800.0, dist) * (1.0 - sn);
+	float canopy = (wForest / wSum) * smoothstep(2400.0, 4300.0, dist) * (1.0 - sn);
 	C = lerp(C, float3(0.045, 0.07, 0.04) * (0.85 + 0.3 * nz), canopy * 0.9);
 	R = lerp(R, 0.85, canopy);
 }

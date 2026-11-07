@@ -914,7 +914,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Surf->Description = TEXT("Sea surface");
 		Surf->OutputType = CMOT_Float3;
 		In(Surf, { TEXT("P"), TEXT("O"), TEXT("Cam"), TEXT("T"), TEXT("Amp"), TEXT("Half"), TEXT("DS"), TEXT("FoamAmt"), TEXT("WS"),
-			TEXT("Tex"), TEXT("FoamT"), TEXT("H"), TEXT("SS"), TEXT("SD"), TEXT("UV"), TEXT("VC"), TEXT("Flow"), TEXT("Cst") });
+			TEXT("Tex"), TEXT("FoamT"), TEXT("H"), TEXT("SS"), TEXT("SD"), TEXT("UV"), TEXT("VC"), TEXT("Flow"), TEXT("Cst"), TEXT("WakeT"), TEXT("WakeC"), TEXT("WakeS") });
 		Surf->AdditionalOutputs.Reset();
 		for (const TCHAR* N : { TEXT("FoamOut"), TEXT("Rough") }) { FCustomOutput O; O.OutputName = N; O.OutputType = CMOT_Float1; Surf->AdditionalOutputs.Add(O); }
 		{ FCustomOutput O; O.OutputName = TEXT("Scatter"); O.OutputType = CMOT_Float3; Surf->AdditionalOutputs.Add(O); }
@@ -955,6 +955,18 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"q += (Texture2DSample(Tex, TexSampler, c / (11.0 * DS) + T * float2(-0.019, 0.023)).xy * 2 - 1) * 0.45 * near;\n"
 			"q += (Texture2DSample(Tex, TexSampler, c / (3.7 * DS) + T * float2(0.047, -0.033)).xy * 2 - 1) * 0.35 * near * near;\n"
 			"float3 N = normalize(float3(n.xy / max(n.z, 0.2) + q * 0.32, 1.0));\n"
+			// ripples and wakes from ADragonWake's wave-equation field
+			"float wakeFoam = 0.0;\n"
+			"{ float2 wuv = (P.xy - WakeC.xy) / WakeS + 0.5;\n"
+			"  if (Flow <= 0.0 && all(wuv > 0.003) && all(wuv < 0.997)) {\n"
+			"    float tx = 1.0 / 768.0;\n"
+			"    float3 w0 = Texture2DSample(WakeT, WakeTSampler, wuv).rgb;\n"
+			"    if (w0.r > 0.01) {\n"
+			"      float hx = Texture2DSample(WakeT, WakeTSampler, wuv + float2(tx, 0)).r - Texture2DSample(WakeT, WakeTSampler, wuv - float2(tx, 0)).r;\n"
+			"      float hy = Texture2DSample(WakeT, WakeTSampler, wuv + float2(0, tx)).r - Texture2DSample(WakeT, WakeTSampler, wuv - float2(0, tx)).r;\n"
+			"      float2 slope = float2(hx, hy) * 4.0 / (2.0 * WakeS * 0.01 * tx);\n"
+			"      N = normalize(float3(N.xy / max(N.z, 0.2) - clamp(slope, -0.6, 0.6) * 0.7, 1.0));\n"
+			"      wakeFoam = w0.b; } } }\n"
 			"float depth = max(0.0, hz - ground);\n"
 			"if (!inWorld) depth = 400.0;\n"
 			// ---- The shore, laid out by metres from the coastline (coast.py), not by depth ----
@@ -1016,7 +1028,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float rap = 0.0;\n"
 			"if (Flow > 0.0) { float rf = Texture2DSample(FoamT, FoamTSampler, float2(UV.x, UV.y - T * Flow * 1.3) / 5.0).r;\n"
 			"  rap = VC * 0.7 * smoothstep(0.45, 0.85, rf + VC * 0.2); }\n"
-			"FoamOut = saturate((surf + crest) * FoamAmt + rap);\n"
+			"FoamOut = saturate((surf + crest) * FoamAmt + rap + wakeFoam * smoothstep(0.25, 0.65, ft * 0.6 + ft2 * 0.5 + wakeFoam * 0.4));\n"
 			"Rough = lerp(0.035, 0.6, FoamOut);\n"
 			"Scatter = lerp(SS, SD, saturate(sd / 35.0)) + float3(0.003, 0.007, 0.005) * turbid;\n"
 			"return N;\n");
@@ -1037,6 +1049,20 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialExpressions(ShallowS, TEXT(""), Surf, TEXT("SS"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(DeepS, TEXT(""), Surf, TEXT("SD"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(CT, TEXT(""), Surf, TEXT("Cst"));
+		{
+			// The wave-equation field ADragonWake writes around the camera (black = nothing).
+			UMaterialExpressionTextureObjectParameter* WT = Expr<UMaterialExpressionTextureObjectParameter>(M, -1100, 1140);
+			WT->ParameterName = TEXT("WakeTex");
+			WT->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Engine/EngineResources/Black.Black"));
+			WT->SamplerType = SAMPLERTYPE_LinearColor;
+			UMaterialEditingLibrary::ConnectMaterialExpressions(WT, TEXT(""), Surf, TEXT("WakeT"));
+			UMaterialExpressionVectorParameter* WC = Expr<UMaterialExpressionVectorParameter>(M, -1100, 1220);
+			WC->ParameterName = TEXT("WakeCentre"); WC->DefaultValue = FLinearColor(0, 0, 0, 0);
+			UMaterialEditingLibrary::ConnectMaterialExpressions(WC, TEXT(""), Surf, TEXT("WakeC"));
+			UMaterialExpressionScalarParameter* WSz = Expr<UMaterialExpressionScalarParameter>(M, -1100, 1300);
+			WSz->ParameterName = TEXT("WakeSize"); WSz->DefaultValue = 38400.f;
+			UMaterialEditingLibrary::ConnectMaterialExpressions(WSz, TEXT(""), Surf, TEXT("WakeS"));
+		}
 		{
 			UMaterialExpressionTextureCoordinate* TC = Expr<UMaterialExpressionTextureCoordinate>(M, -1100, 900);
 			UMaterialExpressionVertexColor* VCx = Expr<UMaterialExpressionVertexColor>(M, -1100, 980);
@@ -1124,6 +1150,70 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Col->PostEditChange();
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Night, TEXT(""), Col, TEXT("Night"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Adapted(M, Col, 0, 1.f), TEXT(""), MP_EmissiveColor);
+		Finish(M);
+	}
+
+	// --- M_WakeSim: one step of the wave equation for ADragonWake -------------------
+	// Drawn into a render target each 1/60 s; reads the previous step (Prev). R = h(t) / 4 + 0.5,
+	// G = h(t - dt) / 4 + 0.5, B = foam (the write is clamped to 0..1). Sources S0..S7 = (u, v, radius^2, metres this step), F0..F7 foam.
+	if (UMaterial* M = NewMaterial(TEXT("M_WakeSim")))
+	{
+		M->SetShadingModel(MSM_Unlit);
+		M->BlendMode = BLEND_Opaque;
+		M->SetUsageByFlag(MATUSAGE_StaticLighting, false);
+		UMaterialExpressionCustom* Sim = Expr<UMaterialExpressionCustom>(M, -350, 0);
+		Sim->Description = TEXT("Wave equation step");
+		Sim->OutputType = CMOT_Float3;
+		Sim->Inputs.Reset();
+		TArray<FString> Names = { TEXT("Prev"), TEXT("UV"), TEXT("Offset"), TEXT("Texel"), TEXT("C2"), TEXT("Damp"), TEXT("FoamDecay") };
+		for (int32 i = 0; i < 8; ++i) { Names.Add(FString::Printf(TEXT("S%d"), i)); Names.Add(FString::Printf(TEXT("F%d"), i)); }
+		for (const FString& N : Names) { FCustomInput I; I.InputName = *N; Sim->Inputs.Add(I); }
+		Sim->Code = TEXT(
+			"float2 uv = UV + Offset.xy;\n"
+			"float t = Texel;\n"
+			"float3 c = Texture2DSampleLevel(Prev, PrevSampler, uv, 0).rgb;\n"
+			"float inside = (all(uv > 0.0) && all(uv < 1.0)) ? 1.0 : 0.0;\n"
+			// stored as h / 4 + 0.5: the render-target write is clamped to 0..1
+			"float h = (c.r - 0.5) * 4.0 * inside, hp = (c.g - 0.5) * 4.0 * inside, foam = c.b * inside;\n"
+			"float hl = (Texture2DSampleLevel(Prev, PrevSampler, uv - float2(t, 0), 0).r - 0.5) * 4.0;\n"
+			"float hr = (Texture2DSampleLevel(Prev, PrevSampler, uv + float2(t, 0), 0).r - 0.5) * 4.0;\n"
+			"float hd = (Texture2DSampleLevel(Prev, PrevSampler, uv - float2(0, t), 0).r - 0.5) * 4.0;\n"
+			"float hu = (Texture2DSampleLevel(Prev, PrevSampler, uv + float2(0, t), 0).r - 0.5) * 4.0;\n"
+			"float lap = (hl + hr + hu + hd - 4.0 * h) * inside;\n"
+			// gravity pulls the mean level back: a pressed-down patch doesn't stay down
+			"float hn = (2.0 * h - hp + C2 * lap - 0.004 * h) * Damp;\n"
+			"foam *= FoamDecay;\n"
+			"float4 S[8] = { S0, S1, S2, S3, S4, S5, S6, S7 };\n"
+			"float Fq[8] = { F0, F1, F2, F3, F4, F5, F6, F7 };\n"
+			"[unroll] for (int i = 0; i < 8; i++) {\n"
+			"  float2 d = UV - S[i].xy; float g = exp(-dot(d, d) / max(S[i].z, 1e-9));\n"
+			// an object in the water holds the surface near its own depth there (S.w, metres): the
+			// field is pulled toward it, then springs back and rings out when it moves on
+			"  hn = lerp(hn, S[i].w, saturate(g * 0.65)); foam += Fq[i] * g; }\n"
+			// steep, breaking ripples whiten a little
+			"foam += saturate(abs(lap) * 4.0 - 0.4) * 0.01;\n"
+			// the window's edge absorbs: nothing reflects back in
+			"float2 e = min(UV, 1.0 - UV); float edge = saturate(min(e.x, e.y) * 14.0);\n"
+			"hn = clamp(hn * edge, -1.9, 1.9); h = clamp(h * edge, -1.9, 1.9);\n"
+			"return float3(hn * 0.25 + 0.5, h * 0.25 + 0.5, saturate(foam) * edge);\n");
+		Sim->PostEditChange();
+		auto Sc = [&](const TCHAR* N, float V, int32 Y) { UMaterialExpressionScalarParameter* E = Expr<UMaterialExpressionScalarParameter>(M, -700, Y); E->ParameterName = N; E->DefaultValue = V; UMaterialEditingLibrary::ConnectMaterialExpressions(E, TEXT(""), Sim, N); };
+		auto Ve = [&](const TCHAR* N, int32 Y) { UMaterialExpressionVectorParameter* E = Expr<UMaterialExpressionVectorParameter>(M, -700, Y); E->ParameterName = N; E->DefaultValue = FLinearColor(0, 0, 1e-6f, 0); UMaterialEditingLibrary::ConnectMaterialExpressions(E, TEXT("RGBA"), Sim, N); };
+		UMaterialExpressionTextureObjectParameter* Prev = Expr<UMaterialExpressionTextureObjectParameter>(M, -700, -300);
+		Prev->ParameterName = TEXT("Prev");
+		Prev->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Engine/EngineResources/Black.Black"));
+		Prev->SamplerType = SAMPLERTYPE_LinearColor;
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Prev, TEXT(""), Sim, TEXT("Prev"));
+		UMaterialExpressionTextureCoordinate* TC = Expr<UMaterialExpressionTextureCoordinate>(M, -700, -200);
+		UMaterialEditingLibrary::ConnectMaterialExpressions(TC, TEXT(""), Sim, TEXT("UV"));
+		Ve(TEXT("Offset"), -120);
+		Sc(TEXT("Texel"), 1.f / 768.f, -40); Sc(TEXT("C2"), 0.007f, 40); Sc(TEXT("Damp"), 0.9965f, 120); Sc(TEXT("FoamDecay"), 0.9955f, 200);
+		for (int32 i = 0; i < 8; ++i)
+		{
+			Ve(*FString::Printf(TEXT("S%d"), i), 280 + i * 160);
+			Sc(*FString::Printf(TEXT("F%d"), i), 0.f, 360 + i * 160);
+		}
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sim, TEXT(""), MP_EmissiveColor);
 		Finish(M);
 	}
 
