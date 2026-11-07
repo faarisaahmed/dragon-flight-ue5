@@ -158,6 +158,8 @@ bool ADragonScatter::LoadMasks()
 	MaskRes = Load(Found[0], Mask, ERGBFormat::RGBA, 4);
 	const int32 R2 = Load(FString::Printf(TEXT("Masks2_%s.png"), *Res), Mask2, ERGBFormat::RGBA, 3);
 	if (R2 != MaskRes) Mask2.Reset();
+	const int32 R3 = Load(FString::Printf(TEXT("Masks3_%s.png"), *Res), Mask3, ERGBFormat::RGBA, 3);   // biomes (optional)
+	if (R3 != MaskRes) Mask3.Reset();
 	UE_LOG(LogDragon, Log, TEXT("Scatter: masks %d px"), MaskRes);
 	return MaskRes > 0;
 }
@@ -188,6 +190,15 @@ FVector ADragonScatter::SampleMask2(double XM, double YM) const
 	return FVector(Mask2[I] / 255.f, Mask2[I + 1] / 255.f, Mask2[I + 2] / 255.f);
 }
 
+FVector ADragonScatter::SampleMask3(double XM, double YM) const
+{
+	if (Mask3.Num() == 0) return FVector::ZeroVector;
+	const int32 X = FMath::Clamp((int32)((XM / WorldSizeM + 0.5) * MaskRes), 0, MaskRes - 1);
+	const int32 Y = FMath::Clamp((int32)((YM / WorldSizeM + 0.5) * MaskRes), 0, MaskRes - 1);
+	const int32 I = (Y * MaskRes + X) * 3;
+	return FVector(Mask3[I] / 255.f, Mask3[I + 1] / 255.f, Mask3[I + 2] / 255.f);
+}
+
 float ADragonScatter::GroundM(double XM, double YM) const
 {
 	if (const UGameInstance* GI = GetGameInstance())
@@ -210,7 +221,11 @@ FVector ADragonScatter::GroundNormal(double XM, double YM) const
 bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, float H, float Rand, float& OutScale) const
 {
 	const FVector4f Mk = SampleMask(XM, YM);
-	const float Forest = Mk.X, Veg = Mk.Y, Ice = Mk.Z, Water = Mk.W;
+	const FVector Bio = SampleMask3(XM, YM);                  // woodland, volcanic, moorland
+	const float Volc = (float)Bio.Y, Moor = (float)Bio.Z;
+	// Woodland isles grow conifer forest wherever the ground allows; lava and bog don't.
+	const float Forest = FMath::Max(Mk.X, (float)Bio.X * 0.8f) * (1.f - Volc) * (1.f - 0.7f * Moor);
+	const float Veg = Mk.Y, Ice = Mk.Z, Water = Mk.W;
 	const FVector M2 = SampleMask2(XM, YM);
 	const float Slope = M2.X, Pad = M2.Z;
 	if (L.Kind == EDragonScatterKind::Iceberg)
@@ -263,6 +278,7 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 			const float Lap = (GroundM(XM + E, YM) + GroundM(XM - E, YM) + GroundM(XM, YM + E) + GroundM(XM, YM - E) - 4.f * H) / (float)(E * E);
 			P += 0.35f * Smooth(-Lap, 0.004f, 0.02f);
 		}
+		P += Volc * 0.3f * Smooth(H, 2.f, 10.f);                     // lava boulders on the young isles
 		P *= 1.f - Forest * 0.6f;
 		OutScale = 1.f + 0.4f * Smooth(Slope, 0.5f, 0.9f);
 		break;
@@ -274,7 +290,7 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 		break;
 	case EDragonScatterKind::Ground:
 		if (H < 1.5f) return false;
-		P = Veg * (1.f - Forest * 0.4f) * (1.f - Smooth(Slope, 0.5f, 0.8f)) * (1.f - Pad * 0.7f) * (1.f - Snowy);
+		P = Veg * (1.f - Forest * 0.4f) * (1.f - Smooth(Slope, 0.5f, 0.8f)) * (1.f - Pad * 0.7f) * (1.f - Snowy) * (1.f - 0.7f * Volc);
 		break;
 	}
 	return Rand < P;

@@ -8,7 +8,7 @@
 // Inputs (see the builder): P (abs world pos, cm), Nv (vertex normal, world),
 // Cam (camera pos, cm), WS (world size, m), SnowLine (m), and texture objects
 // <Layer>D / <Layer>N / <Layer>A for Cliff Scree Grass Heath Forest Sand
-// Shingle Snow Mud, plus FarRockD FarGrassD FarSnowD, MaskA, MaskB, FlowMask.
+// Shingle Snow Mud, plus FarRockD FarGrassD FarSnowD, MaskA, MaskB, MaskC (biomes), FlowMask.
 // Outputs: return = base colour; NormalWS, Rough, AmbOcc; GrassW, HerbW (grass-map weights).
 static const TCHAR* GLandscapeHLSL = TEXT(R"HLSL(
 float3 pm = P * 0.01;
@@ -16,6 +16,7 @@ float3 N = normalize(Nv);
 float2 muv = pm.xy / WS + 0.5;
 float4 mk = Texture2DSample(MaskA, MaskASampler, muv);
 float3 mk2 = Texture2DSample(MaskB, MaskBSampler, muv).rgb;
+float3 bio = Texture2DSample(MaskC, MaskCSampler, muv).rgb;     // R woodland  G volcanic  B moorland (biomes.py)
 float flow = Texture2DSample(FlowMask, FlowMaskSampler, muv).r;   // drainage: gully floors, streams
 float dist = length(P - Cam) * 0.01;
 float h = pm.z;
@@ -45,6 +46,14 @@ float wForest = land * smoothstep(0.05, 0.55, mk.r);
 float wGrass  = land * mk.g * (1.0 - wForest);
 float wHeath  = land * saturate(1.0 - mk.g) * (1.0 - wForest);
 float wMud    = saturate(mk.a * 0.9 + mk2.b * 0.55) * (1.0 - wCliff) * (1.0 - beach);
+// Island characters. Woodland: the conifer woods spread over the sheltered slopes.
+wForest = max(wForest, land * bio.r * 0.85 * (1.0 - smoothstep(0.45, 0.75, slope)) * smoothstep(6.0, 30.0, h) * (1.0 - smoothstep(alpine * 0.8, alpine, h)));
+// Moorland: heather and blanket bog take over from grass; peat in the flat wet hollows.
+wHeath = lerp(wHeath, wHeath + wGrass * 0.8, bio.b); wGrass *= 1.0 - bio.b * 0.8;
+wMud = max(wMud, bio.b * land * smoothstep(0.35, 0.8, flow + nz * 0.3) * (1.0 - smoothstep(0.1, 0.3, slope)) * 0.8);
+// Volcanic: young lava fields (rough black rock) instead of much of the turf, no woods.
+wScree = max(wScree, bio.g * land * saturate(0.55 + nz2 * 0.9 - mk.g * 0.3));
+wForest *= 1.0 - bio.g; wGrass *= 1.0 - bio.g * 0.5;
 float sn = saturate(wSnow);
 wCliff *= 1.0 - sn * 0.55; wScree *= 1.0 - sn; wSand *= 1.0 - sn; wShingle *= 1.0 - sn;
 wForest *= 1.0 - sn; wGrass *= 1.0 - sn; wHeath *= 1.0 - sn; wMud *= 1.0 - sn;
@@ -67,15 +76,17 @@ float3 C = 0; float3 Nw = 0; float R = 0; float AO = 0;
 	float3 wn = normalize(float3(tn.xy + N.xy, abs(tn.z) * N.z)); \
 	float k = W / wSum; C += c * (TINT) * k; Nw += wn * k; R += saturate(a.g * (RMUL)) * k; AO += a.r * k; }
 
-TOPLAYER(Scree,   6.0, wScree,   float3(0.72, 0.72, 0.74), 1.0)
+TOPLAYER(Scree,   6.0, wScree,   lerp(float3(0.72, 0.72, 0.74), float3(0.22, 0.21, 0.21) * (0.85 + 0.3 * nz2), bio.g), 1.0)
 // Summer turf on these islands is a deep, wet green, broken by patches of heather and
 // bracken (browner) and greener flushes along the gullies; tundra browns in the cold north.
 float patchy = saturate(0.5 + nz * 0.9);
 float3 turf = lerp(float3(0.36, 0.64, 0.27), float3(0.46, 0.62, 0.30), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
-TOPLAYER(Grass,   3.0, wGrass,   lerp(turf, float3(0.58, 0.56, 0.42), cold) * (0.88 + 0.16 * nz), 1.0)
-TOPLAYER(Heath,   4.0, wHeath,   lerp(lerp(float3(0.58, 0.60, 0.40), float3(0.62, 0.50, 0.46), saturate(nz2 + 0.3)), float3(0.62, 0.55, 0.46), cold) * (0.85 + 0.15 * nz2), 1.0)
+// (volcanic isles: the woolly fringe-moss of Iceland's lava fields, yellow-green)
+TOPLAYER(Grass,   3.0, wGrass,   lerp(lerp(turf, float3(0.58, 0.56, 0.42), cold), float3(0.62, 0.66, 0.30), bio.g) * (0.88 + 0.16 * nz), 1.0)
+// (moorland: heather, purple-brown, in drifts)
+TOPLAYER(Heath,   4.0, wHeath,   lerp(lerp(lerp(float3(0.58, 0.60, 0.40), float3(0.62, 0.50, 0.46), saturate(nz2 + 0.3)), float3(0.62, 0.55, 0.46), cold), lerp(float3(0.50, 0.38, 0.40), float3(0.42, 0.40, 0.30), saturate(nz * 0.8 + 0.4)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
 TOPLAYER(Forest,  4.0, wForest,  float3(0.62, 0.62, 0.56), 1.0)
-TOPLAYER(Sand,    5.0, wSand,    float3(0.42, 0.42, 0.44), 1.0)
+TOPLAYER(Sand,    5.0, wSand,    lerp(float3(0.42, 0.42, 0.44), float3(0.10, 0.10, 0.11), bio.g), 1.0)   // black sand on the volcanic isles
 TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0)
 TOPLAYER(Snow,    6.0, wSnow,    float3(1.22, 1.24, 1.28), 0.75)
 TOPLAYER(Mud,     3.0, wMud,     float3(0.75, 0.72, 0.70), 0.55)
@@ -122,6 +133,7 @@ TOPLAYER(Mud,     3.0, wMud,     float3(0.75, 0.72, 0.70), 0.55)
 	float stain = smoothstep(0.35, 0.75, streak);
 	float grey = dot(c, float3(0.3, 0.59, 0.11));
 	c = lerp(float3(grey, grey, grey), c, 0.35) * float3(0.80, 0.80, 0.84);
+	c *= lerp(1.0, 0.5, bio.g);                                  // young basalt is near black
 	c *= tone * (1.0 - joint * 0.45) * (1.0 - stain * 0.35);
 	// Shelves catch light and hold a little moss.
 	wn = normalize(wn) + float3(0, 0, ledge * 0.85);

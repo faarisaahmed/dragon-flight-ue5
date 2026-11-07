@@ -5,6 +5,7 @@
 #include "DragonWorldSubsystem.h"
 #include "DragonScatter.h"
 #include "DragonPlasma.h"
+#include "Dom/JsonObject.h"
 #include "EngineUtils.h"
 #include "LandscapeSubsystem.h"
 #include "Camera/PlayerCameraManager.h"
@@ -237,6 +238,27 @@ void ADragonPhotoDirector::PlanShots()
 			A.Location = FVector(I.Centre.X, I.Centre.Y, 0.0) + Dir * I.Radius * 1.6 + FVector(0, 0, 32000.0);
 			A.Rotation = Look(A.Location, FVector(I.Centre.X, I.Centre.Y, 8000.0)); A.Hours = 14.f;
 			Shots.Add(A);
+		}
+	}
+	// One island of each character (World.json "biomes"): volcanic, woodland, moorland.
+	if (const TSharedPtr<FJsonObject> J = W->GetJson())
+	{
+		const TSharedPtr<FJsonObject>* Bio = nullptr;
+		if (J->TryGetObjectField(TEXT("biomes"), Bio))
+		{
+			TSet<FString> Done;
+			for (const FDragonIsland& I : W->GetIslands())
+			{
+				FString B;
+				if (!(*Bio)->TryGetStringField(I.Name, B) || Done.Contains(B)) continue;
+				Done.Add(B);
+				FShot A; A.Name = FString::Printf(TEXT("24_%s_%s"), *B, *I.Name.Replace(TEXT(" "), TEXT("")).Replace(TEXT("'"), TEXT("")));
+				const FVector Dir(FMath::Cos(0.8 + Done.Num()), FMath::Sin(0.8 + Done.Num()), 0.0);
+				A.Location = FVector(I.Centre.X, I.Centre.Y, 0.0) + Dir * I.Radius * 1.25 + FVector(0, 0, 0);
+				A.Location.Z = FMath::Max(0.0, W->HeightAt(A.Location.X, A.Location.Y)) + 26000.0;
+				A.Rotation = Look(A.Location, FVector(I.Centre.X, I.Centre.Y, 6000.0)); A.Hours = 14.5f;
+				Shots.Add(A);
+			}
 		}
 	}
 	// Weather: a storm rolling over the home coast, and rain.

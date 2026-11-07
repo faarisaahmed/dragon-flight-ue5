@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """
 Downloads the baked heightmaps (too big for git) from this repo's GitHub
-release "world-data-v1" into Data/World/ and unzips them, plus the dragon
+release (TAG below) into Data/World/ and unzips them, plus the dragon
 model (release "dragon-v1") into Data/Dragon/.
 
     python Tools/fetch_world.py            # 8129 (default) and 4033
     python Tools/fetch_world.py --max      # also 16321, the sharpest terrain
 
-Uses the GitHub CLI (`gh`) if it is installed and logged in; otherwise a
-GITHUB_TOKEN environment variable (the repo is private). If neither is
-available, download the zips by hand from the Releases page and unzip them
-into Data/World/.
+Uses the GitHub CLI (`gh`) if it is installed and logged in; otherwise plain
+HTTPS (the repo is public; GITHUB_TOKEN is used if set). If neither works,
+download the zips by hand from the Releases page and unzip them into Data/World/.
 """
 import argparse, json, os, shutil, subprocess, sys, urllib.request, zipfile
 
 REPO = "faarisaahmed/dragon-flight-ue5"
-TAG = "world-data-v2"   # v2: eroded + cliff-detailed terrain (matches Masks2/Flow/World.json in git)
+TAG = "world-data-v3"   # v3: + naturalise.py North Atlantic relief (matches Masks2/Masks3/World.json in git)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "Data", "World")
 

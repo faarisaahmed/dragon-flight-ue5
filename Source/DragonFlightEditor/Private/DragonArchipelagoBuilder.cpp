@@ -83,7 +83,7 @@ static void CopyRuntimeData()
 	FFileHelper::LoadFileToString(Res, *(Src / TEXT("LandscapeRes.txt")));
 	Res.TrimStartAndEndInline();
 	for (const FString& F : { FString(TEXT("World.json")), FString(TEXT("LandscapeRes.txt")), FString::Printf(TEXT("Heightmap_%s.r16"), *Res),
-		FString(TEXT("Masks_4096.png")), FString(TEXT("Masks2_4096.png")), FString(TEXT("Flow_4096.png")) })
+		FString(TEXT("Masks_4096.png")), FString(TEXT("Masks2_4096.png")), FString(TEXT("Masks3_4096.png")), FString(TEXT("Flow_4096.png")) })
 	{
 		if (FM.FileExists(*(Src / F))) FM.Copy(*(Dst / F), *(Src / F));
 	}
@@ -354,8 +354,8 @@ void FDragonArchipelagoBuilder::ImportGroundTextures()
 	IFileManager::Get().FindFiles(Masks, *(BakeDir() / TEXT("Masks*.png")), true, false);
 	for (const FString& F : Masks)
 	{
-		const bool b2 = F.StartsWith(TEXT("Masks2"));
-		UTexture2D* T = ImportTexture(BakeDir() / F, TEXT("/Game/World/Data"), b2 ? TEXT("T_Masks2") : TEXT("T_Masks"), false, true);
+		const TCHAR* Name = F.StartsWith(TEXT("Masks2")) ? TEXT("T_Masks2") : F.StartsWith(TEXT("Masks3")) ? TEXT("T_Masks3") : TEXT("T_Masks");
+		UTexture2D* T = ImportTexture(BakeDir() / F, TEXT("/Game/World/Data"), Name, false, true);
 		if (T)
 		{
 			T->CompressionSettings = TC_VectorDisplacementmap; // uncompressed RGBA8: masks must not block-compress
@@ -387,7 +387,7 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 	Cu->AdditionalOutputs.Reset();
 	auto AddIn = [&](const TCHAR* Name) { FCustomInput I; I.InputName = Name; Cu->Inputs.Add(I); };
 	AddIn(TEXT("P")); AddIn(TEXT("Nv")); AddIn(TEXT("Cam")); AddIn(TEXT("WS")); AddIn(TEXT("SnowLine"));
-	AddIn(TEXT("MaskA")); AddIn(TEXT("MaskB")); AddIn(TEXT("FlowMask"));
+	AddIn(TEXT("MaskA")); AddIn(TEXT("MaskB")); AddIn(TEXT("MaskC")); AddIn(TEXT("FlowMask"));
 	for (const TCHAR* L : GroundLayers) { AddIn(*FString::Printf(TEXT("%sD"), L)); AddIn(*FString::Printf(TEXT("%sN"), L)); AddIn(*FString::Printf(TEXT("%sA"), L)); }
 	for (const TCHAR* L : FarLayers) AddIn(*FString::Printf(TEXT("%sD"), L));
 	{ FCustomOutput O; O.OutputName = TEXT("NormalWS"); O.OutputType = CMOT_Float3; Cu->AdditionalOutputs.Add(O); }
@@ -431,6 +431,7 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 	};
 	Connect(TEXT("MaskA"), TEXT("/Game/World/Data/T_Masks.T_Masks"), SAMPLERTYPE_LinearColor);
 	Connect(TEXT("MaskB"), TEXT("/Game/World/Data/T_Masks2.T_Masks2"), SAMPLERTYPE_LinearColor);
+	Connect(TEXT("MaskC"), TEXT("/Game/World/Data/T_Masks3.T_Masks3"), SAMPLERTYPE_LinearColor);
 	Connect(TEXT("FlowMask"), TEXT("/Game/World/Data/T_Flow.T_Flow"), SAMPLERTYPE_LinearGrayscale);
 	for (const TCHAR* L : GroundLayers)
 	{

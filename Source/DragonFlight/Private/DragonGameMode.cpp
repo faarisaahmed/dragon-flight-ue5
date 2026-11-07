@@ -2,6 +2,7 @@
 #include "DragonPhotoDirector.h"
 #include "DragonReport.h"
 #include "DragonVillage.h"
+#include "DragonVents.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
 #include "HAL/PlatformTime.h"
@@ -30,6 +31,12 @@ ADragonGameMode::ADragonGameMode()
 
 void ADragonGameMode::StartPlay()
 {
+	// Steam on the volcanic isles.
+	if (UWorld* W = GetWorld())
+	{
+		FActorSpawnParameters SP; SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		W->SpawnActor<ADragonVents>(ADragonVents::StaticClass(), FTransform::Identity, SP);
+	}
 	Super::StartPlay();
 
 	if (UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr)

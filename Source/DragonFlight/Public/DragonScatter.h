@@ -94,6 +94,7 @@ private:
 	bool LoadMasks();
 	FVector4f SampleMask(double XM, double YM) const;      // R forest, G veg, B ice, A water
 	FVector SampleMask2(double XM, double YM) const;      // slope, firn, pad
+	FVector SampleMask3(double XM, double YM) const;      // woodland, volcanic, moorland (biomes.py)
 	float GroundM(double XM, double YM) const;
 	FVector GroundNormal(double XM, double YM) const;
 	bool Accept(const FDragonScatterLayer& L, double XM, double YM, float H, float Rand, float& OutScaleMul) const;
@@ -112,6 +113,7 @@ private:
 
 	TArray<uint8> Mask;   // RGBA
 	TArray<uint8> Mask2;  // RGB
+	TArray<uint8> Mask3;  // RGB biomes
 	int32 MaskRes = 0;
 	double WorldSizeM = 45000.0;
 	FVector LastPlanM = FVector(1e12);

@@ -5,6 +5,8 @@
 #include "Sound/SoundWaveProcedural.h"
 #include "Sound/SoundAttenuation.h"
 #include "Kismet/GameplayStatics.h"
+#include "Components/AudioComponent.h"
+#include "TimerManager.h"
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
 #include "GameFramework/PlayerController.h"
@@ -238,6 +240,17 @@ namespace
 		return B;
 	}
 
+	/** A procedural wave never runs out by itself (it plays silence once its queue is empty), so
+	 *  every one-shot is stopped when its audio is done; otherwise they pile up and take voices. */
+	void StopAfter(UWorld* W, UAudioComponent* C, float Seconds)
+	{
+		if (!W || !C) return;
+		C->bAutoDestroy = true;
+		FTimerHandle H;
+		TWeakObjectPtr<UAudioComponent> Weak(C);
+		W->GetTimerManager().SetTimer(H, FTimerDelegate::CreateLambda([Weak]() { if (UAudioComponent* A = Weak.Get()) A->Stop(); }), Seconds + 0.15f, false);
+	}
+
 	void PlayPCM(const UObject* Ctx, const TArray<int16>& PCM, const FVector& At, float Volume, float Pitch, USoundAttenuation* Att)
 	{
 		UWorld* W = Ctx ? Ctx->GetWorld() : nullptr;
@@ -249,7 +262,8 @@ namespace
 		Wave->bLooping = false;
 		Wave->SoundGroup = SOUNDGROUP_Default;
 		Wave->QueueAudio(reinterpret_cast<const uint8*>(PCM.GetData()), PCM.Num() * sizeof(int16));
-		UGameplayStatics::PlaySoundAtLocation(W, Wave, At, FRotator::ZeroRotator, Volume, Pitch, 0.f, Att);
+		UAudioComponent* C = UGameplayStatics::SpawnSoundAtLocation(W, Wave, At, FRotator::ZeroRotator, Volume, Pitch, 0.f, Att, nullptr, true);
+		StopAfter(W, C, Wave->Duration / FMath::Max(0.1f, Pitch));
 	}
 }
 
@@ -280,7 +294,9 @@ void DragonSfx::Thunder(const UObject* Ctx, const FVector& At, float DistanceCm)
 	USoundWaveProcedural* Wave = NewObject<USoundWaveProcedural>(GetTransientPackage());
 	Wave->SetSampleRate(RATE); Wave->NumChannels = 1; Wave->Duration = (float)PCM.Num() / RATE; Wave->bLooping = false;
 	Wave->QueueAudio(reinterpret_cast<const uint8*>(PCM.GetData()), PCM.Num() * sizeof(int16));
-	UGameplayStatics::PlaySound2D(W, Wave, Vol, 0.9f + 0.2f * ((B.Pick * 5) % 10) / 10.f);
+	const float Pitch = 0.9f + 0.2f * ((B.Pick * 5) % 10) / 10.f;
+	UAudioComponent* C = UGameplayStatics::SpawnSound2D(W, Wave, Vol, Pitch, 0.f, nullptr, false, true);
+	StopAfter(W, C, Wave->Duration / Pitch);
 }
 
 void DragonSfx::Wingbeat(const UObject* Ctx, const FVector& At, float Strength, float Seconds)
