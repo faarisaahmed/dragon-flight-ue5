@@ -35,6 +35,9 @@ private:
 		FString Name;
 		bool bChase = false;    // use the player's own camera
 		bool bDragonClose = false; // a close portrait of the dragon
+		FVector CloseOffset = FVector(1100.0, 850.0, 260.0);   // portrait camera: forward, right, up of the dragon (cm)
+		FVector CloseAim = FVector(0.0, 0.0, 100.0);           // and the point it looks at
+		float CloseFov = 40.f;
 		FVector Location = FVector::ZeroVector;
 		FRotator Rotation = FRotator::ZeroRotator;
 		float Hours = 15.5f;

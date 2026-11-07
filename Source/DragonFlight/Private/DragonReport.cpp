@@ -78,6 +78,19 @@ namespace
 		R->ProcessRequest();
 	}
 
+	/** The player's Desktop (macOS and Windows), where F8 keeps its screenshots. */
+	FString DesktopDir()
+	{
+#if PLATFORM_WINDOWS
+		const FString Home = FPlatformMisc::GetEnvironmentVariable(TEXT("USERPROFILE"));
+#else
+		const FString Home = FPlatformMisc::GetEnvironmentVariable(TEXT("HOME"));
+#endif
+		return Home.IsEmpty() ? FPaths::ProjectSavedDir() : Home / TEXT("Desktop");
+	}
+
+	FString SavedNote;   // "Saved to Desktop/Dragon Flight Screenshots" when the local copy worked
+
 	void PostFile(const FString& Title, const FString& Tags, const FString& Message, const FString& FileName, const TArray<uint8>& Data)
 	{
 		TSharedRef<IHttpRequest, ESPMode::ThreadSafe> R = FHttpModule::Get().CreateRequest();
@@ -92,7 +105,7 @@ namespace
 		{
 			const bool bGood = bOk && Resp.IsValid() && Resp->GetResponseCode() == 200;
 			UE_LOG(LogDragon, Display, TEXT("Report: screenshot %s (%d)"), bGood ? TEXT("ok") : TEXT("FAILED"), Resp.IsValid() ? Resp->GetResponseCode() : 0);
-			SetNotice(bGood ? TEXT("Screenshot sent to Faaris - tell him what you saw") : TEXT("The screenshot could not be sent (no internet?)"), 6.0);
+			SetNotice(SavedNote + (bGood ? TEXT("Screenshot sent to Faaris - tell him what you saw") : TEXT("(it could not be sent - no internet?)")), 6.0);
 		});
 		R->ProcessRequest();
 	}
@@ -225,9 +238,17 @@ void DragonReport::SendSnapshot(const FString& Where)
 		const TArray64<uint8> Data64 = Jpg->GetCompressed(88);
 		TArray<uint8> Data(Data64.GetData(), (int32)Data64.Num());
 		if (SelfTest()) FFileHelper::SaveArrayToFile(Data, *(FPaths::ProjectSavedDir() / TEXT("ReportSelfTest.jpg")));
-		SetNotice(TEXT("Sending a screenshot to Faaris..."), 4.0);
+		// A copy on the Desktop, with a note of where and how, so it can be looked at right away.
+		const FString Name = FDateTime::Now().ToString(TEXT("shot_%Y%m%d_%H%M%S"));
+		const FString Dir = DesktopDir() / TEXT("Dragon Flight Screenshots");
+		IFileManager::Get().MakeDirectory(*Dir, true);
+		const bool bSaved = FFileHelper::SaveArrayToFile(Data, *(Dir / Name + TEXT(".jpg")));
+		if (bSaved) FFileHelper::SaveStringToFile(Where + TEXT("\n") + SystemSummary(), *(Dir / Name + TEXT(".txt")));
+		SavedNote = bSaved ? TEXT("Screenshot saved to Desktop > Dragon Flight Screenshots. ") : TEXT("");
+		UE_LOG(LogDragon, Display, TEXT("Report: screenshot saved %s (%s)"), bSaved ? TEXT("ok") : TEXT("FAILED"), *(Dir / Name));
+		SetNotice(SavedNote + TEXT("Sending it to Faaris..."), 4.0);
 		// (A "Name: value" message would be read as a header line; keep it plain.)
-		PostFile(TEXT("F8 screenshot"), TEXT("camera"), Anonymise(Where.Replace(TEXT("Where: "), TEXT("Screenshot taken "))), FDateTime::Now().ToString(TEXT("shot_%Y%m%d_%H%M%S.jpg")), Data);
+		PostFile(TEXT("F8 screenshot"), TEXT("camera"), Anonymise(Where.Replace(TEXT("Where: "), TEXT("Screenshot taken "))), Name + TEXT(".jpg"), Data);
 	});
 	FScreenshotRequest::RequestScreenshot(false);
 }

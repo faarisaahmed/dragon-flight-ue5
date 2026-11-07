@@ -104,6 +104,10 @@ ADragonSky::ADragonSky()
 	Fog->VolumetricFogExtinctionScale = 0.6f;
 	Fog->FogInscatteringLuminance = FLinearColor(0.f, 0.f, 0.f); // let the atmosphere colour the fog
 	Fog->SkyAtmosphereAmbientContributionColorScale = FLinearColor::White;
+	// Mist is water droplets: near-white albedo, a touch cool, scattering mostly forward, so it
+	// glows warm toward a low sun and stays blue-grey away from it (not lit brown all round).
+	Fog->VolumetricFogAlbedo = FColor(226, 232, 240);
+	Fog->VolumetricFogScatteringDistribution = 0.55f;
 
 	Sun = CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("Sun"));
 	Sun->SetupAttachment(Root);
@@ -470,7 +474,9 @@ void ADragonSky::Apply(float DeltaSeconds)
 	Moon->SetVisibility(Night > 0.001f);
 	// Golden hour: warmer as the sun nears the horizon (the atmosphere's
 	// transmittance does most of this; a little extra keeps the gold the web game had).
-	Sun->SetTemperature(FMath::Lerp(3600.f, 5900.f, Smooth(SunElevation, 0.f, 14.f)));
+	// The atmosphere's own transmittance already reddens a low sun strongly; a 3600 K source on
+	// top of that doubled it into a red-orange cast over everything.
+	Sun->SetTemperature(FMath::Lerp(4900.f, 5900.f, Smooth(SunElevation, 0.f, 14.f)));
 
 	// "Day for night": a generous blue fill at night so the land reads.
 	SkyLight->SetIntensity(FMath::Lerp(1.5f, 3.5f, Night) * (1.f + Live.SunDim * 0.4f));
@@ -481,10 +487,16 @@ void ADragonSky::Apply(float DeltaSeconds)
 	if (Post)
 	{
 		const float Gloom = Live.SunDim * Day;
+		// Dusk: the eye does not adapt a setting sun back up to daylight; the land goes dim and
+		// the colour drains while the sky keeps it. The camera's white balance follows the light
+		// toward warm a little (so the gold stays gold, not a cast over everything).
+		const float Dusk = (1.f - Smooth(SunElevation, 1.f, 16.f)) * Smooth(SunElevation, -8.f, -1.f);
 		Post->Settings.bOverride_AutoExposureBias = true;
-		Post->Settings.AutoExposureBias = 0.25f - 1.6f * Gloom * Gloom - 0.25f * Live.Rain * Day;
+		Post->Settings.AutoExposureBias = 0.25f - 1.6f * Gloom * Gloom - 0.25f * Live.Rain * Day - 0.7f * Dusk;
+		Post->Settings.bOverride_WhiteTemp = true;
+		Post->Settings.WhiteTemp = FMath::Lerp(6900.f, 5600.f, Dusk);
 		Post->Settings.bOverride_ColorSaturation = true;
-		Post->Settings.ColorSaturation = FVector4(1.f, 1.f, 1.f, 1.f - 0.35f * Gloom);
+		Post->Settings.ColorSaturation = FVector4(1.f, 1.f, 1.f, (1.f - 0.35f * Gloom) * (1.f - 0.18f * Dusk));
 		Post->Settings.bOverride_ColorGain = true;
 		Post->Settings.ColorGain = FVector4(1.f - 0.06f * Gloom, 1.f - 0.02f * Gloom, 1.f + 0.05f * Gloom, 1.f);
 	}
@@ -494,6 +506,15 @@ void ADragonSky::Apply(float DeltaSeconds)
 	Fog->SetFogDensity(0.0045f * Live.Fog + 0.022f * Live.Rain * Live.Rain);
 	Fog->SetFogHeightFalloff(FMath::Lerp(0.12f, 0.03f, Live.Rain));
 	Fog->SetVolumetricFogExtinctionScale(0.6f * FMath::Sqrt(Live.Fog));
+	// The fog takes its colour from the sky; with the sun low that sky ambient is beige, and a
+	// thick evening mist read as brown smog. Real mist at dusk goes blue-grey (lit by the blue
+	// sky, the sun's gold only toward the sun), so cool the ambient part as the sun goes down.
+	{
+		const float DuskF = (1.f - Smooth(SunElevation, 2.f, 18.f)) * Smooth(SunElevation, -10.f, -2.f);
+		const float Mist = DuskF * FMath::Clamp(Live.Fog / 3.f + Live.Rain * 0.5f, 0.3f, 1.f);
+		Fog->SetSkyAtmosphereAmbientContributionColorScale(FMath::Lerp(FLinearColor::White, FLinearColor(0.62f, 0.74f, 1.0f), Mist));
+		Fog->SetVolumetricFogAlbedo(FLinearColor::LerpUsingHSV(FLinearColor(0.886f, 0.91f, 0.94f), FLinearColor(0.78f, 0.86f, 0.98f), Mist).ToFColor(false));
+	}
 
 	CloudOffset += DeltaSeconds * WindSpeed * Live.Wind * 0.01f; // metres of drift
 	if (!CloudMID && CloudMaterial)

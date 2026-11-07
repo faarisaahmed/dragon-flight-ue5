@@ -420,6 +420,36 @@ void ADragonPhotoDirector::PlanShots()
 		Shots.Add(St);
 		FShot Rn = St; Rn.Name = TEXT("22b_rain"); Rn.Weather = (uint8)EDragonWeather::Rain;
 		Shots.Add(Rn);
+		// Evening and dusk in each kind of weather (what F3/F4 get to in play).
+		struct FEve { const TCHAR* N; EDragonWeather Wx; float H; };
+		const FEve Eve[] = {
+			{ TEXT("fair_1830"), EDragonWeather::Fair, 18.5f }, { TEXT("fair_1930"), EDragonWeather::Fair, 19.5f },
+			{ TEXT("fair_2030"), EDragonWeather::Fair, 20.5f }, { TEXT("over_1930"), EDragonWeather::Overcast, 19.5f },
+			{ TEXT("rain_1930"), EDragonWeather::Rain, 19.5f }, { TEXT("fog_1830"), EDragonWeather::Fog, 18.5f },
+			{ TEXT("fog_2000"), EDragonWeather::Fog, 20.0f }, { TEXT("clear_2130"), EDragonWeather::Clear, 21.5f } };
+		for (const FEve& E : Eve)
+		{
+			FShot Ev = St; Ev.Name = FString::Printf(TEXT("24_eve_%s"), E.N); Ev.Weather = (uint8)E.Wx; Ev.Hours = E.H;
+			Shots.Add(Ev);
+			FShot Ec = Chase; Ec.Name = FString::Printf(TEXT("24b_evechase_%s"), E.N); Ec.Weather = (uint8)E.Wx; Ec.Hours = E.H;
+			Shots.Add(Ec);
+		}
+	}
+	// Portraits for the app icon: the dragon coming at the camera, wings out, against the sky.
+	{
+		struct FIc { const TCHAR* N; FVector Off, Aim; float Fov, H; EDragonWeather Wx; };
+		const FIc Ic[] = {
+			{ TEXT("a_dusk"),  FVector(2600, 0, -420),  FVector(0, 0, 60),   34.f, 21.4f, EDragonWeather::Clear },
+			{ TEXT("b_dusk"),  FVector(1500, 650, -160), FVector(250, 0, 80), 34.f, 21.4f, EDragonWeather::Clear },
+			{ TEXT("c_night"), FVector(2600, 0, -420),  FVector(0, 0, 60),   34.f, 23.5f, EDragonWeather::Clear },
+			{ TEXT("d_head"),  FVector(900, 380, 60),   FVector(380, 0, 110), 30.f, 21.2f, EDragonWeather::Clear },
+			{ TEXT("e_storm"), FVector(2600, 0, -420),  FVector(0, 0, 60),   34.f, 17.0f, EDragonWeather::Storm } };
+		for (const FIc& I : Ic)
+		{
+			FShot Ic1 = Close; Ic1.Name = FString::Printf(TEXT("90_icon_%s"), I.N);
+			Ic1.CloseOffset = I.Off; Ic1.CloseAim = I.Aim; Ic1.CloseFov = I.Fov; Ic1.Hours = I.H; Ic1.Weather = (uint8)I.Wx;
+			Shots.Add(Ic1);
+		}
 	}
 	// The weather panel open over the chase view.
 	{
@@ -465,11 +495,11 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 		if (APawn* P = PC->GetPawn())
 		{
 			P->CustomTimeDilation = 0.f; // hold the pose for a sharp portrait
-			const FVector At = P->GetActorLocation() + FVector(0, 0, 100);
 			const FVector F = P->GetActorForwardVector(), R = P->GetActorRightVector();
-			const FVector From = At + F * 1100.0 + R * 850.0 + FVector(0, 0, 260);
+			const FVector At = P->GetActorLocation() + F * S.CloseAim.X + R * S.CloseAim.Y + FVector(0, 0, S.CloseAim.Z);
+			const FVector From = P->GetActorLocation() + F * S.CloseOffset.X + R * S.CloseOffset.Y + FVector(0, 0, S.CloseOffset.Z);
 			Camera->SetActorLocationAndRotation(From, (At - From).Rotation());
-			Camera->GetCameraComponent()->SetFieldOfView(40.f);
+			Camera->GetCameraComponent()->SetFieldOfView(S.CloseFov);
 			PC->SetViewTarget(Camera);
 		}
 	}

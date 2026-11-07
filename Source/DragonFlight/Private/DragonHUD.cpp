@@ -63,7 +63,7 @@ void ADragonHUD::DrawHelp()
 		TEXT(""),
 		TEXT("Tab / T  weather & time panel (click to choose)"),
 		TEXT("F1 help  F2 graphics  F5 resolution  F3 time +3h  F4 weather  F6 hide HUD"),
-		TEXT("F8 send Faaris a screenshot (something looks wrong / a bug)"),
+		TEXT("F8 screenshot: saved to Desktop > Dragon Flight Screenshots and sent to Faaris"),
 		TEXT("~ console: GoTo <island>, TimeOfDay <h>, Weather <0-5>, Quality <0-4>, RenderRes <0-5>"),
 	};
 	float Y = Canvas->ClipY - 40.f - UE_ARRAY_COUNT(Lines) * 18.f;
