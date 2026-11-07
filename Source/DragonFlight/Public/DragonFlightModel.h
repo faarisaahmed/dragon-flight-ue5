@@ -105,7 +105,7 @@ public:
 	static constexpr float PITCH_MAX = 0.72f, PITCH_LAMBDA = 6.0f, AOA_SLOW = 0.22f, PATH_REF_SPEED = 34.f;
 
 	static constexpr float KNIFE_ANGLE = 1.45f, KNIFE_IN = 3.2f, KNIFE_OUT = 5.2f, KNIFE_HOLD = 3.0f, KNIFE_RECOVER = 2.0f;
-	static constexpr float KNIFE_SINK = 22.f, KNIFE_YAW = 0.35f, KNIFE_TREMBLE = 0.022f;
+	static constexpr float KNIFE_SINK = 3.5f, KNIFE_YAW = 0.16f, KNIFE_TREMBLE = 0.022f;
 
 	static constexpr float ROLL_EASE = 0.35f, ROLL_UNDER = 0.45f, ROLL_PITCH = 0.13f, ROLL_COST = 0.85f, ROLL_DRAG = 0.07f;
 
@@ -184,6 +184,8 @@ public:
 	// Collision speed loss (controls.js scrapeSpeed / bleedSpeed)
 	void ScrapeSpeed(float F);
 	void BleedSpeed(float F);
+	/** Struck the sea in a dive: punch through, keep most of the speed, swoop back up level. */
+	void Plunge(float Keep);
 	void Snare(float Seconds = 4.f);
 	void ClearRoll();
 	void ClearKeys();

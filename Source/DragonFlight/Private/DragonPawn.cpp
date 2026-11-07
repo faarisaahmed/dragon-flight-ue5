@@ -430,7 +430,16 @@ void ADragonPawn::FlightFloor(float Dt)
 	// would catch and cartwheel him).
 	const float TipDrop = FMath::Sin(FMath::Min(FMath::Abs(Flight.CurrentRoll), HALF_PI)) * HALF_SPAN * S - BODY_CENTRE * S;
 	// (the surface where he is, waves and all)
-	const float WaterFloor = SeaAtM(PosM.X, PosM.Y) + FMath::Max(-0.1f * S, TipDrop - 0.55f * S);
+	// A plunge carries him under for a moment: the floor dips and comes back up.
+	float Dip = 0.f;
+	if (PlungeT > 0.f)
+	{
+		PlungeT += Dt;
+		const float U = PlungeT / 0.75f;
+		Dip = U < 1.f ? PlungeDepth * FMath::Sin(U * PI) : 0.f;
+		if (U >= 1.f) PlungeT = 0.f;
+	}
+	const float WaterFloor = SeaAtM(PosM.X, PosM.Y) + FMath::Max(-0.1f * S, TipDrop - 0.55f * S) - Dip;
 	const float Floor = FMath::Max(Rock + Clear, WaterFloor);
 	if (PosM.Z >= Floor) { bFloorContact = false; return; }
 	if (WaterFloor >= Rock + Clear)
@@ -438,14 +447,18 @@ void ADragonPawn::FlightFloor(float Dt)
 		// The sea is a surface, not a wall: struck hard it hurts and throws up a wall of water;
 		// brushed, it holds him up and drags.
 		const FVector V = Flight.GetVelocity();
-		if (!bFloorContact && V.Z < -7.f)
+		if (!bFloorContact && V.Z < -7.f && PlungeT <= 0.f)
 		{
+			// A dive into the sea is a plunge, like a gannet's: a burst of water, a moment
+			// under, and out again still flying. Water slows him a little; it never stops him.
 			const float Str = FMath::Clamp(-V.Z / 25.f, 0.3f, 1.f);
 			DragonSfx::Splash(this, PosM * M, Str);
 			if (ADragonWake* Wk = ADragonWake::Get(this)) Wk->Disturb(PosM * M, 700.f * S, -1.1f * Str, 8.f * Str);
-			WaterSpray(PosM, FVector(V.X, V.Y, 0.f) * 0.25f, 30, 1.2f + 1.5f * Str);
-			Impact(V, FVector::UpVector, true);
-			Flight.BleedSpeed(FMath::Clamp(-V.Z / 40.f, 0.1f, 0.7f));
+			WaterSpray(PosM, FVector(V.X, V.Y, 0.f) * 0.25f, 40, 1.4f + 2.0f * Str);
+			Shake = FMath::Max(Shake, 0.35f * Str);
+			PlungeT = 1e-3f;
+			PlungeDepth = FMath::Lerp(0.8f, 3.2f, Str) * S;
+			Flight.Plunge(FMath::Lerp(0.9f, 0.75f, Str));
 		}
 		bFloorContact = true;
 		PosM.Z = FMath::Max(PosM.Z + (Floor - PosM.Z) * F::Damp(14.f, Dt), (double)(Floor - 0.3f * S));

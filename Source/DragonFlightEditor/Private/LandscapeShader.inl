@@ -91,15 +91,19 @@ TOPLAYER(Scree,   6.0, wScree,   lerp(float3(0.72, 0.72, 0.74), float3(0.22, 0.2
 // Summer turf on these islands is a deep, wet green, broken by patches of heather and
 // bracken (browner) and greener flushes along the gullies; tundra browns in the cold north.
 float patchy = saturate(0.5 + nz * 0.9);
-float3 turf = lerp(float3(0.30, 0.62, 0.22), float3(0.42, 0.62, 0.27), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
+float3 turf = lerp(float3(0.25, 0.47, 0.17), float3(0.35, 0.49, 0.21), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
 // on the steep ledges and cliff tops the turf is wet, short and dark, not sunlit lawn
 turf *= lerp(float3(1.0, 1.0, 1.0), float3(0.62, 0.72, 0.62), smoothstep(0.30, 0.62, slope));
 // (volcanic isles: the woolly fringe-moss of Iceland's lava fields, yellow-green)
 float rush = 0.78 + 0.34 * Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 37.0 + 0.53).g;   // rushes and tussocks: darker patches
-TOPLAYER(Grass,   3.0, wGrass,   rush * lerp(lerp(turf, float3(0.44, 0.48, 0.36), cold), float3(0.50, 0.58, 0.30), bio.g) * (0.88 + 0.16 * nz), 1.0)
+// The scans are dry and golden (grass) or orange (bracken): DESAT keeps their detail and lets
+// the tint set the colour, so the turf is the wet green of a northern island.
+#define DESAT(k) lerp(float3(1, 1, 1), dot(c, float3(0.3, 0.59, 0.11)) / max(c, 0.02), k)
+TOPLAYER(Grass,   3.0, wGrass,   DESAT(0.6) * rush * lerp(lerp(turf, float3(0.36, 0.42, 0.32), cold), float3(0.30, 0.36, 0.20), bio.g) * (0.88 + 0.16 * nz), 1.0)
 // (moorland: heather, purple-brown, in drifts)
-TOPLAYER(Heath,   4.0, wHeath,   lerp(lerp(lerp(float3(0.58, 0.60, 0.40), float3(0.62, 0.50, 0.46), saturate(nz2 + 0.3)), float3(0.50, 0.47, 0.40), cold), lerp(float3(0.36, 0.26, 0.28), float3(0.30, 0.32, 0.20), saturate(nz * 0.8 + 0.4)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
-TOPLAYER(Forest,  4.0, wForest,  float3(0.19, 0.23, 0.13), 1.0)   // needle litter and moss in the shade of the pines
+// (the heath scan is orange bracken: its colour is mostly replaced by the tint, keeping its detail)
+TOPLAYER(Heath,   4.0, wHeath,   DESAT(0.75) * lerp(lerp(lerp(float3(0.42, 0.50, 0.30), float3(0.50, 0.44, 0.42), saturate(nz2 + 0.3)), float3(0.42, 0.45, 0.38), cold), lerp(float3(0.34, 0.24, 0.30), float3(0.27, 0.30, 0.18), saturate(nz * 0.8 + 0.4)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
+TOPLAYER(Forest,  4.0, wForest,  DESAT(0.6) * float3(0.15, 0.19, 0.11), 1.0)   // needle litter and moss in the shade of the pines
 TOPLAYER(Sand,    5.0, wSand,    lerp(float3(0.42, 0.42, 0.44), float3(0.10, 0.10, 0.11), bio.g), 1.0)   // black sand on the volcanic isles
 TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0)
 TOPLAYER(Snow,    6.0, wSnow,    float3(1.22, 1.24, 1.28), 0.75)
@@ -160,7 +164,7 @@ TOPLAYER(Mud,     3.0, wMud,     float3(0.75, 0.72, 0.70), 0.55)
 float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 [branch] if (ff > 0.001)
 {
-	float3 farG = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 70.0).rgb * float3(0.50, 0.78, 0.42);
+	float3 farG = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 70.0).rgb * lerp(lerp(float3(0.46, 0.66, 0.38), float3(0.50, 0.52, 0.44), cold), float3(0.46, 0.36, 0.38), bio.b);
 	float3 farR = Texture2DSample(FarRockD,  FarRockDSampler,  pm.xy / 60.0).rgb * 0.9;
 	float3 farS = Texture2DSample(FarSnowD,  FarSnowDSampler,  pm.xy / 80.0).rgb;
 	float gG = (wGrass + wHeath + wForest) / wSum, gR = (wCliff + wScree + wSand + wShingle + wMud) / wSum, gS = wSnow / wSum;
@@ -171,8 +175,8 @@ float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 // Volcanic isles: young lava under a thin, patchy moss - the ground darkens smoothly toward
 // bare basalt with the large noise (no hard-edged patches), mossier in the hollows.
 {
-	float lava = bio.g * (1.0 - sn) * saturate(0.55 + nz * 0.55 + nz2 * 0.2 - flow * 0.5);
-	C = lerp(C, float3(0.075, 0.072, 0.07) * (0.8 + 0.4 * nz2), lava * 0.75);
+	float lava = bio.g * (1.0 - sn) * saturate(0.8 + nz * 0.5 + nz2 * 0.2 - flow * 0.45);
+	C = lerp(C, float3(0.07, 0.066, 0.064) * (0.8 + 0.4 * nz2), lava * 0.88);
 	R = lerp(R, 0.9, lava * 0.5);
 }
 // Woods from afar: past the distance the trees are drawn to, the canopy itself is the colour

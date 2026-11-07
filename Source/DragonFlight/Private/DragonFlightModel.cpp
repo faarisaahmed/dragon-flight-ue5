@@ -82,10 +82,11 @@ void FDragonFlightModel::Update(float DtIn, const FDragonFlightInput& In, FVecto
 	RollGate.Update(Dt, KnifeWant);
 	if (RollGate.bFired) StartRoll(RollGate.Dir);
 	if (RollDir != 0) KnifeWant = 0;
-	if (KnifeWant != 0 || RollDir != 0) KnifeCharge = FMath::Max(0.f, KnifeCharge - Dt);
+	// Knife edge holds for as long as the key is held (no stamina to manage); only the barrel
+	// roll draws on the charge, so rolls can't be chained endlessly.
+	if (RollDir != 0) KnifeCharge = FMath::Max(0.f, KnifeCharge - Dt);
 	else KnifeCharge = FMath::Min(KNIFE_HOLD, KnifeCharge + Dt * (KNIFE_HOLD / KNIFE_RECOVER));
-	const float Stamina = SmoothStep01(KnifeCharge / KNIFE_HOLD, 0.f, 0.4f);
-	const float KnifeTarget = KnifeWant * Stamina;
+	const float KnifeTarget = (float)KnifeWant;
 	KnifeAmount += (KnifeTarget - KnifeAmount) * Damp(FMath::Abs(KnifeTarget) > FMath::Abs(KnifeAmount) ? KNIFE_IN : KNIFE_OUT, Dt);
 
 	// 6. Turning ---------------------------------------------------------------
@@ -314,6 +315,17 @@ void FDragonFlightModel::BleedSpeed(float F)
 	DiveCommit = 0.f;
 	ClearRoll();
 	if (F >= 1.f) RecoverHold = FMath::Max(RecoverHold, 1.0f);
+}
+
+void FDragonFlightModel::Plunge(float Keep)
+{
+	Airspeed *= Keep;
+	SetMode(EDragonFlightMode::Level);
+	PathAngle = FMath::Max(PathAngle, -0.2f);
+	ClimbVel = 7.f;            // the wings bite as he comes out: a swoop, not a bounce
+	DiveCommit = 0.f;
+	RecoverHold = 0.f;
+	ClearRoll();
 }
 
 void FDragonFlightModel::Snare(float Seconds)

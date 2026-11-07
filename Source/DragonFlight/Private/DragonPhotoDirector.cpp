@@ -455,6 +455,15 @@ void ADragonPhotoDirector::PlanShots()
 	{
 		FShot Pn = Chase; Pn.Name = TEXT("23_panel"); Pn.bPanel = true;
 		Shots.Add(Pn);
+		FShot Ph = Chase; Ph.Name = TEXT("23a_hud"); Ph.bPanel = true; Ph.Hours = 17.f;
+		Shots.Add(Ph);
+		for (int32 Pg = 0; Pg < 3; ++Pg)
+		{
+			FShot Pm = Chase; Pm.Name = FString::Printf(TEXT("23b_menu%d"), Pg); Pm.bPanel = true; Pm.UiScreen = 1; Pm.UiPage = Pg; Pm.Hours = 17.f;
+			Shots.Add(Pm);
+		}
+		Pn = Chase; Pn.Name = TEXT("23c_chart"); Pn.bPanel = true; Pn.UiScreen = 2; Pn.Hours = 17.f;
+		Shots.Add(Pn);
 	}
 	// The chase again, last, once everything the dragon uses has certainly compiled.
 	FShot Late = Chase; Late.Name = TEXT("99_chase_late");
@@ -487,7 +496,8 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 	if (ADragonPlayerController* DPC = Cast<ADragonPlayerController>(PC))
 	{
 		DPC->bShowHud = S.bPanel;
-		DPC->SetPanelOpen(S.bPanel);
+		DPC->MenuPage = S.UiPage;
+		DPC->SetScreen(S.UiScreen, false);   // no pause: the shot still has to settle
 	}
 	bFired = false;
 	if (S.bDragonClose && Camera)

@@ -223,6 +223,9 @@ private:
 	float HitGrace = 0.f;
 	float SinceHit = 99.f;
 	float ScrapeTimer = 0.f;
+	/** Seconds into a plunge through the sea surface (0 = none). */
+	float PlungeT = 0.f;
+	float PlungeDepth = 0.f;
 
 	// Camera (web conventions; metres)
 	bool bCamInit = false;

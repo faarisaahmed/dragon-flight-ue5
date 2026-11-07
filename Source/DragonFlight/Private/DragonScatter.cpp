@@ -78,6 +78,21 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 			if (N.Contains(TEXT("_LOD")) && !N.Contains(TEXT("_LOD0"))) continue;
 			Filtered.Add(S);
 		}
+		// Trees are full-grown trees only (mostly the dense fir: a spruce wood, not a pine
+		// heath); the saplings are their own layer.
+		if (Kind == EDragonScatterKind::Tree || Kind == EDragonScatterKind::Sapling)
+		{
+			TArray<TSoftObjectPtr<UStaticMesh>> Kept;
+			for (const TSoftObjectPtr<UStaticMesh>& S : Filtered)
+			{
+				const FString N = S.GetAssetName().ToLower();
+				const bool bSapling = N.Contains(TEXT("sapling"));
+				if ((Kind == EDragonScatterKind::Sapling) != bSapling) continue;
+				Kept.Add(S);
+				if (Kind == EDragonScatterKind::Tree && N.Contains(TEXT("fir"))) { Kept.Add(S); Kept.Add(S); }   // 3 fir : 1 pine
+			}
+			if (Kept.Num()) Filtered = MoveTemp(Kept);
+		}
 		const TArray<TSoftObjectPtr<UStaticMesh>>* Meshes = &Filtered;
 		if (Meshes->Num() == 0) return;
 		FDragonScatterLayer L;
@@ -86,7 +101,7 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 		ScatterLayers.Add(L);
 	};
 	//   name        kind                          group          /ha    tile   radius  scale                 sink  align shadow collide seed
-	Add("Trees",    EDragonScatterKind::Tree,     "trees",       450.f, 256.f, 4500.f, FVector2D(0.9f, 1.6f), 0.4f, 0.f, true,  false, 11);
+	Add("Trees",    EDragonScatterKind::Tree,     "trees",       420.f, 256.f, 4500.f, FVector2D(1.05f, 1.85f), 0.4f, 0.f, true,  false, 11);
 	Add("Saplings", EDragonScatterKind::Sapling,  "trees",       40.f,  192.f, 2500.f, FVector2D(0.35f, 0.7f), 0.2f, 0.f, true,  false, 23);
 	Add("DeadWood", EDragonScatterKind::DeadWood, "deadwood",    8.f,   192.f, 1500.f, FVector2D(0.8f, 1.4f), 0.2f, 0.8f, true, false, 37);
 	// The Poly Haven cliff and rock scans are already life-size (cliff pieces 20-50 m), so
@@ -283,8 +298,9 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 			// lone trees on the lower slopes, as in the films' islands.
 			const double E = 18.0;
 			const float Lap = (GroundM(XM + E, YM) + GroundM(XM - E, YM) + GroundM(XM, YM + E) + GroundM(XM, YM - E) - 4.f * H) / (float)(E * E);
-			const float Grove = Smooth(Clump(XM, YM, 140.0, 5), 0.5f, 0.78f);
-			P = FMath::Max(P, Veg * (1.f - Volc) * (1.f - 0.6f * Moor) * (0.04f + 0.45f * Grove * (0.35f + Smooth(Lap, 0.0f, 0.01f))));
+			const float Grove = Smooth(Clump(XM, YM, 140.0, 5), 0.64f, 0.74f);   // tight stands with clear edges
+			// (lone trees are rare: a tree on open turf is a landmark, not a sprinkle)
+			P = FMath::Max(P, Veg * (1.f - Volc) * (1.f - 0.97f * Moor) * (0.004f + 0.75f * Grove * (0.35f + Smooth(Lap, 0.0f, 0.01f))));
 		}
 		P *= (1.f - Smooth(Slope, 0.46f, 0.88f)) * (1.f - Pad);
 		// Salt wind keeps the woods off the shore; they thin out and shrink toward the tree line.
@@ -293,7 +309,7 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 		break;
 	case EDragonScatterKind::Sapling:
 		if (H < 4.f) return false;
-		P = (Forest * (1.f - Forest) * 3.f + Veg * (1.f - Forest) * 0.12f) * (1.f - Smooth(Slope, 0.5f, 0.85f)) * (1.f - Pad);
+		P = (Forest * (1.f - Forest) * 3.f + Veg * (1.f - Forest) * 0.02f) * (1.f - Smooth(Slope, 0.5f, 0.85f)) * (1.f - Pad) * (1.f - 0.8f * Moor);
 		P *= (1.f - Smooth(H, TreeLine * 0.85f, TreeLine * 1.1f)) * (1.f - Cold);
 		break;
 	case EDragonScatterKind::DeadWood:

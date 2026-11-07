@@ -100,27 +100,79 @@ APawn* ADragonGameMode::SpawnDefaultPawnFor_Implementation(AController* NewPlaye
 ADragonPlayerController::ADragonPlayerController()
 {
 	bShowMouseCursor = false;
+	// The menu and the chart pause the game; the controller must still read keys under them.
+	SetTickableWhenPaused(true);
+	bShouldPerformFullTickWhenPaused = true;
 }
 
-void ADragonPlayerController::SetPanelOpen(bool bOpen)
+void ADragonPlayerController::SetScreen(int32 NewScreen, bool bPause)
 {
+	Screen = NewScreen;
+	const bool bOpen = Screen != 0;
 	bPanelOpen = bOpen;
 	bShowMouseCursor = bOpen;
 	bEnableClickEvents = bOpen;
+	UGameplayStatics::SetGamePaused(this, bOpen && bPause);
 	if (bOpen)
 	{
 		FInputModeGameAndUI Mode;
 		Mode.SetHideCursorDuringCapture(false);
 		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::LockAlways);
 		SetInputMode(Mode);
-		// Start the cursor over the panel.
 		int32 SX = 0, SY = 0; GetViewportSize(SX, SY);
-		SetMouseLocation(SX - 200, 140);
+		SetMouseLocation(SX / 2, SY / 2);
 	}
 	else
 	{
 		SetInputMode(FInputModeGameOnly());
 	}
+}
+
+namespace { const TCHAR* ControlsSection = TEXT("/Script/DragonFlight.DragonControls"); }
+
+float ADragonPlayerController::GetMouseScale()
+{
+	float V = 1.f;
+	if (GConfig) GConfig->GetFloat(ControlsSection, TEXT("MouseScale"), V, GGameUserSettingsIni);
+	return FMath::Clamp(V, 0.25f, 3.f);
+}
+
+bool ADragonPlayerController::GetInvertY()
+{
+	bool B = false;
+	if (GConfig) GConfig->GetBool(ControlsSection, TEXT("InvertY"), B, GGameUserSettingsIni);
+	return B;
+}
+
+void ADragonPlayerController::SetMouseScale(float Scale)
+{
+	if (!GConfig) return;
+	GConfig->SetFloat(ControlsSection, TEXT("MouseScale"), FMath::Clamp(Scale, 0.25f, 3.f), GGameUserSettingsIni);
+	GConfig->Flush(false, GGameUserSettingsIni);
+	ApplyControls();
+}
+
+void ADragonPlayerController::SetInvertY(bool bInvert)
+{
+	if (!GConfig) return;
+	GConfig->SetBool(ControlsSection, TEXT("InvertY"), bInvert, GGameUserSettingsIni);
+	GConfig->Flush(false, GGameUserSettingsIni);
+	ApplyControls();
+}
+
+void ADragonPlayerController::ApplyControls()
+{
+	if (ADragonPawn* P = Cast<ADragonPawn>(GetPawn()))
+	{
+		P->MouseSensitivity = 0.0035f * GetMouseScale();
+		P->bInvertY = GetInvertY();
+	}
+}
+
+void ADragonPlayerController::OnPossess(APawn* InPawn)
+{
+	Super::OnPossess(InPawn);
+	ApplyControls();
 }
 
 void ADragonPlayerController::PlayerTick(float DeltaTime)
@@ -149,9 +201,11 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 			if (++Reports == 3 && FParse::Param(FCommandLine::Get(), TEXT("PerfProfile"))) ConsoleCommand(TEXT("ProfileGPU"));
 		}
 	}
-	if (WasInputKeyJustPressed(EKeys::Tab) || WasInputKeyJustPressed(EKeys::T)) SetPanelOpen(!bPanelOpen);
-	if (bPanelOpen && WasInputKeyJustPressed(EKeys::Escape)) SetPanelOpen(false);
-	if (WasInputKeyJustPressed(EKeys::Slash) || WasInputKeyJustPressed(EKeys::F1)) bShowHelp = !bShowHelp;
+	// Esc: menu (or back to the game from anything); Tab / M: the chart; T: weather & time; F1: controls.
+	if (WasInputKeyJustPressed(EKeys::Escape)) SetScreen(Screen == 0 ? 1 : 0);
+	if (WasInputKeyJustPressed(EKeys::Tab) || WasInputKeyJustPressed(EKeys::M)) SetScreen(Screen == 2 ? 0 : 2);
+	if (WasInputKeyJustPressed(EKeys::T)) { if (Screen == 1 && MenuPage == 1) SetScreen(0); else { MenuPage = 1; SetScreen(1); } }
+	if (WasInputKeyJustPressed(EKeys::Slash) || WasInputKeyJustPressed(EKeys::F1)) { if (Screen == 1 && MenuPage == 2) SetScreen(0); else { MenuPage = 2; SetScreen(1); } }
 	if (WasInputKeyJustPressed(EKeys::F2))
 	{
 		if (UGameUserSettings* S = GEngine->GetGameUserSettings()) Quality((S->GetOverallScalabilityLevel() + 1) % 5);

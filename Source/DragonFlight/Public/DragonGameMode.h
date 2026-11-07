@@ -47,9 +47,24 @@ public:
 	UFUNCTION(Exec) void Weather(int32 Preset);
 	UFUNCTION(Exec) void GoTo(const FString& IslandName);
 
-	bool bShowHelp = true;
+	bool bShowHelp = false;
 	bool bShowHud = true;
-	/** The weather & time panel (top right) has the mouse. Tab toggles it. */
+	/** A screen over the game has the mouse (menu or chart); the game is paused under it. */
 	bool bPanelOpen = false;
-	void SetPanelOpen(bool bOpen);
+	void SetPanelOpen(bool bOpen) { SetScreen(bOpen ? 1 : 0); }
+
+	/** 0 = flying, 1 = menu (Esc), 2 = chart (Tab / M). */
+	int32 Screen = 0;
+	/** Menu page: 0 Settings, 1 Weather & time, 2 Controls. */
+	int32 MenuPage = 0;
+	void SetScreen(int32 NewScreen, bool bPause = true);
+
+	/** Saved controls: mouse sensitivity as a multiple of the default (0.25..3), invert Y. */
+	static float GetMouseScale();
+	static bool GetInvertY();
+	void SetMouseScale(float Scale);
+	void SetInvertY(bool bInvert);
+	void ApplyControls();
+
+	virtual void OnPossess(APawn* InPawn) override;
 };

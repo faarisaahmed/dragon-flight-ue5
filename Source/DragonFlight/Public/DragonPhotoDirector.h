@@ -45,7 +45,9 @@ private:
 		bool bPlasma = false;        // fire a bolt at Target, timed to burst just before the shot
 		float PlasmaLead = 0.35f;    // seconds between the burst and the shot (negative: mid-flight)
 		FVector Target = FVector::ZeroVector;
-		bool bPanel = false;         // show the HUD with the weather panel open
+		bool bPanel = false;         // show the HUD
+		int32 UiScreen = 0;          // with a screen over it: 1 menu, 2 chart
+		int32 UiPage = 0;            // menu page
 		bool bPose = false;          // chase shot: put the dragon at PoseM (m) facing PoseYaw first
 		FVector PoseM = FVector::ZeroVector;
 		float PoseYaw = 0.f;

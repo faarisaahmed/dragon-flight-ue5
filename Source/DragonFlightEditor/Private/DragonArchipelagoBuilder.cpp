@@ -660,7 +660,9 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialExpressionTextureSampleParameter2D* A = TexParam(M, TEXT("ARM"), nullptr, SAMPLERTYPE_Masks, -700, 200);
 		UMaterialExpressionTextureSampleParameter2D* O = TexParam(M, TEXT("Opacity"), nullptr, SAMPLERTYPE_LinearGrayscale, -700, 450);
 		UMaterialExpressionVectorParameter* Tint = Expr<UMaterialExpressionVectorParameter>(M, -700, -500);
-		Tint->ParameterName = TEXT("Tint"); Tint->DefaultValue = FLinearColor(0.9f, 0.95f, 0.85f);
+		// (default = the trees: the scanned conifers are studio-bright; a northern spruce wood is a
+		// deep blue-black green from the air. Ground plants set their own tint.)
+		Tint->ParameterName = TEXT("Tint"); Tint->DefaultValue = FLinearColor(0.50f, 0.62f, 0.50f);
 		UMaterialExpressionMultiply* Mul = Expr<UMaterialExpressionMultiply>(M, -350, -350);
 		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), Mul, TEXT("A"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Tint, TEXT(""), Mul, TEXT("B"));
@@ -689,7 +691,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		// Light through the leaves.
 		UMaterialExpressionMultiply* SSS = Expr<UMaterialExpressionMultiply>(M, -350, -150);
 		UMaterialExpressionConstant* K = Expr<UMaterialExpressionConstant>(M, -500, -150);
-		K->R = 0.6f;
+		K->R = 0.3f;   // conifer needles pass little light: more made them glow yellow against the sun
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Mul, TEXT(""), SSS, TEXT("A"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(K, TEXT(""), SSS, TEXT("B"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(SSS, TEXT(""), MP_SubsurfaceColor);
