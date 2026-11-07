@@ -171,6 +171,10 @@ private:
 	/** Rain streaks: two open tubes around the camera (no caps to see from inside), near and far. */
 	UPROPERTY(Transient) TObjectPtr<class UProceduralMeshComponent> RainTubes;
 	void BuildRainTubes();
+	FVector PrevCamPos = FVector::ZeroVector;
+	FVector RainAxis = FVector::UpVector;      // smoothed: the way the streaks lean (wind and our own speed)
+	float Wetness = 0.f;                        // how rained-on the ground is (MPC_Weather)
+	UPROPERTY(Transient) TObjectPtr<class UMaterialParameterCollection> WeatherMPC;
 	float BoltTimer = 8.f;
 	float BoltFlash = 1.f;
 	/** Thunder on its way: seconds to go, distance (cm). */

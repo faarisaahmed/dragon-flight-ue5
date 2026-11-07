@@ -3,6 +3,7 @@
 #include "DragonReport.h"
 #include "DragonVillage.h"
 #include "DragonVents.h"
+#include "DragonSurfSpray.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
 #include "HAL/PlatformTime.h"
@@ -36,6 +37,7 @@ void ADragonGameMode::StartPlay()
 	{
 		FActorSpawnParameters SP; SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		W->SpawnActor<ADragonVents>(ADragonVents::StaticClass(), FTransform::Identity, SP);
+		W->SpawnActor<ADragonSurfSpray>(ADragonSurfSpray::StaticClass(), FTransform::Identity, SP);
 	}
 	Super::StartPlay();
 

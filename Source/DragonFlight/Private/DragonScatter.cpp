@@ -27,6 +27,22 @@ namespace
 		return T * T * (3.f - 2.f * T);
 	}
 
+	/** Smooth value noise in [0,1] on a grid of CellM metres: clumps, groves, boulder fields. */
+	float Clump(double XM, double YM, double CellM, uint32 Seed)
+	{
+		const double U = XM / CellM, V = YM / CellM;
+		const int64 X0 = (int64)FMath::FloorToDouble(U), Y0 = (int64)FMath::FloorToDouble(V);
+		auto Hv = [Seed](int64 X, int64 Y)
+		{
+			uint32 h = (uint32)(X * 73856093) ^ (uint32)(Y * 19349663) ^ (Seed * 83492791u);
+			h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+			return (h & 0xFFFF) / 65535.f;
+		};
+		float TX = (float)(U - X0), TY = (float)(V - Y0);
+		TX = TX * TX * (3.f - 2.f * TX); TY = TY * TY * (3.f - 2.f * TY);
+		return FMath::Lerp(FMath::Lerp(Hv(X0, Y0), Hv(X0 + 1, Y0), TX), FMath::Lerp(Hv(X0, Y0 + 1), Hv(X0 + 1, Y0 + 1), TX), TY);
+	}
+
 	/** Small deterministic hash -> [0,1). Same tile, same trees, every visit. */
 	struct FTileRand
 	{
@@ -70,17 +86,28 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 		ScatterLayers.Add(L);
 	};
 	//   name        kind                          group          /ha    tile   radius  scale                 sink  align shadow collide seed
-	Add("Trees",    EDragonScatterKind::Tree,     "trees",       140.f, 256.f, 6000.f, FVector2D(0.8f, 1.5f), 0.4f, 0.f, true,  false, 11);
+	Add("Trees",    EDragonScatterKind::Tree,     "trees",       320.f, 256.f, 6000.f, FVector2D(0.8f, 1.5f), 0.4f, 0.f, true,  false, 11);
 	Add("Saplings", EDragonScatterKind::Sapling,  "trees",       40.f,  192.f, 2500.f, FVector2D(0.35f, 0.7f), 0.2f, 0.f, true,  false, 23);
 	Add("DeadWood", EDragonScatterKind::DeadWood, "deadwood",    8.f,   192.f, 1500.f, FVector2D(0.8f, 1.4f), 0.2f, 0.8f, true, false, 37);
 	// The Poly Haven cliff and rock scans are already life-size (cliff pieces 20-50 m), so
 	// they are scattered near 1:1 and sparsely; the terrain is the landform, they are detail.
-	Add("Rocks",    EDragonScatterKind::Rock,     "rocks",       12.f,  256.f, 5000.f, FVector2D(0.6f, 1.6f), 0.4f, 0.7f, true,  true,  41);
+	Add("Rocks",    EDragonScatterKind::Rock,     "rocks",       90.f,  256.f, 5000.f, FVector2D(0.9f, 2.2f), 0.4f, 0.7f, true,  true,  41);
+	// Stones in the grass at your feet (the same scans, small).
+	Add("Stones",   EDragonScatterKind::Stone,    "rocks",       160.f, 64.f,  450.f,  FVector2D(0.12f, 0.4f), 0.1f, 0.8f, true,  false, 43);
 	// Cliff pieces stand upright and are set into steep faces as a skin of real rock
 	// (the 5.5 m landscape grid can only round a sea cliff off); see BuildTile.
 	Add("Cliffs",   EDragonScatterKind::Cliff,    "cliffs",      0.6f,  512.f, 12000.f, FVector2D(0.7f, 1.4f), 4.0f, 0.15f, true, true,  53);
 	// Turf itself is the landscape grass system's job now; this adds the odd bigger shrub.
-	Add("Ground",   EDragonScatterKind::Ground,   "ground",      500.f, 32.f, 160.f,  FVector2D(0.7f, 1.3f), 0.05f, 0.6f, false, false, 67);
+	Add("Ground",   EDragonScatterKind::Ground,   "ground",      500.f, 32.f, 350.f,  FVector2D(0.7f, 1.3f), 0.05f, 0.6f, false, false, 67);
+	// Juniper, heather and bracken clumps big enough to read from flying height.
+	Add("Shrubs",   EDragonScatterKind::Shrub,    "ground",      60.f,  128.f, 1400.f, FVector2D(1.3f, 2.6f), 0.1f, 0.5f, true,  false, 71);
+	for (FDragonScatterLayer& L : ScatterLayers)
+	{
+		if (L.Kind == EDragonScatterKind::Shrub)
+			L.Meshes.RemoveAll([](const TSoftObjectPtr<UStaticMesh>& S) { const FString N = S.GetAssetName(); return !(N.Contains(TEXT("shrub")) || N.Contains(TEXT("fern"))); });
+		if (L.Kind == EDragonScatterKind::Stone)
+			L.Meshes.RemoveAll([](const TSoftObjectPtr<UStaticMesh>& S) { return S.GetAssetName().Contains(TEXT("coast")); });
+	}
 }
 
 void ADragonScatter::BeginPlay()
@@ -245,13 +272,23 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 	const float Snowy = Smooth(H, SnowM - 30.f, SnowM + 40.f);
 	OutScale = 1.f;
 	float P = 0.f;
+	float Field = 0.f;   // boulder-field strength (rocks)
 	switch (L.Kind)
 	{
 	case EDragonScatterKind::Tree:
 		if (H < 3.f) return false;
-		P = FMath::Pow(Forest, 1.1f) * (1.f - Smooth(Slope, 0.46f, 0.88f)) * (1.f - Pad);
+		P = FMath::Pow(Forest, 1.1f);
+		{
+			// Beyond the woodland isles: groves of pine in the sheltered hollows and gullies, and
+			// lone trees on the lower slopes, as in the films' islands.
+			const double E = 18.0;
+			const float Lap = (GroundM(XM + E, YM) + GroundM(XM - E, YM) + GroundM(XM, YM + E) + GroundM(XM, YM - E) - 4.f * H) / (float)(E * E);
+			const float Grove = Smooth(Clump(XM, YM, 140.0, 5), 0.5f, 0.78f);
+			P = FMath::Max(P, Veg * (1.f - Volc) * (1.f - 0.6f * Moor) * (0.04f + 0.45f * Grove * (0.35f + Smooth(Lap, 0.0f, 0.01f))));
+		}
+		P *= (1.f - Smooth(Slope, 0.46f, 0.88f)) * (1.f - Pad);
 		// Salt wind keeps the woods off the shore; they thin out and shrink toward the tree line.
-		P *= Smooth(H, 4.f, 25.f) * (1.f - Smooth(H, TreeLine * 0.75f, TreeLine)) * (1.f - Cold) * (1.f - Cold);
+		P *= Smooth(H, 4.f, 16.f) * (1.f - Smooth(H, TreeLine * 0.75f, TreeLine)) * (1.f - Cold) * (1.f - Cold);
 		OutScale = FMath::Lerp(0.6f, 1.f, Smooth(Forest, 0.1f, 0.6f)) * (1.f - 0.4f * Smooth(H, TreeLine * 0.5f, TreeLine));
 		break;
 	case EDragonScatterKind::Sapling:
@@ -279,14 +316,32 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 			P += 0.35f * Smooth(-Lap, 0.004f, 0.02f);
 		}
 		P += Volc * 0.3f * Smooth(H, 2.f, 10.f);                     // lava boulders on the young isles
+		// Glacial erratics and frost-heaved boulders lie all over the turf, thick in some fields
+		// and few in others.
+		if (H > 3.f && Slope < 0.7f)
+		{
+			Field = Smooth(Clump(XM, YM, 90.0, 17), 0.45f, 0.85f);
+			P += (0.06f + 0.4f * Field) * (1.f - Snowy * 0.5f);
+		}
 		P *= 1.f - Forest * 0.6f;
-		OutScale = 1.f + 0.4f * Smooth(Slope, 0.5f, 0.9f);
+		// boulder fields hold the big ones: erratics the size of a cottage among the small
+		OutScale = (1.f + 0.4f * Smooth(Slope, 0.5f, 0.9f)) * (1.f + 1.6f * Field * FMath::Square(FMath::Frac(Rand * 7.31f)) + 0.6f * Field);
 		break;
 	case EDragonScatterKind::Cliff:
 		if (H < -2.f) return false;
 		// Rock faces only on the sheer ground: sea cliffs and crags.
 		P = Smooth(Slope, 0.72f, 0.95f);
 		OutScale = 1.f + 0.5f * Smooth(Slope, 0.75f, 0.98f);   // the sheerest faces get the biggest pieces
+		break;
+	case EDragonScatterKind::Stone:
+		if (H < 1.f) return false;
+		P = (0.12f + 0.6f * Smooth(Clump(XM, YM, 40.0, 19), 0.4f, 0.85f) + 0.4f * Smooth(Slope, 0.25f, 0.6f)) * (1.f - Smooth(Slope, 0.8f, 0.95f)) * (1.f - Pad * 0.5f);
+		break;
+	case EDragonScatterKind::Shrub:
+		if (H < 2.f) return false;
+		// Clumped: dense in patches, open turf between. Heather on the moors, few in the cold.
+		P = Veg * (0.08f + 0.6f * Smooth(Clump(XM, YM, 60.0, 29), 0.45f, 0.82f)) * (1.f + 0.6f * Moor) * (1.f - Smooth(Slope, 0.55f, 0.8f))
+			* (1.f - Pad) * (1.f - Snowy) * (1.f - 0.7f * Volc) * (1.f - 0.7f * Cold) * (1.f - 0.5f * Forest);
 		break;
 	case EDragonScatterKind::Ground:
 		if (H < 1.5f) return false;
@@ -453,7 +508,7 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 				// Inland: set a third to a half of the stone into the ground, so it is bedrock
 				// showing through, not something dropped on the grass.
 				const FBoxSphereBounds B = Meshes[MeshIdx]->GetBounds();
-				Pos.Z -= B.BoxExtent.Z * 2.0 * Scale * (0.3 + 0.2 * Rng.Next());
+				Pos.Z -= B.BoxExtent.Z * 2.0 * Scale * (0.15 + 0.2 * Rng.Next());
 			}
 			if (L.Kind == EDragonScatterKind::Iceberg)
 			{

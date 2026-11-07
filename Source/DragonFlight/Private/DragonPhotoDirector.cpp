@@ -349,6 +349,22 @@ void ADragonPhotoDirector::PlanShots()
 			T.Z = W->HeightAt(T.X, T.Y) + 800.0;
 			Fi.Target = T;
 			Shots.Add(Fi);
+			// Low over the island itself: turf, rocks, shrubs and trees from the player's height.
+			{
+				FShot Ov = Fl; Ov.Name = FString::Printf(TEXT("32_over_%s_%s"), *Kind[k], *Nm);
+				const FVector In = Coast - D * 45000.0;
+				Ov.PoseM = FVector(In.X, In.Y, FMath::Max(0.0, W->HeightAt(In.X, In.Y)) + 4500.0) / 100.0;
+				Ov.PoseYaw = (-D).Rotation().Yaw + 35.f;
+				Shots.Add(Ov);
+			}
+			if (k == 0)
+			{
+				// The same coast in rain, and in a storm, from the player's seat.
+				FShot Rn = Fl; Rn.Name = FString::Printf(TEXT("33_rain_%s"), *Nm); Rn.Weather = (uint8)EDragonWeather::Rain;
+				Shots.Add(Rn);
+				FShot Sm = Fi; Sm.Name = FString::Printf(TEXT("33b_storm_%s"), *Nm); Sm.Weather = (uint8)EDragonWeather::Storm; Sm.bDragonFires = false;
+				Shots.Add(Sm);
+			}
 			if (k < 2)
 			{
 				FShot Fa = Fi; Fa.Name = FString::Printf(TEXT("31c_after_%s_%s"), *Kind[k], *Nm); Fa.PlasmaLead = 1.0f;   // fire and smoke a second on

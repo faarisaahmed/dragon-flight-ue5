@@ -5,7 +5,7 @@
 // above the snow line and on the glaciers), redone with 4K scanned PBR
 // textures, triplanar cliffs, distance-blended tiling and a far-field layer.
 //
-// Inputs (see the builder): P (abs world pos, cm), Nv (vertex normal, world),
+// Inputs (see the builder): P (abs world pos, cm), Nv (vertex normal, world), Wet (MPC_Weather, 0..1),
 // Cam (camera pos, cm), WS (world size, m), SnowLine (m), and texture objects
 // <Layer>D / <Layer>N / <Layer>A for Cliff Scree Grass Heath Forest Sand
 // Shingle Snow Mud, plus FarRockD FarGrassD FarSnowD, MaskA, MaskB, MaskC (biomes), FlowMask.
@@ -38,6 +38,18 @@ float alpine = min(300.0, snowL * 0.7);
 float wCliff  = smoothstep(0.62, 0.92, slope + nz2 * 0.08);
 float wScree  = saturate(smoothstep(0.42, 0.64, slope + nz2 * 0.06) + smoothstep(alpine, alpine + 90.0, h + nz * 40.0)) * (1.0 - wCliff);
 float wSnow   = saturate(smoothstep(snowL - 40.0, snowL + 60.0, h + nz * 70.0) * (1.0 - smoothstep(0.62, 0.9, slope)) + mk.b * 1.2 + mk2.g);
+// Bedrock breaking through the turf, as all over the Faroes and western Norway: patches of
+// bare rock a few to tens of metres across, most on knolls, edges and slopes over ~15 deg.
+{
+	float rk = Texture2DSample(FarRockD, FarRockDSampler, pm.xy / 67.0 + 0.31).r;
+	float rk2 = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 19.0 + 0.7).g;
+	float outcrop = smoothstep(0.60, 0.74, rk * 0.75 + rk2 * 0.25 + nz2 * 0.18 + smoothstep(0.04, 0.40, slope) * 0.30 - 0.10);
+	outcrop *= smoothstep(4.0, 12.0, h) * (1.0 - wCliff);
+	wCliff = max(wCliff, outcrop * 0.92);
+	wScree = max(wScree, smoothstep(0.55, 0.66, rk * 0.75 + rk2 * 0.25 + nz2 * 0.18 + slope * 0.3 - 0.12) * (1.0 - outcrop) * smoothstep(4.0, 12.0, h) * 0.6);
+}
+// Snow lying on in drifts and hollows through the arctic summer, below the snow line too.
+wSnow = max(wSnow, cold * cold * smoothstep(0.62, 0.8, nz * 0.6 + nz2 * 0.45 + 0.3) * (1.0 - smoothstep(0.45, 0.7, slope)) * smoothstep(3.0, 15.0, h));
 float beach   = (1.0 - smoothstep(2.5, 7.5, h + nz * 2.5)) * (1.0 - smoothstep(0.30, 0.55, slope));
 float wSand   = beach * saturate(0.55 + nz2 * 1.2);
 float wShingle= beach * (1.0 - saturate(0.55 + nz2 * 1.2));
@@ -80,11 +92,14 @@ TOPLAYER(Scree,   6.0, wScree,   lerp(float3(0.72, 0.72, 0.74), float3(0.22, 0.2
 // bracken (browner) and greener flushes along the gullies; tundra browns in the cold north.
 float patchy = saturate(0.5 + nz * 0.9);
 float3 turf = lerp(float3(0.30, 0.62, 0.22), float3(0.42, 0.62, 0.27), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
+// on the steep ledges and cliff tops the turf is wet, short and dark, not sunlit lawn
+turf *= lerp(float3(1.0, 1.0, 1.0), float3(0.62, 0.72, 0.62), smoothstep(0.30, 0.62, slope));
 // (volcanic isles: the woolly fringe-moss of Iceland's lava fields, yellow-green)
-TOPLAYER(Grass,   3.0, wGrass,   lerp(lerp(turf, float3(0.58, 0.56, 0.42), cold), float3(0.50, 0.58, 0.30), bio.g) * (0.88 + 0.16 * nz), 1.0)
+float rush = 0.78 + 0.34 * Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 37.0 + 0.53).g;   // rushes and tussocks: darker patches
+TOPLAYER(Grass,   3.0, wGrass,   rush * lerp(lerp(turf, float3(0.44, 0.48, 0.36), cold), float3(0.50, 0.58, 0.30), bio.g) * (0.88 + 0.16 * nz), 1.0)
 // (moorland: heather, purple-brown, in drifts)
-TOPLAYER(Heath,   4.0, wHeath,   lerp(lerp(lerp(float3(0.58, 0.60, 0.40), float3(0.62, 0.50, 0.46), saturate(nz2 + 0.3)), float3(0.62, 0.55, 0.46), cold), lerp(float3(0.50, 0.38, 0.40), float3(0.42, 0.40, 0.30), saturate(nz * 0.8 + 0.4)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
-TOPLAYER(Forest,  4.0, wForest,  float3(0.62, 0.62, 0.56), 1.0)
+TOPLAYER(Heath,   4.0, wHeath,   lerp(lerp(lerp(float3(0.58, 0.60, 0.40), float3(0.62, 0.50, 0.46), saturate(nz2 + 0.3)), float3(0.50, 0.47, 0.40), cold), lerp(float3(0.36, 0.26, 0.28), float3(0.30, 0.32, 0.20), saturate(nz * 0.8 + 0.4)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
+TOPLAYER(Forest,  4.0, wForest,  float3(0.36, 0.38, 0.27), 1.0)   // shaded needle litter and moss under the pines
 TOPLAYER(Sand,    5.0, wSand,    lerp(float3(0.42, 0.42, 0.44), float3(0.10, 0.10, 0.11), bio.g), 1.0)   // black sand on the volcanic isles
 TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0)
 TOPLAYER(Snow,    6.0, wSnow,    float3(1.22, 1.24, 1.28), 0.75)
@@ -175,6 +190,17 @@ R *= 1.0 - wet * 0.35;
 float splash = (1.0 - smoothstep(0.5, 3.5, h + nz2 * 0.8)) * step(-2.0, h);
 C *= 1.0 - splash * 0.45;
 R = lerp(R, R * 0.35, splash);
+// Rain: the ground goes dark and shines; water stands in the flat hollows.
+{
+	float wetR = Wet * (1.0 - sn);
+	C *= lerp(1.0, 0.62, wetR);
+	R = lerp(R, R * 0.5, wetR);
+	float pud = wetR * smoothstep(0.62, 0.8, nz * 0.4 + flow * 0.6 + 0.2) * (1.0 - smoothstep(0.03, 0.10, slope));
+	C *= 1.0 - pud * 0.3; R = lerp(R, 0.06, pud); Nw = lerp(Nw, float3(0, 0, 1), pud * 0.8);
+}
+// The sea floor: kelp, wrack and dark wet rock, not pale sand showing through clear water.
+float sub = smoothstep(0.2, -1.8, h + nz2 * 0.5);
+C = lerp(C, float3(0.045, 0.052, 0.035) * (0.75 + 0.5 * nz2), sub * 0.85);
 NormalWS = normalize(Nw + N * 0.001);
 Rough = saturate(R);
 AmbOcc = saturate(AO);

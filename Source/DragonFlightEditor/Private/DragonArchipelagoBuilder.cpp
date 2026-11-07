@@ -40,6 +40,9 @@
 #include "Materials/MaterialExpressionCameraVectorWS.h"
 #include "Materials/MaterialExpressionDepthFade.h"
 #include "Materials/MaterialExpressionEyeAdaptationInverse.h"
+#include "Materials/MaterialParameterCollection.h"
+#include "Materials/MaterialExpressionCollectionParameter.h"
+#include "Factories/MaterialParameterCollectionFactoryNew.h"
 #include "Engine/Texture2D.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
@@ -137,6 +140,30 @@ namespace
 	T* Expr(UMaterial* M, int32 X, int32 Y)
 	{
 		return Cast<T>(UMaterialEditingLibrary::CreateMaterialExpression(M, T::StaticClass(), X, Y));
+	}
+
+	/** MPC_Weather: what the sky tells every material (Wetness 0..1: how rained-on the world is). */
+	UMaterialParameterCollection* WeatherMPC()
+	{
+		UMaterialParameterCollection* C = CreateOrLoad<UMaterialParameterCollection, UMaterialParameterCollectionFactoryNew>(MatRoot, TEXT("MPC_Weather"), [](UMaterialParameterCollectionFactoryNew*) {});
+		if (C && !C->ScalarParameters.ContainsByPredicate([](const FCollectionScalarParameter& P) { return P.ParameterName == TEXT("Wetness"); }))
+		{
+			FCollectionScalarParameter P; P.ParameterName = TEXT("Wetness"); P.DefaultValue = 0.f;
+			C->ScalarParameters.Add(P);
+			C->PostEditChange();
+			UEditorAssetLibrary::SaveLoadedAsset(C, false);
+		}
+		return C;
+	}
+
+	/** A node reading MPC_Weather.Wetness. */
+	UMaterialExpressionCollectionParameter* WetnessNode(UMaterial* M, int32 X, int32 Y)
+	{
+		UMaterialExpressionCollectionParameter* E = Expr<UMaterialExpressionCollectionParameter>(M, X, Y);
+		E->Collection = WeatherMPC();
+		E->ParameterName = TEXT("Wetness");
+		if (E->Collection) E->ParameterId = E->Collection->GetParameterId(TEXT("Wetness"));
+		return E;
 	}
 
 	/**
@@ -386,7 +413,7 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 	Cu->Inputs.Reset();
 	Cu->AdditionalOutputs.Reset();
 	auto AddIn = [&](const TCHAR* Name) { FCustomInput I; I.InputName = Name; Cu->Inputs.Add(I); };
-	AddIn(TEXT("P")); AddIn(TEXT("Nv")); AddIn(TEXT("Cam")); AddIn(TEXT("WS")); AddIn(TEXT("SnowLine"));
+	AddIn(TEXT("P")); AddIn(TEXT("Nv")); AddIn(TEXT("Cam")); AddIn(TEXT("WS")); AddIn(TEXT("SnowLine")); AddIn(TEXT("Wet"));
 	AddIn(TEXT("MaskA")); AddIn(TEXT("MaskB")); AddIn(TEXT("MaskC")); AddIn(TEXT("FlowMask"));
 	for (const TCHAR* L : GroundLayers) { AddIn(*FString::Printf(TEXT("%sD"), L)); AddIn(*FString::Printf(TEXT("%sN"), L)); AddIn(*FString::Printf(TEXT("%sA"), L)); }
 	for (const TCHAR* L : FarLayers) AddIn(*FString::Printf(TEXT("%sD"), L));
@@ -408,6 +435,7 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 	UMaterialEditingLibrary::ConnectMaterialExpressions(VN, TEXT(""), Cu, TEXT("Nv"));
 	UMaterialExpressionCameraPositionWS* CP = Expr<UMaterialExpressionCameraPositionWS>(M, -1000, Y + 160);
 	UMaterialEditingLibrary::ConnectMaterialExpressions(CP, TEXT(""), Cu, TEXT("Cam"));
+	UMaterialEditingLibrary::ConnectMaterialExpressions(WetnessNode(M, -1000, Y - 80), TEXT(""), Cu, TEXT("Wet"));
 
 	double SizeM = 45000.0, Snow = 480.0;
 	if (TSharedPtr<FJsonObject> J = LoadWorldJson())
@@ -533,6 +561,20 @@ UMaterial* FDragonArchipelagoBuilder::CreateLandscapeMaterial()
 
 void FDragonArchipelagoBuilder::CreateMasterMaterials()
 {
+	// The coastline distance field the sea's surf is laid out by (Tools/WorldBake/coast.py).
+	{
+		const FString CFile = BakeDir() / TEXT("Coast_8192.png");
+		if (IFileManager::Get().FileExists(*CFile))
+			if (UTexture2D* CT = ImportTexture(CFile, TEXT("/Game/World/Data"), TEXT("T_Coast"), false, true))
+			{
+				CT->CompressionSettings = TC_Grayscale; CT->SRGB = false; CT->Filter = TF_Bilinear;
+				CT->AddressX = TA_Clamp; CT->AddressY = TA_Clamp;
+				CT->NeverStream = true;
+				CT->PostEditChange();
+				UEditorAssetLibrary::SaveLoadedAsset(CT, false);
+			}
+	}
+
 	// --- M_Surface: opaque PBR for rocks, bark, deadwood -----------------------
 	if (UMaterial* M = NewMaterial(TEXT("M_Surface")))
 	{
@@ -561,7 +603,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Wea->Description = TEXT("Weathering");
 		Wea->OutputType = CMOT_Float3;
 		Wea->Inputs.Reset();
-		for (const TCHAR* In : { TEXT("C"), TEXT("Rgh"), TEXT("N"), TEXT("P"), TEXT("W"), TEXT("SnowLine") }) { FCustomInput I; I.InputName = In; Wea->Inputs.Add(I); }
+		for (const TCHAR* In : { TEXT("C"), TEXT("Rgh"), TEXT("N"), TEXT("P"), TEXT("W"), TEXT("SnowLine"), TEXT("Wet") }) { FCustomInput I; I.InputName = In; Wea->Inputs.Add(I); }
 		Wea->AdditionalOutputs.Reset();
 		{ FCustomOutput O; O.OutputName = TEXT("RoughOut"); O.OutputType = CMOT_Float1; Wea->AdditionalOutputs.Add(O); }
 		Wea->Code = TEXT(
@@ -573,14 +615,19 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float wob = 1800.0 * sin(p.x / 5200.0 + 0.7) + 900.0 * sin(p.x / 2100.0 + 2.1);\n"
 			"float cold = saturate((-p.y - 9000.0 + wob) / 9000.0); cold = cold * cold * (3.0 - 2.0 * cold);\n"
 			"float snowL = lerp(SnowLine, 40.0, cold);\n"
-			"float moss = W * smoothstep(0.35, 0.85, up + n * 0.25) * (1.0 - smoothstep(snowL * 0.7, snowL, p.z)) * smoothstep(1.0, 6.0, p.z);\n"
-			"float3 mossC = lerp(float3(0.10, 0.13, 0.05), float3(0.24, 0.24, 0.12), n);\n"
-			"float3 col = lerp(C * 0.85, mossC, moss * 0.85);\n"
+			"float moss = W * smoothstep(0.62, 0.95, up * 0.75 + n * 0.4) * (1.0 - smoothstep(snowL * 0.7, snowL, p.z)) * smoothstep(1.0, 6.0, p.z);\n"
+			"float3 mossC = lerp(float3(0.06, 0.08, 0.04), float3(0.12, 0.13, 0.08), n);\n"
+			"float3 col = lerp(C * 0.85, mossC, moss * 0.6);\n"
+			// pale crusts of lichen on the bare stone
+			"col = lerp(col, float3(0.46, 0.46, 0.41), W * (1.0 - moss) * 0.35 * smoothstep(0.55, 0.85, frac(n * 13.7)));\n"
 			"float snow = W * smoothstep(0.45, 0.8, up + n * 0.2) * smoothstep(snowL - 25.0, snowL + 30.0, p.z + n * 30.0);\n"
 			"col = lerp(col, float3(0.86, 0.88, 0.92), snow);\n"
 			// wet dark rock in the splash zone
 			"col *= lerp(1.0, 0.55, W * (1.0 - smoothstep(0.0, 4.0, p.z)));\n"
 			"RoughOut = lerp(lerp(Rgh, 0.95, moss), 0.6, snow) * lerp(1.0, 0.5, W * (1.0 - smoothstep(0.0, 4.0, p.z)));\n"
+			// rain: rock and bark go dark and glossy
+			"float wet = W * Wet * (1.0 - snow);\n"
+			"col *= lerp(1.0, 0.6, wet); RoughOut = lerp(RoughOut, RoughOut * 0.4, wet);\n"
 			"return col;\n");
 		Wea->RebuildOutputs();
 		Wea->PostEditChange();
@@ -590,6 +637,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialExpressions(WPs, TEXT(""), Wea, TEXT("P"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Wx, TEXT(""), Wea, TEXT("W"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(SL, TEXT(""), Wea, TEXT("SnowLine"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(WetnessNode(M, -600, -880), TEXT(""), Wea, TEXT("Wet"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Wea, TEXT(""), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(N, TEXT("RGB"), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("R"), MP_AmbientOcclusion);
@@ -620,7 +668,24 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialProperty(N, TEXT("RGB"), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("R"), MP_AmbientOcclusion);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("G"), MP_Roughness);
-		UMaterialEditingLibrary::ConnectMaterialProperty(O, TEXT("R"), MP_OpacityMask);
+		// Leaves must not thin away with distance: a mip averages the cut-out alpha below the clip
+		// and far trees go bare. Push the alpha up by how far down the mip chain we are.
+		{
+			UMaterialExpressionCustom* Cov = Expr<UMaterialExpressionCustom>(M, -350, 450);
+			Cov->Description = TEXT("Alpha coverage");
+			Cov->OutputType = CMOT_Float1;
+			Cov->Inputs.Reset();
+			for (const TCHAR* In : { TEXT("A"), TEXT("UV") }) { FCustomInput I; I.InputName = In; Cov->Inputs.Add(I); }
+			Cov->Code = TEXT(
+				"float2 dx = ddx(UV * 2048.0), dy = ddy(UV * 2048.0);\n"
+				"float mip = 0.5 * log2(max(max(dot(dx, dx), dot(dy, dy)), 1.0));\n"
+				"return saturate(A * (1.0 + 0.45 * mip));\n");
+			Cov->PostEditChange();
+			UMaterialExpressionTextureCoordinate* TC = Expr<UMaterialExpressionTextureCoordinate>(M, -700, 560);
+			UMaterialEditingLibrary::ConnectMaterialExpressions(O, TEXT("R"), Cov, TEXT("A"));
+			UMaterialEditingLibrary::ConnectMaterialExpressions(TC, TEXT(""), Cov, TEXT("UV"));
+			UMaterialEditingLibrary::ConnectMaterialProperty(Cov, TEXT(""), MP_OpacityMask);
+		}
 		// Light through the leaves.
 		UMaterialExpressionMultiply* SSS = Expr<UMaterialExpressionMultiply>(M, -350, -150);
 		UMaterialExpressionConstant* K = Expr<UMaterialExpressionConstant>(M, -500, -150);
@@ -802,9 +867,12 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		auto* FT = TexO(TEXT("FoamTex"), TEXT("/Water/Textures/Foam/T_WaterFlow_03_Foam_Tiled.T_WaterFlow_03_Foam_Tiled"), SAMPLERTYPE_Color, 290);
 		auto* HT = TexO(TEXT("Height"), TEXT("/Game/World/Data/T_Height.T_Height"), SAMPLERTYPE_LinearGrayscale, 380);
 		if (!HT->Texture) HT->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Game/World/Textures/Defaults/T_Default_Gray.T_Default_Gray"));
+		// Metres from the shoreline (Tools/WorldBake/coast.py): lays out the surf without the heightmap's texel steps.
+		auto* CT = TexO(TEXT("Coast"), TEXT("/Game/World/Data/T_Coast.T_Coast"), SAMPLERTYPE_LinearGrayscale, 420);
+		if (!CT->Texture) CT->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture"));
 		// North Atlantic shallows are a cold bottle green, not a tropical turquoise.
-		auto* ShallowS = Vec(TEXT("ScatterShallow"), bSea ? FLinearColor(0.006f, 0.018f, 0.015f) : FLinearColor(0.012f, 0.014f, 0.008f), 470);
-		auto* DeepS = Vec(TEXT("ScatterDeep"), bSea ? FLinearColor(0.003f, 0.010f, 0.014f) : FLinearColor(0.006f, 0.008f, 0.006f), 550);
+		auto* ShallowS = Vec(TEXT("ScatterShallow"), bSea ? FLinearColor(0.0035f, 0.010f, 0.009f) : FLinearColor(0.012f, 0.014f, 0.008f), 470);
+		auto* DeepS = Vec(TEXT("ScatterDeep"), bSea ? FLinearColor(0.0015f, 0.0050f, 0.0072f) : FLinearColor(0.006f, 0.008f, 0.006f), 550);
 		auto* Ab = Vec(TEXT("Absorption"), bSea ? FLinearColor(0.36f, 0.070f, 0.042f) : FLinearColor(0.50f, 0.22f, 0.20f), 630);
 
 		auto In = [](UMaterialExpressionCustom* C, std::initializer_list<const TCHAR*> Names) { C->Inputs.Reset(); for (const TCHAR* N : Names) { FCustomInput I; I.InputName = N; C->Inputs.Add(I); } };
@@ -813,7 +881,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialExpressionCustom* Disp = Expr<UMaterialExpressionCustom>(M, -600, -500);
 		Disp->Description = TEXT("Swell");
 		Disp->OutputType = CMOT_Float3;
-		In(Disp, { TEXT("P"), TEXT("O"), TEXT("T"), TEXT("Amp"), TEXT("Half"), TEXT("H"), TEXT("WS") });
+		In(Disp, { TEXT("P"), TEXT("O"), TEXT("T"), TEXT("Amp"), TEXT("Half"), TEXT("H"), TEXT("WS"), TEXT("C") });
 		Disp->Code = FString(GWaves) + TEXT(
 			"float3 p = P * 0.01; float2 o = O.xy * 0.01;\n"
 			"float r = max(abs(p.x - o.x), abs(p.y - o.y));\n"
@@ -822,7 +890,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			// the swell shoals and dies in the last few metres of depth
 			"float2 muv = p.xy / WS + 0.5;\n"
 			"float ground = (Texture2DSampleLevel(H, HSampler, muv, 0).r * 65535.0 - 32768.0) / 32.0;\n"
-			"if (all(muv > 0.0) && all(muv < 1.0)) fade *= saturate((-ground - 0.5) / 7.0);\n"
+			"if (all(muv > 0.0) && all(muv < 1.0)) fade *= saturate((-ground - 0.5) / 7.0) * saturate((Texture2DSampleLevel(C, CSampler, muv, 0).r * 127.5 - 24.0) / 6.0);\n"
 			"float3 off = 0;\n"
 			"for (int i = 0; i < 12; i++) {\n"
 			"  float2 d = Wv[i].xy; float L = Wv[i].z; float A = Wv[i].w * fade * GROUP(i, p.xy);\n"
@@ -838,6 +906,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Half, TEXT(""), Disp, TEXT("Half"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(HT, TEXT(""), Disp, TEXT("H"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(WS, TEXT(""), Disp, TEXT("WS"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(CT, TEXT(""), Disp, TEXT("C"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Disp, TEXT(""), MP_WorldPositionOffset);
 
 		// Surface: normal (swell + ripples), foam, scattering by depth.
@@ -845,7 +914,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Surf->Description = TEXT("Sea surface");
 		Surf->OutputType = CMOT_Float3;
 		In(Surf, { TEXT("P"), TEXT("O"), TEXT("Cam"), TEXT("T"), TEXT("Amp"), TEXT("Half"), TEXT("DS"), TEXT("FoamAmt"), TEXT("WS"),
-			TEXT("Tex"), TEXT("FoamT"), TEXT("H"), TEXT("SS"), TEXT("SD"), TEXT("UV"), TEXT("VC"), TEXT("Flow") });
+			TEXT("Tex"), TEXT("FoamT"), TEXT("H"), TEXT("SS"), TEXT("SD"), TEXT("UV"), TEXT("VC"), TEXT("Flow"), TEXT("Cst") });
 		Surf->AdditionalOutputs.Reset();
 		for (const TCHAR* N : { TEXT("FoamOut"), TEXT("Rough") }) { FCustomOutput O; O.OutputName = N; O.OutputType = CMOT_Float1; Surf->AdditionalOutputs.Add(O); }
 		{ FCustomOutput O; O.OutputName = TEXT("Scatter"); O.OutputType = CMOT_Float3; Surf->AdditionalOutputs.Add(O); }
@@ -888,29 +957,55 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float3 N = normalize(float3(n.xy / max(n.z, 0.2) + q * 0.32, 1.0));\n"
 			"float depth = max(0.0, hz - ground);\n"
 			"if (!inWorld) depth = 400.0;\n"
-			// foam: surf along the shore, breaking on the swell's crests
+			// ---- The shore, laid out by metres from the coastline (coast.py), not by depth ----
 			"float ft = Texture2DSample(FoamT, FoamTSampler, p.xy / 7.0 + T * float2(0.013, 0.009)).r;\n"
 			"float ft2 = Texture2DSample(FoamT, FoamTSampler, p.xy / 23.0 - T * float2(0.006, 0.011)).r;\n"
-			"float shore = saturate(1.0 - depth / 4.0);\n"
-			"float surge = 0.6 + 0.4 * sin(T * 0.9 + dot(p.xy, float2(0.05, 0.03)));\n"
-			"float surf = saturate(shore * shore * 1.6 * surge) * smoothstep(0.30, 0.65, ft * 0.7 + ft2 * 0.5 + shore * 0.35);\n"
-			// breakers: lines of white water rolling in over the last ~8 m of depth, broken up
-			// along their length, each spending itself as it runs up the beach
-			"float brk = 0.0;\n"
-			"if (Amp > 0.0 && depth < 9.0) {\n"
-			"  float ph = depth * 0.85 + T * 1.25 + ft2 * 1.4;\n"
-			"  float bl = smoothstep(0.80, 0.98, sin(ph)) * (0.5 + 0.5 * smoothstep(0.35, 0.7, ft));\n"
-			"  brk = bl * saturate(depth / 0.6) * (1.0 - smoothstep(3.0, 9.0, depth)) * saturate(Amp * 1.2); }\n"
-			"surf = max(surf, brk);\n"
-			// swell bursting on rock: where land rises within a few metres even though the water
-			// is deep (sea cliffs, stacks, skerries), white water churns at the foot
-			"float nearLand = 0.0;\n"
-			"if (inWorld && depth < 60.0 && Amp > 0.0) {\n"
-			"  [unroll] for (int k = 0; k < 8; k++) { float a = k * 0.7854 + T * 0.05; float2 o2 = float2(cos(a), sin(a)) * ((k & 1) ? 16.0 : 7.0) / WS;\n"
-			"    float g = (Texture2DSample(H, HSampler, muv + o2).r * 65535.0 - 32768.0) / 32.0;\n"
-			"    nearLand = max(nearLand, saturate((g + 1.5) / 3.0) * ((k & 1) ? 0.7 : 1.0)); }\n"
-			"  float churn = smoothstep(0.25, 0.75, ft * 0.8 + ft2 * 0.6 - 0.2 + 0.25 * sin(T * 1.7 + dot(p.xy, float2(0.21, 0.17))));\n"
-			"  surf = max(surf, nearLand * churn * saturate(Amp * 1.1)); }\n"
+			"float ft3 = Texture2DSample(FoamT, FoamTSampler, p.xy / 61.0 + T * float2(0.003, -0.004)).r;\n"
+			"float surf = 0.0; float sd = 400.0; float cliff = 0.0; float turbid = 0.0;\n"
+			"if (inWorld && Flow <= 0.0) {\n"
+			"  float e = 6.0 / WS;\n"
+			"  sd = Texture2DSample(Cst, CstSampler, muv).r * 127.5 - 24.0;\n"
+			"  float sx = Texture2DSample(Cst, CstSampler, muv + float2(e, 0)).r * 127.5 - 24.0;\n"
+			"  float sy = Texture2DSample(Cst, CstSampler, muv + float2(0, e)).r * 127.5 - 24.0;\n"
+			"  float2 g = float2(sx - sd, sy - sd); float2 toSea = g / max(length(g), 1e-3);\n"
+			"  if (sd < 100.0 && sd > -3.0) {\n"
+			// what kind of shore: high ground 15 m behind the line and deep water 20 m off it make a cliff
+			"    float2 lp = (p.xy - toSea * (sd + 15.0)) / WS + 0.5; float2 sp = (p.xy - toSea * (sd - 20.0)) / WS + 0.5;\n"
+			"    float hl = (Texture2DSample(H, HSampler, lp).r * 65535.0 - 32768.0) / 32.0;\n"
+			"    float hs = (Texture2DSample(H, HSampler, sp).r * 65535.0 - 32768.0) / 32.0;\n"
+			"    cliff = smoothstep(4.0, 16.0, hl) * smoothstep(2.0, 9.0, -hs);\n"
+			"    float sea = saturate((Amp - 0.35) / 1.2);\n"
+			// each stretch of coast has its own surf: wider here, calmer there
+			"    float vary = Texture2DSample(FoamT, FoamTSampler, p.xy / 410.0 + 0.37).r;\n"
+			"    float aa = saturate(dist / 900.0);\n"
+			// breakers: lines parallel to the shore rolling in, white at the front, a bore of foam behind that thins to lace as it ages
+			"    float zone = lerp(lerp(18.0, 50.0, vary), 7.0, cliff) * (0.35 + 0.65 * sea);\n"
+			"    float Lb = lerp(13.0, 9.0, cliff);\n"
+			"    float ph = sd / Lb + T * (4.2 / Lb) + ft3 * 0.9 + vary * 3.0;\n"
+			"    float age = frac(ph);\n"
+			"    float lw = fwidth(ph);\n"
+			"    float front = smoothstep(0.0, max(lw, 0.02), age) * exp(-age * 3.2);\n"
+			"    front = lerp(front, 0.18, saturate(lw * 2.5));\n"
+			"    float lace = smoothstep(0.18 + age * 0.55, 0.36 + age * 0.55, ft * 0.65 + ft2 * 0.5);\n"
+			"    float inZone = smoothstep(zone, zone * 0.55, sd) * smoothstep(-0.5, 1.5, sd);\n"
+			"    float brk = front * lerp(lace, 0.6, aa) * inZone * (0.35 + 0.65 * sea);\n"
+			// some stretches spill, some don't
+			"    brk *= smoothstep(0.25, 0.6, ft3 + 0.25 * sin(ph * 0.37 + vary * 9.0));\n"
+			// swash: the last metres are churned white, reaching further as each wave runs up
+			"    float run = lerp(2.5, 7.0, pow(saturate(0.5 + 0.5 * sin(T * 0.75 + vary * 12.0 + ft3 * 3.0)), 2.0)) * (0.5 + 0.5 * sea);\n"
+			"    float swash = smoothstep(run, run * 0.25, sd) * smoothstep(0.30, 0.55, ft * 0.6 + ft2 * 0.6 + (1.0 - sd / run) * 0.3);\n"
+			// at the foot of a cliff the swell bursts and falls back: a pulsing collar of white water
+			"    float surge = pow(saturate(0.5 + 0.5 * sin(T * 0.62 + vary * 17.0 + ft3 * 2.0)), 3.0);\n"
+			"    float collarW = lerp(3.0, 12.0, surge) * (0.5 + 0.7 * sea);\n"
+			"    float collar = cliff * smoothstep(collarW, collarW * 0.2, sd) * smoothstep(0.22, 0.5, ft * 0.7 + ft2 * 0.5 + surge * 0.2);\n"
+			// and the foam it leaves drifts off in lacy streaks for tens of metres
+			"    float streak = smoothstep(0.58, 0.82, ft2 * 0.55 + ft3 * 0.6 + ft * 0.15) * exp(-sd / lerp(14.0, 35.0, cliff * sea)) * (0.3 + 0.5 * cliff) * (0.25 + 0.75 * sea);\n"
+			"    streak *= 1.0 - aa * 0.5;\n"
+			"    surf = max(max(brk, swash * (0.7 + 0.3 * sea)), max(collar * (0.45 + 0.55 * sea), streak));\n"
+			// stirred-up water near beaches is milkier and greener; it clears away from the shore
+			"    turbid = exp(-sd / 45.0) * (1.0 - 0.6 * cliff) * (0.4 + 0.6 * sea);\n"
+			"  }\n"
+			"}\n"
 			// whitecaps come in scattered patches where gusts push the crests over, not on every
 			// crest of the long swell (which lines them up into rows); thinned with distance, where
 			// they'd shrink to dotted lines.
@@ -923,7 +1018,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"  rap = VC * 0.7 * smoothstep(0.45, 0.85, rf + VC * 0.2); }\n"
 			"FoamOut = saturate((surf + crest) * FoamAmt + rap);\n"
 			"Rough = lerp(0.035, 0.6, FoamOut);\n"
-			"Scatter = lerp(SS, SD, saturate(depth / 12.0));\n"
+			"Scatter = lerp(SS, SD, saturate(sd / 35.0)) + float3(0.003, 0.007, 0.005) * turbid;\n"
 			"return N;\n");
 		Surf->RebuildOutputs();
 		Surf->PostEditChange();
@@ -941,6 +1036,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialExpressions(HT, TEXT(""), Surf, TEXT("H"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(ShallowS, TEXT(""), Surf, TEXT("SS"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(DeepS, TEXT(""), Surf, TEXT("SD"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(CT, TEXT(""), Surf, TEXT("Cst"));
 		{
 			UMaterialExpressionTextureCoordinate* TC = Expr<UMaterialExpressionTextureCoordinate>(M, -1100, 900);
 			UMaterialExpressionVertexColor* VCx = Expr<UMaterialExpressionVertexColor>(M, -1100, 980);
@@ -958,7 +1054,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialProperty(FoamCol, TEXT(""), MP_BaseColor);
 
 		UMaterialExpressionSingleLayerWaterMaterialOutput* Out = Expr<UMaterialExpressionSingleLayerWaterMaterialOutput>(M, -100, 500);
-		UMaterialExpressionScalarParameter* G = Scalar(TEXT("PhaseG"), 0.25f, 720);
+		UMaterialExpressionScalarParameter* G = Scalar(TEXT("PhaseG"), bSea ? 0.05f : 0.25f, 720);
 		UMaterialExpressionConstant* Behind = Expr<UMaterialExpressionConstant>(M, -400, 800);
 		Behind->R = 1.f;
 		Out->AbsorptionCoefficients.Connect(0, Ab);
@@ -982,19 +1078,26 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Rain->Description = TEXT("Rain streaks");
 		Rain->OutputType = CMOT_Float1;
 		Rain->Inputs.Reset();
-		for (const TCHAR* In : { TEXT("UV"), TEXT("T"), TEXT("Intensity") }) { FCustomInput I; I.InputName = In; Rain->Inputs.Add(I); }
+		for (const TCHAR* In : { TEXT("UV"), TEXT("T"), TEXT("Intensity"), TEXT("VC") }) { FCustomInput I; I.InputName = In; Rain->Inputs.Add(I); }
+		// Vertex colour: R = how near the layer is (1 at arm's length, ~0.25 at 40 m), G = metres of
+		// rain per v-tile / 20 (so every layer falls at ~9 m/s). Drops are hair-thin, short, of
+		// uneven brightness, and most are faint: rain is seen mostly as a veil, not as dashes.
 		Rain->Code = TEXT(
 			"float m = 0;\n"
-			"for (int k = 0; k < 2; k++) {\n"
-			"  float2 uv = UV * (k == 0 ? float2(90, 6) : float2(170, 11));\n"
+			"float tileH = max(VC.g * 20.0, 1.0);\n"
+			"float spd = 9.0 / tileH;\n"
+			"for (int k = 0; k < 3; k++) {\n"
+			"  float2 uv = UV * float2(1.0 + k * 0.73, 1.0 + k * 0.41) + float2(k * 0.37, k * 0.11);\n"
 			"  float col = floor(uv.x);\n"
 			"  float h = frac(sin(col * 12.9898 + k * 7.1) * 43758.5453);\n"
-			"  float y = frac(uv.y + T * (2.2 + h * 1.4) * (k == 0 ? 1.0 : 1.3) + h * 10.0);\n"
-			"  float streak = smoothstep(0.0, 0.04, y) * (1.0 - smoothstep(0.04, 0.32, y));\n"
-			"  float w = pow(saturate(1.0 - abs(frac(uv.x) - 0.5) * 2.0), 10.0);\n"
-			"  m += streak * w * step(1.0 - Intensity, h) * (k == 0 ? 1.0 : 0.6);\n"
+			"  float h2 = frac(h * 7.31 + 0.13);\n"
+			"  float y = frac(uv.y + T * spd * (0.8 + 0.4 * h) + h * 10.0);\n"
+			"  float len = 0.06 + 0.10 * h2;\n"
+			"  float streak = smoothstep(0.0, 0.015, y) * (1.0 - smoothstep(0.015, len, y));\n"
+			"  float w = pow(saturate(1.0 - abs(frac(uv.x) - 0.5 - (h2 - 0.5) * 0.6) * 2.0), 28.0);\n"
+			"  m += streak * w * step(1.0 - Intensity, h * 0.999) * (0.25 + 0.75 * h2 * h2) / (1.0 + k * 0.6);\n"
 			"}\n"
-			"return m;\n");
+			"return m * VC.r;\n");
 		Rain->PostEditChange();
 		UMaterialExpressionTextureCoordinate* UV = Expr<UMaterialExpressionTextureCoordinate>(M, -600, -50);
 		UMaterialExpressionTime* Time = Expr<UMaterialExpressionTime>(M, -600, 30);
@@ -1005,10 +1108,11 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialExpressions(UV, TEXT(""), Rain, TEXT("UV"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Time, TEXT(""), Rain, TEXT("T"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Int, TEXT(""), Rain, TEXT("Intensity"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Expr<UMaterialExpressionVertexColor>(M, -600, 270), TEXT(""), Rain, TEXT("VC"));
 		// Opacity = streaks * 0.35; colour = a pale grey that dims at night.
 		UMaterialExpressionMultiply* Op = Expr<UMaterialExpressionMultiply>(M, -150, 80);
 		UMaterialExpressionConstant* K = Expr<UMaterialExpressionConstant>(M, -350, 160);
-		K->R = 0.35f;
+		K->R = 0.45f;
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Rain, TEXT(""), Op, TEXT("A"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(K, TEXT(""), Op, TEXT("B"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Op, TEXT(""), MP_Opacity);
@@ -1016,7 +1120,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Col->OutputType = CMOT_Float3;
 		Col->Inputs.Reset();
 		{ FCustomInput I; I.InputName = TEXT("Night"); Col->Inputs.Add(I); }
-		Col->Code = TEXT("return lerp(float3(0.75, 0.78, 0.82), float3(0.05, 0.06, 0.08), Night);");
+		Col->Code = TEXT("return lerp(float3(0.55, 0.58, 0.62), float3(0.04, 0.05, 0.06), Night);");
 		Col->PostEditChange();
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Night, TEXT(""), Col, TEXT("Night"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Adapted(M, Col, 0, 1.f), TEXT(""), MP_EmissiveColor);

@@ -16,6 +16,8 @@ enum class EDragonScatterKind : uint8
 	Rock,      // boulders on scree, slopes and shores
 	Cliff,     // big rock faces on steep ground
 	Ground,    // grass, ferns, shrubs, flowers near the camera
+	Stone,     // small stones in the turf near the camera
+	Shrub,     // juniper, heather and fern clumps, seen from the air
 	Iceberg    // drift ice off the arctic islands (rock and cliff shapes in M_Ice); added at runtime
 };
 

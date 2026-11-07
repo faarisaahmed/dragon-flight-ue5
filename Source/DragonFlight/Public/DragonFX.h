@@ -84,7 +84,7 @@ public:
 	UMaterialInterface* GetCoreMaterial() const { return CoreMat; }
 
 	/** Max live sprites (oldest smoke goes first). */
-	UPROPERTY(EditAnywhere, Category = "FX") int32 MaxPuffs = 420;
+	UPROPERTY(EditAnywhere, Category = "FX") int32 MaxPuffs = 700;
 
 private:
 	struct FLive

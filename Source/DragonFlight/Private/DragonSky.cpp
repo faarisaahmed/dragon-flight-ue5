@@ -21,6 +21,8 @@
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Materials/MaterialParameterCollection.h"
+#include "Kismet/KismetMaterialLibrary.h"
 
 namespace
 {
@@ -231,7 +233,7 @@ void ADragonSky::SetWeather(EDragonWeather NewWeather, bool bInstant, float Blen
 	From = Live;
 	To = FDragonWeatherState::Preset(NewWeather);
 	WeatherT = bInstant ? 1.f : 0.f;
-	if (bInstant) Live = To;
+	if (bInstant) { Live = To; Wetness = To.Rain > 0.05f ? 1.f : 0.f; }
 }
 
 void ADragonSky::PickNextWeather()
@@ -312,22 +314,27 @@ void ADragonSky::BuildRainTubes()
 	RainTubes->SetCastShadow(false);
 	RainTubes->bAffectDistanceFieldLighting = false;
 	TArray<FVector> V; TArray<int32> T; TArray<FVector> N; TArray<FVector2D> UV; TArray<FColor> C; TArray<FProcMeshTangent> Tg;
-	for (int32 Ring = 0; Ring < 2; ++Ring)
+	// Four layers: 3.5, 8, 18 and 40 m out. Columns are spaced so near drops are close together and
+	// far ones sparse on screen; each layer's v-tile is a few metres of fall (vertex G, metres/20),
+	// so near drops make short streaks and far ones still read. Vertex R fades the far layers.
+	struct FRing { float R, Half, ColM, TileM; uint8 Near; };
+	const FRing Rings[] = { { 350.f, 1500.f, 0.22f, 2.5f, 255 }, { 800.f, 2500.f, 0.35f, 4.f, 190 }, { 1800.f, 4000.f, 0.6f, 7.f, 120 }, { 4000.f, 7000.f, 1.1f, 12.f, 70 } };
+	for (const FRing& Rg : Rings)
 	{
-		const float R = Ring == 0 ? 700.f : 2000.f, Hh = 3000.f;
-		const int32 Seg = 48;
+		const int32 Seg = 64;
 		const int32 Base = V.Num();
+		const float Cols = FMath::RoundToFloat(2.f * PI * Rg.R / 100.f / Rg.ColM);
+		const float Tiles = 2.f * Rg.Half / 100.f / Rg.TileM;
 		for (int32 i = 0; i <= Seg; ++i)
 		{
 			const float A = 2.f * PI * i / Seg;
 			const FVector D(FMath::Cos(A), FMath::Sin(A), 0.f);
 			for (int32 k = 0; k < 2; ++k)
 			{
-				// lean the top downwind a little so the rain slants with the wind
-				V.Add(D * R + FVector(k ? 250.f : -250.f, 0.f, k ? Hh : -Hh));
+				V.Add(D * Rg.R + FVector(0.f, 0.f, k ? Rg.Half : -Rg.Half));
 				N.Add(-D); Tg.Add(FProcMeshTangent(-D.Y, D.X, 0.f));
-				UV.Add(FVector2D((float)i / Seg * (Ring == 0 ? 2.f : 4.f), k ? (Ring == 0 ? 3.f : 5.f) : 0.f));
-				C.Add(FColor(Ring ? 160 : 255, 0, 0, 255));
+				UV.Add(FVector2D((float)i / Seg * Cols, k ? Tiles : 0.f));
+				C.Add(FColor(Rg.Near, (uint8)FMath::Clamp(FMath::RoundToInt(Rg.TileM / 20.f * 255.f), 1, 255), 0, 255));
 			}
 		}
 		for (int32 i = 0; i < Seg; ++i)
@@ -363,12 +370,29 @@ void ADragonSky::TickWeatherFX(float DeltaSeconds)
 	{
 		if (APlayerCameraManager* Cam = UGameplayStatics::GetPlayerCameraManager(this, 0))
 		{
-			// Follow the camera in position only; the streaks fall straight down (with the wind's lean).
-			if (RainTubes) RainTubes->SetWorldLocationAndRotation(Cam->GetCameraLocation(), FRotator(0.f, WindYaw, 0.f));
+			// Follow the camera. The streaks lean along the drops' motion relative to us: they fall at
+			// ~9 m/s, drift with the wind, and fly past as fast as we fly.
+			const FVector CamPos = Cam->GetCameraLocation();
+			FVector CamVel = DeltaSeconds > 0.f && !PrevCamPos.IsZero() ? (CamPos - PrevCamPos) / DeltaSeconds / 100.f : FVector::ZeroVector;
+			if (CamVel.Size() > 120.f) CamVel = FVector::ZeroVector;     // a teleport, not flight
+			PrevCamPos = CamPos;
+			const FVector Wind = FRotator(0.f, WindYaw, 0.f).Vector() * (4.f * Live.Wind);
+			FVector Rel = FVector(0.f, 0.f, -9.f) + Wind - CamVel;
+			// lean at most ~60 degrees from vertical
+			const FVector Hz(Rel.X, Rel.Y, 0.f);
+			if (Hz.Size() > 15.6f) Rel = Hz.GetSafeNormal() * 15.6f + FVector(0.f, 0.f, -9.f);
+			const FVector Axis = (-Rel).GetSafeNormal();
+			RainAxis = FMath::Lerp(RainAxis, Axis, FMath::Clamp(DeltaSeconds * 4.f, 0.f, 1.f)).GetSafeNormal();
+			if (RainTubes) RainTubes->SetWorldLocationAndRotation(CamPos, FRotationMatrix::MakeFromZ(RainAxis).Rotator());
 		}
 		RainMID->SetScalarParameterValue(TEXT("Intensity"), Live.Rain);
 		RainMID->SetScalarParameterValue(TEXT("Night"), 1.f - Smooth(SunElevation, -8.f, 4.f));
 	}
+
+	// The ground wets through in about a minute of rain and dries over ten.
+	Wetness = FMath::Clamp(Wetness + DeltaSeconds * (Live.Rain > 0.05f ? Live.Rain / 60.f : -1.f / 600.f), 0.f, 1.f);
+	if (!WeatherMPC) WeatherMPC = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/Game/World/Materials/MPC_Weather.MPC_Weather"));
+	if (WeatherMPC) UKismetMaterialLibrary::SetScalarParameterValue(this, WeatherMPC, TEXT("Wetness"), FMath::Min(1.f, Wetness * 1.2f));
 
 	// Lightning in a storm: a double flicker every 6-20 s.
 	if (Live.Rain > 0.85f && Weather == EDragonWeather::Storm)
@@ -465,7 +489,10 @@ void ADragonSky::Apply(float DeltaSeconds)
 		Post->Settings.ColorGain = FVector4(1.f - 0.06f * Gloom, 1.f - 0.02f * Gloom, 1.f + 0.05f * Gloom, 1.f);
 	}
 
-	Fog->SetFogDensity(0.0045f * Live.Fog);
+	// Rain hangs in the air as a grey veil: the far islands fade to shapes, the near ones lose
+	// their contrast. It reaches up through the air, not just along the sea.
+	Fog->SetFogDensity(0.0045f * Live.Fog + 0.022f * Live.Rain * Live.Rain);
+	Fog->SetFogHeightFalloff(FMath::Lerp(0.12f, 0.03f, Live.Rain));
 	Fog->SetVolumetricFogExtinctionScale(0.6f * FMath::Sqrt(Live.Fog));
 
 	CloudOffset += DeltaSeconds * WindSpeed * Live.Wind * 0.01f; // metres of drift
