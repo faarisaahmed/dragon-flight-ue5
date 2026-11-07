@@ -182,7 +182,7 @@ float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 // Woods from afar: past the distance the trees are drawn to, the canopy itself is the colour
 // you see - a near-black conifer green, a little bluer with distance - not the forest floor.
 {
-	float canopy = (wForest / wSum) * smoothstep(2400.0, 4300.0, dist) * (1.0 - sn);
+	float canopy = (wForest / wSum) * smoothstep(1700.0, 2900.0, dist) * (1.0 - sn);
 	C = lerp(C, float3(0.045, 0.07, 0.04) * (0.85 + 0.3 * nz), canopy * 0.9);
 	R = lerp(R, 0.85, canopy);
 }

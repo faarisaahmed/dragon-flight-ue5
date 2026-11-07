@@ -88,6 +88,10 @@ ADragonSky::ADragonSky()
 	Clouds->ViewSampleCountScale = 0.5f;
 	Clouds->ShadowViewSampleCountScale = 0.5f;
 	Clouds->ShadowTracingDistance = 8.f; // km
+	// The sky light's real-time capture re-traces the clouds into a 64x64 cubemap: ~3 ms a face
+	// at full samples, for a blurry ambient term nobody can tell from a quarter of the samples.
+	Clouds->ReflectionViewSampleCountScaleValue = 0.25f;
+	Clouds->ShadowReflectionViewSampleCountScaleValue = 0.25f;
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CloudMat(TEXT("/Engine/EngineSky/VolumetricClouds/m_SimpleVolumetricCloud_Inst.m_SimpleVolumetricCloud_Inst"));
 	if (CloudMat.Succeeded())
 	{
