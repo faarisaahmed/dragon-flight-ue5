@@ -46,6 +46,10 @@ mouse or an Xbox / PlayStation pad). **F2** cycles graphics Low → Max, **F5**
 the render resolution Auto → 720p → … → Native. Both are saved. On a big GPU:
 F2 to **Max**, F5 to **Native**.
 
+**Tab** (or T) opens the weather & time panel at the top right: click Sunny,
+Cloudy, Rainy or Thunderstorm, drag the time of day, or jump to dawn, noon,
+sunset or night. Tab again to fly.
+
 To share the game, zip `%USERPROFILE%\Games\Dragon Flight` (~4 GB) — whoever
 gets it just unzips and runs `DragonFlight.exe`.
 

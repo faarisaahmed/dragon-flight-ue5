@@ -66,3 +66,9 @@ green turf and heath, sheer sea cliffs and stacks, woods only in shelter.
   off the salt shore; boulders on scree and rocky foreshores, not on the turf; rock faces
   only on sheer ground; moss and lichen on the up-facing sides of rocks, snow on them in
   the cold, a dark wet band at the waterline.
+- **Island characters** (`biomes.py` -> `Masks3_4096.png`, World.json `biomes`). Most isles
+  are turf and heath. *Volcanic* (Wyrmspire, Emberwick): black sand, near-black basalt and
+  lava fields, yellow-green fringe moss, lava boulders, no trees, fumaroles steaming in the
+  wind (`ADragonVents`). *Woodland* (the sheltered southern isles): conifer forest over the
+  slopes below the tree line. *Moorland* (Quietmoor, Mirefall Bog, Greywater Sound, Sheep
+  Island): heather drifts and peat bog in the wet hollows. The *arctic* north is climate.
