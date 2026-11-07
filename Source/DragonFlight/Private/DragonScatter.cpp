@@ -15,6 +15,7 @@
 #include "HAL/FileManager.h"
 #include "HAL/PlatformTime.h"
 #include "Scalability.h"
+#include "Materials/MaterialInterface.h"
 
 namespace
 {
@@ -91,9 +92,26 @@ void ADragonScatter::BeginPlay()
 		if (const UDragonWorldSubsystem* WS = GI->GetSubsystem<UDragonWorldSubsystem>())
 		{
 			WorldSizeM = WS->GetTerrainSize() / M;
+			WorldSub = WS;
 		}
 	}
+	// Drift ice off the arctic islands: the cliff and boulder scans, recast in ice.
+	IceMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/World/Materials/M_Ice.M_Ice"));
+	if (IceMaterial && !ScatterLayers.ContainsByPredicate([](const FDragonScatterLayer& L) { return L.Kind == EDragonScatterKind::Iceberg; }))
+	{
+		FDragonScatterLayer Ice;
+		Ice.Name = TEXT("Icebergs"); Ice.Kind = EDragonScatterKind::Iceberg;
+		for (const FDragonScatterLayer& L : ScatterLayers)
+			if (L.Kind == EDragonScatterKind::Cliff || L.Kind == EDragonScatterKind::Rock)
+				for (const TSoftObjectPtr<UStaticMesh>& Mh : L.Meshes)
+					if (!Mh.GetAssetName().Contains(TEXT("coast_land"))) Ice.Meshes.Add(Mh);
+		Ice.PerHectare = 0.05f; Ice.TileM = 1024.f; Ice.RadiusM = 14000.f;
+		Ice.ScaleRange = FVector2D(0.5f, 2.2f); Ice.SinkM = 0.f; Ice.AlignToSlope = 0.f;
+		Ice.bCastShadow = true; Ice.bCollide = true; Ice.Seed = 79;
+		if (Ice.Meshes.Num()) ScatterLayers.Add(Ice);
+	}
 	LayerMeshes.SetNum(ScatterLayers.Num());
+	ShoreMesh.SetNum(ScatterLayers.Num());
 	for (int32 i = 0; i < ScatterLayers.Num(); ++i)
 	{
 		for (const TSoftObjectPtr<UStaticMesh>& S : ScatterLayers[i].Meshes)
@@ -102,8 +120,12 @@ void ADragonScatter::BeginPlay()
 			{
 				LayerMeshes[i].Add(Mesh);
 				LoadedMeshes.AddUnique(Mesh);
+				ShoreMesh[i].Add(Mesh->GetName().Contains(TEXT("coast")));
 			}
 		}
+		// A layer that is all shore or all inland pieces uses them everywhere.
+		const int32 NShore = ShoreMesh[i].FilterByPredicate([](bool b) { return b; }).Num();
+		if (NShore == 0 || NShore == ShoreMesh[i].Num()) ShoreMesh[i].Reset();
 	}
 }
 
@@ -191,7 +213,21 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 	const float Forest = Mk.X, Veg = Mk.Y, Ice = Mk.Z, Water = Mk.W;
 	const FVector M2 = SampleMask2(XM, YM);
 	const float Slope = M2.X, Pad = M2.Z;
+	if (L.Kind == EDragonScatterKind::Iceberg)
+	{
+		// Afloat in open water a few hundred metres to a few km off the arctic coasts.
+		if (!WorldSub || H > -14.f || H < -160.f) return false;
+		const float Cold = WorldSub->ColdAt(XM * M, YM * M);
+		OutScale = 1.f;
+		return Rand < Smooth(Cold, 0.45f, 0.9f) * Smooth(-H, 14.f, 40.f);
+	}
 	if (Water > 0.5f || Ice > 0.4f) return false;
+	// Climate: the snow line falls toward the north (UDragonWorldSubsystem::SnowLineAt); the tree
+	// line sits well below it, and nothing grows on lying snow.
+	const float SnowM = WorldSub ? (float)(WorldSub->SnowLineAt(XM * M, YM * M) / M) : 480.f;
+	const float Cold = WorldSub ? WorldSub->ColdAt(XM * M, YM * M) : 0.f;
+	const float TreeLine = FMath::Min(330.f, SnowM * 0.62f);
+	const float Snowy = Smooth(H, SnowM - 30.f, SnowM + 40.f);
 	OutScale = 1.f;
 	float P = 0.f;
 	switch (L.Kind)
@@ -199,33 +235,46 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 	case EDragonScatterKind::Tree:
 		if (H < 3.f) return false;
 		P = FMath::Pow(Forest, 1.1f) * (1.f - Smooth(Slope, 0.46f, 0.88f)) * (1.f - Pad);
-		// Trees shrink toward the tree line and the wood's edge.
-		OutScale = FMath::Lerp(0.6f, 1.f, Smooth(Forest, 0.1f, 0.6f)) * (1.f - 0.35f * Smooth(H, 180.f, 320.f));
+		// Salt wind keeps the woods off the shore; they thin out and shrink toward the tree line.
+		P *= Smooth(H, 4.f, 25.f) * (1.f - Smooth(H, TreeLine * 0.75f, TreeLine)) * (1.f - Cold) * (1.f - Cold);
+		OutScale = FMath::Lerp(0.6f, 1.f, Smooth(Forest, 0.1f, 0.6f)) * (1.f - 0.4f * Smooth(H, TreeLine * 0.5f, TreeLine));
 		break;
 	case EDragonScatterKind::Sapling:
 		if (H < 4.f) return false;
 		P = (Forest * (1.f - Forest) * 3.f + Veg * (1.f - Forest) * 0.12f) * (1.f - Smooth(Slope, 0.5f, 0.85f)) * (1.f - Pad);
+		P *= (1.f - Smooth(H, TreeLine * 0.85f, TreeLine * 1.1f)) * (1.f - Cold);
 		break;
 	case EDragonScatterKind::DeadWood:
 		if (H < 3.f) return false;
-		P = Forest * 0.5f * (1.f - Smooth(Slope, 0.5f, 0.85f));
+		P = Forest * 0.5f * (1.f - Smooth(Slope, 0.5f, 0.85f)) * (1.f - Smooth(H, TreeLine * 0.8f, TreeLine)) * (1.f - Cold);
 		break;
 	case EDragonScatterKind::Rock:
 		if (H < -1.f) return false;
-		P = Smooth(Slope, 0.28f, 0.7f) * 0.7f                    // scree and slopes
-			+ (H < 9.f ? 0.45f : 0.f)                              // the shore
-			+ (1.f - Veg) * (H > 2.f ? 0.12f : 0.f);              // bare ground
+		// Boulders where rock really lies: scree under steep ground, and the foreshore of rocky
+		// coasts. Not scattered over the turf.
+		P = Smooth(Slope, 0.35f, 0.7f) * 0.6f * (1.f - Smooth(Slope, 0.85f, 1.f) * 0.5f)
+			+ (H < 5.f ? 0.5f * Smooth(Slope, 0.08f, 0.25f) : 0.f)
+			+ (Veg < 0.25f && H > 2.f ? 0.1f * Smooth(Slope, 0.2f, 0.4f) : 0.f)
+			+ Snowy * 0.05f;
+		// Bedrock breaking through the turf on knolls and ridge crests (convex ground).
+		if (H > 8.f && Slope < 0.75f)
+		{
+			const double E = 14.0;
+			const float Lap = (GroundM(XM + E, YM) + GroundM(XM - E, YM) + GroundM(XM, YM + E) + GroundM(XM, YM - E) - 4.f * H) / (float)(E * E);
+			P += 0.35f * Smooth(-Lap, 0.004f, 0.02f);
+		}
 		P *= 1.f - Forest * 0.6f;
 		OutScale = 1.f + 0.4f * Smooth(Slope, 0.5f, 0.9f);
 		break;
 	case EDragonScatterKind::Cliff:
 		if (H < -2.f) return false;
-		P = Smooth(Slope, 0.66f, 0.92f);
-		OutScale = 1.f + 0.5f * Smooth(Slope, 0.7f, 0.95f);   // the sheerest faces get the biggest pieces
+		// Rock faces only on the sheer ground: sea cliffs and crags.
+		P = Smooth(Slope, 0.72f, 0.95f);
+		OutScale = 1.f + 0.5f * Smooth(Slope, 0.75f, 0.98f);   // the sheerest faces get the biggest pieces
 		break;
 	case EDragonScatterKind::Ground:
 		if (H < 1.5f) return false;
-		P = Veg * (1.f - Forest * 0.4f) * (1.f - Smooth(Slope, 0.5f, 0.8f)) * (1.f - Pad * 0.7f);
+		P = Veg * (1.f - Forest * 0.4f) * (1.f - Smooth(Slope, 0.5f, 0.8f)) * (1.f - Pad * 0.7f) * (1.f - Snowy);
 		break;
 	}
 	return Rand < P;
@@ -365,7 +414,15 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 			float ScaleMul = 1.f;
 			if (!Accept(L, X, Y, H, Keep, ScaleMul)) continue;
 
-			const int32 MeshIdx = FMath::Min(Meshes.Num() - 1, (int32)(Pick * Meshes.Num()));
+			int32 MeshIdx = FMath::Min(Meshes.Num() - 1, (int32)(Pick * Meshes.Num()));
+			// Wave-worn coast pieces belong on the shore; mossy boulders and crag faces inland.
+			if (Li < ShoreMesh.Num() && ShoreMesh[Li].Num() == Meshes.Num())
+			{
+				const bool bShore = H < (L.Kind == EDragonScatterKind::Cliff ? 45.f : 6.f);
+				TArray<int32, TInlineAllocator<16>> Ok;
+				for (int32 m = 0; m < Meshes.Num(); ++m) if (ShoreMesh[Li][m] == bShore) Ok.Add(m);
+				if (Ok.Num()) MeshIdx = Ok[FMath::Min(Ok.Num() - 1, (int32)(Pick * Ok.Num()))];
+			}
 			const float Scale = FMath::Lerp(L.ScaleRange.X, L.ScaleRange.Y, S01 * S01) * ScaleMul;
 			FQuat Rot = FQuat(FVector::UpVector, FMath::DegreesToRadians(Yaw));
 			if (L.AlignToSlope > 0.f)
@@ -375,6 +432,21 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 				Rot = FQuat::FindBetweenNormals(FVector::UpVector, Up) * Rot;
 			}
 			FVector Pos(X * M, Y * M, (H - L.SinkM * Scale) * M);
+			if (L.Kind == EDragonScatterKind::Rock && H > 8.f && !(Li < ShoreMesh.Num() && ShoreMesh[Li].IsValidIndex(MeshIdx) && ShoreMesh[Li][MeshIdx]))
+			{
+				// Inland: set a third to a half of the stone into the ground, so it is bedrock
+				// showing through, not something dropped on the grass.
+				const FBoxSphereBounds B = Meshes[MeshIdx]->GetBounds();
+				Pos.Z -= B.BoxExtent.Z * 2.0 * Scale * (0.3 + 0.2 * Rng.Next());
+			}
+			if (L.Kind == EDragonScatterKind::Iceberg)
+			{
+				// Most of a berg is under water: float it with ~30% of its height showing, tipped a little.
+				const FBoxSphereBounds B = Meshes[MeshIdx]->GetBounds();
+				const double Ht = B.BoxExtent.Z * 2.0 * Scale;
+				Pos.Z = -(B.Origin.Z - B.BoxExtent.Z) * Scale - Ht * 0.7;
+				Rot = FQuat(FVector(Rng.Next() - 0.5f, Rng.Next() - 0.5f, 0.f).GetSafeNormal(), FMath::DegreesToRadians(Rng.Next() * 25.f)) * Rot;
+			}
 			if (L.Kind == EDragonScatterKind::Cliff)
 			{
 				// Set the piece into the face: back along the horizontal normal by a third of its
@@ -398,12 +470,14 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 		if (PerMesh[m].Num() == 0) continue;
 		UHierarchicalInstancedStaticMeshComponent* C = NewObject<UHierarchicalInstancedStaticMeshComponent>(this, NAME_None, RF_Transient);
 		C->SetStaticMesh(Meshes[m]);
+		if (L.Kind == EDragonScatterKind::Iceberg && IceMaterial)
+			for (int32 k = 0; k < Meshes[m]->GetStaticMaterials().Num(); ++k) C->SetMaterial(k, IceMaterial);
 		C->SetMobility(EComponentMobility::Movable); // created at runtime under a movable root
 		C->SetCollisionEnabled(L.bCollide ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
 		C->SetCastShadow(L.bCastShadow);
 		// Only rocks and cliffs go into Lumen's distance fields: 50k trees in the SDF atlas cost
 		// more GPU than their bounce light is worth.
-		C->bAffectDistanceFieldLighting = L.Kind == EDragonScatterKind::Rock || L.Kind == EDragonScatterKind::Cliff;
+		C->bAffectDistanceFieldLighting = L.Kind == EDragonScatterKind::Rock || L.Kind == EDragonScatterKind::Cliff || L.Kind == EDragonScatterKind::Iceberg;
 		C->SetCullDistances(0, FMath::RoundToInt(L.RadiusM * 1.1f * M));
 		C->SetupAttachment(RootComponent);
 		C->RegisterComponent();

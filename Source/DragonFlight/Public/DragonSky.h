@@ -109,7 +109,7 @@ public:
 	float WindSpeed = 600.f;
 
 	UFUNCTION(BlueprintCallable, Category = "Sky")
-	void SetWeather(EDragonWeather NewWeather, bool bInstant = false);
+	void SetWeather(EDragonWeather NewWeather, bool bInstant = false, float BlendSeconds = -1.f);
 
 	UFUNCTION(BlueprintPure, Category = "Sky")
 	const FDragonWeatherState& GetWeatherState() const { return Live; }
@@ -161,13 +161,20 @@ private:
 
 	FDragonWeatherState From, To, Live;
 	float WeatherT = 1.f;
+	float ActiveBlendSeconds = 60.f;
 	float WeatherTimer = 0.f;
 	float SunElevation = 30.f;
 	float CloudOffset = 0.f;
 
 	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> CloudMID;
 	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> RainMID;
+	/** Rain streaks: two open tubes around the camera (no caps to see from inside), near and far. */
+	UPROPERTY(Transient) TObjectPtr<class UProceduralMeshComponent> RainTubes;
+	void BuildRainTubes();
 	float BoltTimer = 8.f;
+	float BoltFlash = 1.f;
+	/** Thunder on its way: seconds to go, distance (cm). */
+	TArray<FVector2D> PendingThunder;
 	float BoltT = -1.f;
 	void TickWeatherFX(float DeltaSeconds);
 

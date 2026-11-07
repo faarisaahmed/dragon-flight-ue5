@@ -58,6 +58,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UDragonWebRigComponent> WebRig;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UCameraComponent> Camera;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<UDragonWindAudio> WindAudio;
+	/** Rain, surf, the sea, the storm's roar. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<class UDragonAmbience> Ambience;
+	float LastWingPhase = 0.f;
 
 	// --- Tuning ----------------------------------------------------------------
 	/** Mouse look sensitivity, radians per mouse count (web: 0.003 rad/px). */

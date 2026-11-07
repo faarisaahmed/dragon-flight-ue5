@@ -63,6 +63,11 @@ class DRAGONFLIGHT_API UDragonWebRigComponent : public UActorComponent
 	GENERATED_BODY()
 
 public:
+	/** Wingbeat phase 0..1 (the downstroke is [0, GetDownstroke())), amplitude (0.6 = hover) and glide blend. */
+	float GetWingPhase01() const { return WP; }
+	float GetDownstroke() const { return WDown; }
+	float GetWingAmp() const { return WAmp; }
+	float GetGlide() const { return GlideK; }
 	UDragonWebRigComponent();
 
 	/** True when the asset is the web game's 152-bone dragon (has Wing_Finger.001.L, under whatever spelling the importer used). */

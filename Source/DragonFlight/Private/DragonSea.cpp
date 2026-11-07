@@ -7,6 +7,8 @@
 #include "Engine/World.h"
 #include "Materials/MaterialInterface.h"
 #include "ProceduralMeshComponent.h"
+#include "DragonSky.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 ADragonSea::ADragonSea()
 {
@@ -74,7 +76,12 @@ void ADragonSea::BeginPlay()
 	if (!SeaMaterial) SeaMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/World/Materials/M_Sea.M_Sea"));
 	if (!LakeMaterial) LakeMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/World/Materials/M_Lake.M_Lake"));
 	BuildSeaMeshes();
-	if (SeaMaterial) { Grid->SetMaterial(0, SeaMaterial); Frame->SetMaterial(0, SeaMaterial); }
+	if (SeaMaterial)
+	{
+		// One instance for both, so the weather can raise the sea (WaveAmplitude, FoamAmount).
+		SeaMID = UMaterialInstanceDynamic::Create(SeaMaterial, this);
+		Grid->SetMaterial(0, SeaMID); Frame->SetMaterial(0, SeaMID);
+	}
 	SetActorLocation(FVector::ZeroVector);
 
 	const UDragonWorldSubsystem* W = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDragonWorldSubsystem>() : nullptr;
@@ -105,10 +112,58 @@ void ADragonSea::Tick(float DeltaSeconds)
 	const double S = SnapM * 100.0;
 	const FVector At(FMath::RoundToDouble(Cam.X / S) * S, FMath::RoundToDouble(Cam.Y / S) * S, 0.0);
 	if (!At.Equals(GetActorLocation(), 1.0)) SetActorLocation(At);
+
+	// Sea state follows the wind: a calm glassy sea on a clear day, white horses in a storm.
+	if (SeaMID)
+	{
+		float Wind = 1.f;
+		if (const ADragonSky* Sky = ADragonSky::Get(this)) Wind = Sky->GetWeatherState().Wind;
+		const float Target = FMath::Clamp(0.45f + 0.55f * Wind, 0.35f, 2.2f);
+		SeaState = FMath::FInterpTo(SeaState, Target, DeltaSeconds, 0.05f);
+		SeaMID->SetScalarParameterValue(TEXT("WaveAmplitude"), SeaState);
+		SeaMID->SetScalarParameterValue(TEXT("FoamAmount"), FMath::Clamp(0.6f + 0.5f * (SeaState - 0.8f) * 2.f, 0.5f, 2.0f));
+	}
 }
 
 bool ADragonSea::BuildLake(const UDragonWorldSubsystem& W, const FDragonLake& L, int32 Index)
 {
+	if (L.Wet.Num() == L.W * L.H && L.W > 0)
+	{
+		// lakes2: the wet cells were found on the final terrain by a priority flood, so the
+		// outline is exact; each cell overhangs a little under the shore.
+		TArray<FVector> V; TArray<int32> T; TArray<FVector> Nm; TArray<FVector2D> UV; TArray<FColor> Col; TArray<FProcMeshTangent> Tan;
+		const double C = L.Cell, Pad = C * 0.75;
+		for (int32 y = 0; y < L.H; ++y)
+		{
+			// One quad per run of wet cells along the row.
+			int32 x = 0;
+			while (x < L.W)
+			{
+				if (!L.Wet[y * L.W + x]) { ++x; continue; }
+				const int32 x0 = x;
+				while (x < L.W && L.Wet[y * L.W + x]) ++x;
+				const double cx0 = L.Bounds.Min.X + (x0 + 0.5) * C, cx1 = L.Bounds.Min.X + (x - 0.5) * C;
+				const double cy = L.Bounds.Min.Y + (y + 0.5) * C;
+				const int32 B = V.Num();
+				V.Add(FVector(cx0 - Pad, cy - Pad, 0)); V.Add(FVector(cx1 + Pad, cy - Pad, 0));
+				V.Add(FVector(cx1 + Pad, cy + Pad, 0)); V.Add(FVector(cx0 - Pad, cy + Pad, 0));
+				T.Append({ B, B + 2, B + 1, B, B + 3, B + 2 });
+				for (int k = 0; k < 4; ++k) { Nm.Add(FVector::UpVector); UV.Add(FVector2D(V[B + k].X, V[B + k].Y) / 10000.0); Tan.Add(FProcMeshTangent(1, 0, 0)); }
+			}
+		}
+		if (T.Num() == 0) return false;
+		UProceduralMeshComponent* Cm = NewObject<UProceduralMeshComponent>(this, *FString::Printf(TEXT("Lake%d"), Index));
+		Cm->SetAbsolute(true, true, true);
+		Cm->SetupAttachment(RootComponent);
+		Cm->RegisterComponent();
+		Cm->SetWorldLocationAndRotation(FVector(0, 0, L.Level), FRotator::ZeroRotator);
+		Cm->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Cm->CreateMeshSection(0, V, T, Nm, UV, Col, Tan, false);
+		Cm->SetCastShadow(false);
+		if (LakeMaterial) Cm->SetMaterial(0, LakeMaterial);
+		LakeSurfaces.Add(Cm);
+		return true;
+	}
 	// The lake's true outline: flood the basin from its deepest point over every cell
 	// whose ground lies below the water level. Cells are half the bake's grid so the
 	// shore follows the terrain; each quad overhangs a little and the ground hides it.
@@ -179,12 +234,22 @@ int32 ADragonSea::BuildRivers(const UDragonWorldSubsystem& W)
 	{
 		const int32 NP = R.Points.Num();
 		if (NP < 2 || R.Widths.Num() != NP) continue;
+		// The web game's river levels predate the erosion and relief passes: lay each point on the
+		// ground as it is now (a hand below the bank, in its channel), and never let it run uphill.
+		TArray<FVector> Pts = R.Points;
+		for (int32 i = 0; i < NP; ++i)
+		{
+			const double G = W.HeightAt(Pts[i].X, Pts[i].Y);
+			Pts[i].Z = FMath::Clamp(Pts[i].Z, G - 80.0, G + 25.0);
+			if (i > 0) Pts[i].Z = FMath::Min(Pts[i].Z, Pts[i - 1].Z);
+		}
+		if (Pts.Last().Z < -50.0) Pts.Last().Z = FMath::Max(Pts.Last().Z, -50.0);
 		// Catmull-Rom, 4 steps per span, so bends are curves.
 		TArray<FVector> P; TArray<float> Wd;
 		for (int32 i = 0; i < NP - 1; ++i)
 		{
-			const FVector& P0 = R.Points[FMath::Max(i - 1, 0)]; const FVector& P1 = R.Points[i];
-			const FVector& P2 = R.Points[i + 1]; const FVector& P3 = R.Points[FMath::Min(i + 2, NP - 1)];
+			const FVector& P0 = Pts[FMath::Max(i - 1, 0)]; const FVector& P1 = Pts[i];
+			const FVector& P2 = Pts[i + 1]; const FVector& P3 = Pts[FMath::Min(i + 2, NP - 1)];
 			for (int32 k = 0; k < 4; ++k)
 			{
 				const float t = k / 4.f, t2 = t * t, t3 = t2 * t;
@@ -193,7 +258,7 @@ int32 ADragonSea::BuildRivers(const UDragonWorldSubsystem& W)
 				P.Add(Q); Wd.Add(FMath::Lerp(R.Widths[i], R.Widths[i + 1], t));
 			}
 		}
-		P.Add(R.Points.Last()); Wd.Add(R.Widths.Last());
+		P.Add(Pts.Last()); Wd.Add(R.Widths.Last());
 		const int32 Base = V.Num();
 		double Along = 0.0;
 		for (int32 i = 0; i < P.Num(); ++i)

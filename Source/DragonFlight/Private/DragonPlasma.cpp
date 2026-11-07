@@ -1,12 +1,12 @@
 #include "DragonPlasma.h"
+#include "DragonFX.h"
+#include "DragonSfx.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
-#include "NiagaraFunctionLibrary.h"
-#include "NiagaraSystem.h"
 #include "Engine/OverlapResult.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -21,15 +21,21 @@ ADragonPlasma::ADragonPlasma()
 	RootComponent = Core;
 	Core->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Core->SetCastShadow(false);
-	Core->SetRelativeScale3D(FVector(1.24f)); // core radius 0.62 m
+	Core->SetRelativeScale3D(FVector(1.1f)); // core radius 0.55 m
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	if (Sphere.Succeeded()) Core->SetStaticMesh(Sphere.Object);
+
+	Sheath = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Sheath"));
+	Sheath->SetupAttachment(Core);
+	Sheath->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Sheath->SetCastShadow(false);
+	if (Sphere.Succeeded()) Sheath->SetStaticMesh(Sphere.Object);
 
 	Glow = CreateDefaultSubobject<UPointLightComponent>(TEXT("Glow"));
 	Glow->SetupAttachment(Core);
 	Glow->SetIntensityUnits(ELightUnits::Candelas);
-	Glow->SetIntensity(40000.f);
-	Glow->SetAttenuationRadius(6000.f);
+	Glow->SetIntensity(60000.f);
+	Glow->SetAttenuationRadius(7000.f);
 	Glow->SetCastShadows(false);
 	Glow->SetLightColor(Colour);
 }
@@ -37,41 +43,56 @@ ADragonPlasma::ADragonPlasma()
 void ADragonPlasma::BeginPlay()
 {
 	Super::BeginPlay();
-	// Emissive core: the project's plasma material if the builder made one, else a bright basic shape.
-	UMaterialInterface* Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/World/Materials/M_Plasma.M_Plasma"));
-	if (Mat) Core->SetMaterial(0, Mat);
-	else if (UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")))
+	ADragonFX* FX = ADragonFX::Get(this);
+	UMaterialInterface* Mat = FX ? FX->GetCoreMaterial() : nullptr;
+	if (!Mat) Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/World/Materials/M_PlasmaCore.M_PlasmaCore"));
+	if (Mat)
 	{
-		UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Base, this);
-		MID->SetVectorParameterValue(TEXT("Color"), Colour * 20.f);
-		Core->SetMaterial(0, MID);
+		CoreMID = UMaterialInstanceDynamic::Create(Mat, this);
+		CoreMID->SetScalarParameterValue(TEXT("Intensity"), 10.f);
+		CoreMID->SetScalarParameterValue(TEXT("Hot"), 1.f);
+		Core->SetMaterial(0, CoreMID);
+		SheathMID = UMaterialInstanceDynamic::Create(Mat, this);
+		SheathMID->SetScalarParameterValue(TEXT("Intensity"), 3.5f);
+		SheathMID->SetScalarParameterValue(TEXT("Hot"), 0.f);
+		Sheath->SetMaterial(0, SheathMID);
 	}
-	if (!BlastFX) BlastFX = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/World/FX/NS_PlasmaBlast.NS_PlasmaBlast"));
 	Glow->SetLightColor(Colour);
 }
 
 void ADragonPlasma::Launch(const FVector& VelocityCmPerS)
 {
 	Velocity = VelocityCmPerS;
+	SetActorRotation(Velocity.Rotation());
+	if (ADragonFX* FX = ADragonFX::Get(this)) FX->PlasmaMuzzle(GetActorLocation(), Velocity.GetSafeNormal());
+	DragonSfx::PlasmaShot(this, GetActorLocation());
 }
 
 void ADragonPlasma::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	Age += DeltaSeconds;
 	if (bExploded)
 	{
 		FlashT += DeltaSeconds;
-		Glow->SetIntensity(FMath::Max(0.f, 600000.f * (1.f - FlashT / 0.6f)));
-		Core->SetRelativeScale3D(FVector(1.24f + FlashT * 30.f));
-		Core->SetVisibility(FlashT < 0.15f);
-		if (FlashT > 0.6f) Destroy();
+		Core->SetVisibility(false, true);
+		Glow->SetVisibility(false);
+		if (FlashT > 0.2f) Destroy();
 		return;
 	}
+
+	// The sheath stretches along the flight and the whole bolt flickers like an arc.
+	const float Flick = 0.82f + 0.18f * FMath::Sin(Age * 61.f) * FMath::Sin(Age * 23.f + 0.7f);
+	Sheath->SetRelativeScale3D(FVector(3.6f, 1.25f, 1.25f) * (0.95f + 0.1f * Flick));
+	Sheath->SetRelativeLocation(FVector(-90.f, 0.f, 0.f));
+	Glow->SetIntensity(60000.f * Flick);
+	if (CoreMID) CoreMID->SetScalarParameterValue(TEXT("Fade"), Flick);
 
 	const FVector Step = Velocity * DeltaSeconds;
 	const float Len = Step.Size();
 	const int32 N = FMath::Max(1, FMath::CeilToInt(Len / (6.f * M)));
 	FVector At = GetActorLocation();
+	const FVector Start = At;
 	FCollisionQueryParams Q(SCENE_QUERY_STAT(Plasma), false, this);
 	if (AActor* O = GetOwner()) Q.AddIgnoredActor(O);
 	for (int32 i = 0; i < N; ++i)
@@ -80,32 +101,40 @@ void ADragonPlasma::Tick(float DeltaSeconds)
 		FHitResult Hit;
 		if (GetWorld()->LineTraceSingleByChannel(Hit, At, Next, ECC_Visibility, Q))
 		{
-			Explode(Hit.ImpactPoint);
+			if (ADragonFX* FX = ADragonFX::Get(this)) FX->PlasmaTrail(Start, Hit.ImpactPoint, Velocity);
+			Explode(Hit.ImpactPoint, Hit.ImpactNormal, false);
 			return;
 		}
 		// The sea surface (z = 0) counts even where there is no collision.
 		if (Next.Z <= 0.f && At.Z > 0.f)
 		{
 			const float T = At.Z / (At.Z - Next.Z);
-			Explode(FMath::Lerp(At, Next, T));
+			const FVector W = FMath::Lerp(At, Next, T);
+			if (ADragonFX* FX = ADragonFX::Get(this)) FX->PlasmaTrail(Start, W, Velocity);
+			Explode(W, FVector::UpVector, true);
 			return;
 		}
 		At = Next;
 	}
 	SetActorLocation(At);
+	if (ADragonFX* FX = ADragonFX::Get(this)) FX->PlasmaTrail(Start, At, Velocity);
 	Travelled += Len;
-	if (Travelled > RangeM * M) Explode(At);
+	if (Travelled > RangeM * M) Explode(At, FVector::UpVector, false);
 }
 
-void ADragonPlasma::Explode(const FVector& AtCm)
+void ADragonPlasma::Explode(const FVector& AtCm, const FVector& Normal, bool bWater)
 {
 	bExploded = true;
 	SetActorLocation(AtCm);
 	SetLifeSpan(1.f);
-	if (BlastFX)
+	// Spent in the air at the end of its range: a smaller burst with no fire, smoke or scorch.
+	const bool bAir = Travelled > RangeM * M;
+	if (ADragonFX* FX = ADragonFX::Get(this))
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), BlastFX, AtCm, FRotator::ZeroRotator, FVector(1.f), true, true);
+		if (bAir) FX->PlasmaBlast(AtCm, FVector::UpVector, true, BlastRadiusM * M * 0.35f);
+		else FX->PlasmaBlast(AtCm, Normal, bWater, BlastRadiusM * M * 0.5f);
 	}
+	DragonSfx::PlasmaBlast(this, AtCm, bWater || bAir);
 	// Anything physics-simulating in the blast gets pushed (crates, debris, later: targets).
 	TArray<FOverlapResult> Overlaps;
 	FCollisionShape Shape = FCollisionShape::MakeSphere(BlastRadiusM * M);

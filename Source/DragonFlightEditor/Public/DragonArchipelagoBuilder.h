@@ -25,6 +25,8 @@ struct FDragonBuildOptions
 	bool bLandscapeNanite = false;
 	/** Only (re)import the village kit. */
 	bool bVillageOnly = false;
+	/** Only rebuild the materials (landscape, water, effects...) and copy the runtime data. */
+	bool bMaterialsOnly = false;
 };
 
 /**

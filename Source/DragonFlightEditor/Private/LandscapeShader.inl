@@ -25,10 +25,18 @@ float slope = saturate((1.0 - N.z) * 2.6);
 float nz  = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 900.0).g * 2.2 - 0.9;
 float nz2 = Texture2DSample(FarRockD,  FarRockDSampler,  pm.xy / 230.0).r * 2.0 - 1.0;
 
+// Climate (same as UDragonWorldSubsystem::ColdAt): the northern isles lie in the drift ice of a
+// cold current, so the snow line falls from SnowLine to ~40 m toward the northern edge (-y).
+float wob = 1800.0 * sin(pm.x / 5200.0 + 0.7) + 900.0 * sin(pm.x / 2100.0 + 2.1);
+float cold = saturate((-pm.y - 9000.0 + wob) / 9000.0); cold = cold * cold * (3.0 - 2.0 * cold);
+float snowL = lerp(SnowLine, 40.0, cold);
+float alpine = min(300.0, snowL * 0.7);
+
 // ---- Weights ---------------------------------------------------------------
-float wCliff  = smoothstep(0.50, 0.78, slope + nz2 * 0.08);
-float wScree  = saturate(smoothstep(0.30, 0.52, slope + nz2 * 0.06) + smoothstep(300.0, 390.0, h + nz * 40.0)) * (1.0 - wCliff);
-float wSnow   = saturate(smoothstep(SnowLine - 40.0, SnowLine + 60.0, h + nz * 70.0) * (1.0 - smoothstep(0.55, 0.82, slope)) + mk.b * 1.2 + mk2.g);
+// Turf holds on slopes up to ~40 deg (as on the Faroes); bare rock beyond ~48.
+float wCliff  = smoothstep(0.62, 0.92, slope + nz2 * 0.08);
+float wScree  = saturate(smoothstep(0.42, 0.64, slope + nz2 * 0.06) + smoothstep(alpine, alpine + 90.0, h + nz * 40.0)) * (1.0 - wCliff);
+float wSnow   = saturate(smoothstep(snowL - 40.0, snowL + 60.0, h + nz * 70.0) * (1.0 - smoothstep(0.62, 0.9, slope)) + mk.b * 1.2 + mk2.g);
 float beach   = (1.0 - smoothstep(2.5, 7.5, h + nz * 2.5)) * (1.0 - smoothstep(0.30, 0.55, slope));
 float wSand   = beach * saturate(0.55 + nz2 * 1.2);
 float wShingle= beach * (1.0 - saturate(0.55 + nz2 * 1.2));
@@ -60,12 +68,16 @@ float3 C = 0; float3 Nw = 0; float R = 0; float AO = 0;
 	float k = W / wSum; C += c * (TINT) * k; Nw += wn * k; R += saturate(a.g * (RMUL)) * k; AO += a.r * k; }
 
 TOPLAYER(Scree,   6.0, wScree,   float3(0.72, 0.72, 0.74), 1.0)
-TOPLAYER(Grass,   3.0, wGrass,   float3(0.50, 0.68, 0.38) * (0.85 + 0.18 * nz), 1.0)
-TOPLAYER(Heath,   4.0, wHeath,   float3(0.70, 0.70, 0.52) * (0.85 + 0.15 * nz2), 1.0)
+// Summer turf on these islands is a deep, wet green, broken by patches of heather and
+// bracken (browner) and greener flushes along the gullies; tundra browns in the cold north.
+float patchy = saturate(0.5 + nz * 0.9);
+float3 turf = lerp(float3(0.36, 0.64, 0.27), float3(0.46, 0.62, 0.30), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
+TOPLAYER(Grass,   3.0, wGrass,   lerp(turf, float3(0.58, 0.56, 0.42), cold) * (0.88 + 0.16 * nz), 1.0)
+TOPLAYER(Heath,   4.0, wHeath,   lerp(lerp(float3(0.58, 0.60, 0.40), float3(0.62, 0.50, 0.46), saturate(nz2 + 0.3)), float3(0.62, 0.55, 0.46), cold) * (0.85 + 0.15 * nz2), 1.0)
 TOPLAYER(Forest,  4.0, wForest,  float3(0.62, 0.62, 0.56), 1.0)
 TOPLAYER(Sand,    5.0, wSand,    float3(0.42, 0.42, 0.44), 1.0)
 TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0)
-TOPLAYER(Snow,    6.0, wSnow,    float3(1.0, 1.0, 1.02), 0.9)
+TOPLAYER(Snow,    6.0, wSnow,    float3(1.22, 1.24, 1.28), 0.75)
 TOPLAYER(Mud,     3.0, wMud,     float3(0.75, 0.72, 0.70), 0.55)
 
 // Cliffs: triplanar, so a vertical face is not a smear of stretched pixels. On top of

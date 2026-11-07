@@ -49,4 +49,7 @@ public:
 
 	bool bShowHelp = true;
 	bool bShowHud = true;
+	/** The weather & time panel (top right) has the mouse. Tab toggles it. */
+	bool bPanelOpen = false;
+	void SetPanelOpen(bool bOpen);
 };

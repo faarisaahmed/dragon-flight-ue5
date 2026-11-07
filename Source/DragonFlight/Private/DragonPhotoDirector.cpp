@@ -4,6 +4,7 @@
 #include "DragonSky.h"
 #include "DragonWorldSubsystem.h"
 #include "DragonScatter.h"
+#include "DragonPlasma.h"
 #include "EngineUtils.h"
 #include "LandscapeSubsystem.h"
 #include "Camera/PlayerCameraManager.h"
@@ -201,6 +202,58 @@ void ADragonPhotoDirector::PlanShots()
 			Shots.Add(Rv);
 		}
 	}
+	// Plasma: a bolt bursting on a hillside above the home bay (late afternoon and dusk), and
+	// one in flight, from about where the chase camera would be.
+	{
+		FVector T = Home + FVector(-30000.0, -22000.0, 0.0);
+		T.Z = W->HeightAt(T.X, T.Y);
+		if (T.Z < 300.0) { T = Home; T.Z = W->HeightAt(T.X, T.Y); }
+		const FVector In = FVector(-16000.0, 14000.0, 11000.0).GetSafeNormal();     // toward where the bolt comes from
+		const FVector Side = FVector::CrossProduct(In, FVector::UpVector).GetSafeNormal();
+		FShot Pb; Pb.Name = TEXT("20_plasma_blast"); Pb.bPlasma = true; Pb.Target = T; Pb.PlasmaLead = 0.22f;
+		Pb.Location = T + In * 8000.0 + Side * 2500.0 + FVector(0, 0, 600.0);
+		Pb.Rotation = Look(Pb.Location, T + FVector(0, 0, 500.0)); Pb.Hours = 17.5f;
+		Shots.Add(Pb);
+		FShot Pl = Pb; Pl.Name = TEXT("20a_plasma_late"); Pl.PlasmaLead = 0.9f;   // fire and smoke a second on
+		Shots.Add(Pl);
+		FShot Pd = Pb; Pd.Name = TEXT("20b_plasma_dusk"); Pd.Hours = 21.6f; Pd.PlasmaLead = 0.12f;
+		Shots.Add(Pd);
+		// In flight: the camera beside the path, 60 m short of where the bolt is at the shutter.
+		FShot Pf = Pb; Pf.Name = TEXT("20c_plasma_flight"); Pf.PlasmaLead = -0.18f; Pf.Hours = 16.f;
+		const FVector AtShutter = T + In * 24000.0 * (0.18f / 0.4f);
+		Pf.Location = AtShutter + In * 4500.0 + Side * 1800.0 + FVector(0, 0, 400.0);
+		Pf.Rotation = Look(Pf.Location, AtShutter);
+		Shots.Add(Pf);
+	}
+	// The cold north: the two most arctic islands of size.
+	{
+		TArray<FDragonIsland> Cold = W->GetIslands();
+		Cold.Sort([W](const FDragonIsland& A, const FDragonIsland& B) { return W->ColdAt(A.Centre.X, A.Centre.Y) > W->ColdAt(B.Centre.X, B.Centre.Y); });
+		for (int32 i = 0; i < FMath::Min(2, Cold.Num()); ++i)
+		{
+			const FDragonIsland& I = Cold[i];
+			FShot A; A.Name = FString::Printf(TEXT("21_arctic_%s"), *I.Name.Replace(TEXT(" "), TEXT("")));
+			const FVector Dir(FMath::Cos(2.2 + i), FMath::Sin(2.2 + i), 0.0);
+			A.Location = FVector(I.Centre.X, I.Centre.Y, 0.0) + Dir * I.Radius * 1.6 + FVector(0, 0, 32000.0);
+			A.Rotation = Look(A.Location, FVector(I.Centre.X, I.Centre.Y, 8000.0)); A.Hours = 14.f;
+			Shots.Add(A);
+		}
+	}
+	// Weather: a storm rolling over the home coast, and rain.
+	{
+		FShot St; St.Name = TEXT("22_storm"); St.Weather = (uint8)EDragonWeather::Storm; St.Hours = 15.f;
+		St.Location = Home + FVector(-90000.0, 60000.0, 0.0);
+		St.Location.Z = FMath::Max(0.0, W->HeightAt(St.Location.X, St.Location.Y)) + 22000.0;   // above the ground, wherever that is
+		St.Rotation = Look(St.Location, Home + FVector(0, 0, 8000.0));
+		Shots.Add(St);
+		FShot Rn = St; Rn.Name = TEXT("22b_rain"); Rn.Weather = (uint8)EDragonWeather::Rain;
+		Shots.Add(Rn);
+	}
+	// The weather panel open over the chase view.
+	{
+		FShot Pn = Chase; Pn.Name = TEXT("23_panel"); Pn.bPanel = true;
+		Shots.Add(Pn);
+	}
 	// The chase again, last, once everything the dragon uses has certainly compiled.
 	FShot Late = Chase; Late.Name = TEXT("99_chase_late");
 	Shots.Add(Late);
@@ -225,10 +278,16 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 		Sky->Hours = S.Hours;
 		Sky->DayLengthMinutes = 0.f;      // hold the light still for the shot
 		Sky->bAutoWeather = false;
-		Sky->SetWeather(EDragonWeather::Fair, true);
+		Sky->SetWeather((EDragonWeather)S.Weather, true);
 	}
 	APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
 	if (!PC) return;
+	if (ADragonPlayerController* DPC = Cast<ADragonPlayerController>(PC))
+	{
+		DPC->bShowHud = S.bPanel;
+		DPC->SetPanelOpen(S.bPanel);
+	}
+	bFired = false;
 	if (S.bDragonClose && Camera)
 	{
 		if (APawn* P = PC->GetPawn())
@@ -323,6 +382,20 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 			TArray<FVector> Cams;
 			if (PC && PC->PlayerCameraManager) Cams.Add(PC->PlayerCameraManager->GetCameraLocation());
 			LS->RegenerateGrass(false, true, Cams.Num() ? TOptional<TArrayView<FVector>>(TArrayView<FVector>(Cams)) : TOptional<TArrayView<FVector>>());
+		}
+	}
+	// Plasma shots: launch a bolt so it bursts PlasmaLead seconds before the shutter.
+	if (S.bPlasma && !bFired && !bShotRequested)
+	{
+		const float Flight = 0.4f;                    // seconds of flight (240 m at 600 m/s)
+		const float FireAt = Settle - Flight - FMath::Max(0.f, S.PlasmaLead) + FMath::Max(0.f, -S.PlasmaLead);
+		if (Timer >= FireAt)
+		{
+			bFired = true;
+			const FVector From = S.Target + FVector(-16000.0, 14000.0, 11000.0).GetSafeNormal() * 24000.0;
+			const FVector Dir = (S.Target - From).GetSafeNormal();
+			FActorSpawnParameters SP; SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			if (ADragonPlasma* B = GetWorld()->SpawnActor<ADragonPlasma>(ADragonPlasma::StaticClass(), From, Dir.Rotation(), SP)) B->Launch(Dir * 60000.0);
 		}
 	}
 	if (!bShotRequested && Timer >= Settle)

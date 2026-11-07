@@ -37,6 +37,11 @@ private:
 		FVector Location = FVector::ZeroVector;
 		FRotator Rotation = FRotator::ZeroRotator;
 		float Hours = 15.5f;
+		uint8 Weather = 1;           // EDragonWeather (Fair)
+		bool bPlasma = false;        // fire a bolt at Target, timed to burst just before the shot
+		float PlasmaLead = 0.35f;    // seconds between the burst and the shot (negative: mid-flight)
+		FVector Target = FVector::ZeroVector;
+		bool bPanel = false;         // show the HUD with the weather panel open
 	};
 
 	void PlanShots();
@@ -49,6 +54,7 @@ private:
 	float Warmup = 0.f;
 	bool bShotRequested = false;
 	bool bGrassBuilt = false;
+	bool bFired = false;
 	FString OutDir;
 	FString Tag;
 

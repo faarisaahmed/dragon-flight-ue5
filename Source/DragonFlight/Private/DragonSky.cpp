@@ -1,4 +1,10 @@
 #include "DragonSky.h"
+#include "ProceduralMeshComponent.h"
+#include "Engine/GameInstance.h"
+#include "GameFramework/PlayerController.h"
+#include "DragonWorldSubsystem.h"
+#include "DragonSfx.h"
+#include "DragonFX.h"
 #include "DragonFlight.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/VolumetricCloudComponent.h"
@@ -218,9 +224,10 @@ ADragonSky* ADragonSky::Get(const UObject* WorldContext)
 	return It ? *It : nullptr;
 }
 
-void ADragonSky::SetWeather(EDragonWeather NewWeather, bool bInstant)
+void ADragonSky::SetWeather(EDragonWeather NewWeather, bool bInstant, float BlendSeconds)
 {
 	Weather = NewWeather;
+	ActiveBlendSeconds = BlendSeconds > 0.f ? BlendSeconds : WeatherBlendSeconds;
 	From = Live;
 	To = FDragonWeatherState::Preset(NewWeather);
 	WeatherT = bInstant ? 1.f : 0.f;
@@ -275,7 +282,7 @@ void ADragonSky::Tick(float DeltaSeconds)
 
 	if (WeatherT < 1.f)
 	{
-		WeatherT = FMath::Min(1.f, WeatherT + DeltaSeconds / FMath::Max(1.f, WeatherBlendSeconds));
+		WeatherT = FMath::Min(1.f, WeatherT + DeltaSeconds / FMath::Max(1.f, ActiveBlendSeconds));
 		Live = FDragonWeatherState::Lerp(From, To, Smooth(WeatherT, 0.f, 1.f));
 	}
 	if (bAutoWeather && GetWorld() && GetWorld()->IsGameWorld())
@@ -290,6 +297,48 @@ void ADragonSky::Tick(float DeltaSeconds)
 
 	Apply(DeltaSeconds);
 	TickWeatherFX(DeltaSeconds);
+}
+
+void ADragonSky::BuildRainTubes()
+{
+	// Two open cylinders around the camera, 7 m and 20 m out, 60 m tall, centred on it. UVs
+	// wrap around (u) and run up (v) so M_Rain's streaks fall along v. No caps: looking down
+	// you see rain against the ground, not a disc.
+	RainTubes = NewObject<UProceduralMeshComponent>(this, TEXT("RainTubes"));
+	RainTubes->SetupAttachment(Root);
+	RainTubes->SetAbsolute(true, true, true);
+	RainTubes->RegisterComponent();
+	RainTubes->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	RainTubes->SetCastShadow(false);
+	RainTubes->bAffectDistanceFieldLighting = false;
+	TArray<FVector> V; TArray<int32> T; TArray<FVector> N; TArray<FVector2D> UV; TArray<FColor> C; TArray<FProcMeshTangent> Tg;
+	for (int32 Ring = 0; Ring < 2; ++Ring)
+	{
+		const float R = Ring == 0 ? 700.f : 2000.f, Hh = 3000.f;
+		const int32 Seg = 48;
+		const int32 Base = V.Num();
+		for (int32 i = 0; i <= Seg; ++i)
+		{
+			const float A = 2.f * PI * i / Seg;
+			const FVector D(FMath::Cos(A), FMath::Sin(A), 0.f);
+			for (int32 k = 0; k < 2; ++k)
+			{
+				// lean the top downwind a little so the rain slants with the wind
+				V.Add(D * R + FVector(k ? 250.f : -250.f, 0.f, k ? Hh : -Hh));
+				N.Add(-D); Tg.Add(FProcMeshTangent(-D.Y, D.X, 0.f));
+				UV.Add(FVector2D((float)i / Seg * (Ring == 0 ? 2.f : 4.f), k ? (Ring == 0 ? 3.f : 5.f) : 0.f));
+				C.Add(FColor(Ring ? 160 : 255, 0, 0, 255));
+			}
+		}
+		for (int32 i = 0; i < Seg; ++i)
+		{
+			const int32 A = Base + i * 2, B = A + 1, Cc = A + 2, D2 = A + 3;
+			T.Append({ A, Cc, B, B, Cc, D2 });
+		}
+	}
+	RainTubes->CreateMeshSection(0, V, T, N, UV, C, Tg, false);
+	RainTubes->SetBoundsScale(10.f);
+	if (RainMID) RainTubes->SetMaterial(0, RainMID);
 }
 
 void ADragonSky::TickWeatherFX(float DeltaSeconds)
@@ -307,12 +356,15 @@ void ADragonSky::TickWeatherFX(float DeltaSeconds)
 		}
 	}
 	const bool bRain = Live.Rain > 0.02f && RainMID != nullptr;
-	RainCurtain->SetVisibility(bRain);
+	RainCurtain->SetVisibility(false);   // the old capped cylinder: seen from inside, its floor filled the view
+	if (bRain && !RainTubes) BuildRainTubes();
+	if (RainTubes) RainTubes->SetVisibility(bRain);
 	if (bRain)
 	{
 		if (APlayerCameraManager* Cam = UGameplayStatics::GetPlayerCameraManager(this, 0))
 		{
-			RainCurtain->SetWorldLocation(Cam->GetCameraLocation() - FVector(0, 0, 2000.f));
+			// Follow the camera in position only; the streaks fall straight down (with the wind's lean).
+			if (RainTubes) RainTubes->SetWorldLocationAndRotation(Cam->GetCameraLocation(), FRotator(0.f, WindYaw, 0.f));
 		}
 		RainMID->SetScalarParameterValue(TEXT("Intensity"), Live.Rain);
 		RainMID->SetScalarParameterValue(TEXT("Night"), 1.f - Smooth(SunElevation, -8.f, 4.f));
@@ -326,7 +378,24 @@ void ADragonSky::TickWeatherFX(float DeltaSeconds)
 		{
 			BoltTimer = FMath::FRandRange(6.f, 20.f);
 			BoltT = 0.f;
-			Lightning->SetWorldRotation(FRotator(-FMath::FRandRange(25.f, 70.f), FMath::FRandRange(0.f, 360.f), 0.f));
+			// Where it strikes: mostly kilometres off, now and then close. The thunder follows at
+			// the speed of sound, a crack when near, a long roll when far.
+			const float Bearing = FMath::FRandRange(0.f, 360.f);
+			const float Dist = FMath::Lerp(700.f, 14000.f, FMath::Pow(FMath::FRand(), 0.8f)) * 100.f;
+			Lightning->SetWorldRotation(FRotator(-FMath::FRandRange(25.f, 70.f), Bearing + 180.f, 0.f));
+			BoltFlash = FMath::Clamp(1.4f - Dist / 1200000.f, 0.25f, 1.f);
+			const APlayerController* PC = GetWorld()->GetFirstPlayerController();
+			const FVector Cam = PC && PC->PlayerCameraManager ? PC->PlayerCameraManager->GetCameraLocation() : FVector::ZeroVector;
+			const FVector Dir = FRotator(0.f, Bearing, 0.f).Vector();
+			FVector Ground = Cam + Dir * Dist; Ground.Z = 0.f;
+			if (const UDragonWorldSubsystem* WS = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDragonWorldSubsystem>() : nullptr)
+				Ground.Z = FMath::Max(0.0, WS->HeightAt(Ground.X, Ground.Y));
+			if (Dist < 900000.f)
+			{
+				if (ADragonFX* FX = ADragonFX::Get(this))
+					FX->LightningBolt(Ground + FVector(FMath::FRandRange(-40000.f, 40000.f), FMath::FRandRange(-40000.f, 40000.f), FMath::FRandRange(140000.f, 190000.f)), Ground, FMath::Clamp(Dist * 0.0012f, 60.f, 900.f));
+			}
+			PendingThunder.Add(FVector2D(Dist / 34300.f, Dist));
 		}
 	}
 	if (BoltT >= 0.f)
@@ -335,8 +404,17 @@ void ADragonSky::TickWeatherFX(float DeltaSeconds)
 		// Two strokes: 0-0.08 s and 0.16-0.3 s, then out.
 		const float F = BoltT < 0.08f ? 1.f : (BoltT > 0.16f && BoltT < 0.30f) ? 0.7f * (1.f - (BoltT - 0.16f) / 0.14f) : 0.f;
 		Lightning->SetVisibility(F > 0.f);
-		Lightning->SetIntensity(F * 40.f * FMath::Max(1.f, MoonLux * 20.f));
+		Lightning->SetIntensity(F * 40.f * BoltFlash * FMath::Max(1.f, MoonLux * 20.f));
 		if (BoltT > 0.35f) { BoltT = -1.f; Lightning->SetVisibility(false); }
+	}
+	for (int32 i = PendingThunder.Num() - 1; i >= 0; --i)
+	{
+		PendingThunder[i].X -= DeltaSeconds;
+		if (PendingThunder[i].X <= 0.f)
+		{
+			DragonSfx::Thunder(this, FVector::ZeroVector, PendingThunder[i].Y);
+			PendingThunder.RemoveAtSwap(i);
+		}
 	}
 }
 

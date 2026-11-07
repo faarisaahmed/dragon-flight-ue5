@@ -81,7 +81,34 @@ bool UDragonWorldSubsystem::Load()
 		if (R.Points.Num() >= 2) Rivers.Add(MoveTemp(R));
 	}
 
-	for (const TSharedPtr<FJsonValue>& V : Json->GetArrayField(TEXT("lakes")))
+	// Lakes of the final terrain (Tools/WorldBake/lakes.py) when the bake has them; the web
+	// game's own lakes no longer fit the eroded ground.
+	const TArray<TSharedPtr<FJsonValue>>* Lakes2 = nullptr;
+	if (Json->TryGetArrayField(TEXT("lakes2"), Lakes2))
+	{
+		for (const TSharedPtr<FJsonValue>& V : *Lakes2)
+		{
+			const TSharedPtr<FJsonObject> O = V->AsObject();
+			FDragonLake L;
+			L.Level = O->GetNumberField(TEXT("level")) * M;
+			L.Cell = O->GetNumberField(TEXT("cell")) * M;
+			L.W = (int32)O->GetNumberField(TEXT("w")); L.H = (int32)O->GetNumberField(TEXT("h"));
+			const double Half = TerrainSize * 0.5;
+			const double X0 = O->GetNumberField(TEXT("i0")) * L.Cell - Half, Y0 = O->GetNumberField(TEXT("j0")) * L.Cell - Half;
+			// Cell centres sit on the heightmap's vertices: a cell spans +-Cell/2 around them.
+			L.Bounds = FBox2D(FVector2D(X0 - L.Cell * 0.5, Y0 - L.Cell * 0.5), FVector2D(X0 + (L.W - 0.5) * L.Cell, Y0 + (L.H - 0.5) * L.Cell));
+			L.Wet.SetNumZeroed(L.W * L.H);
+			int32 At = 0; uint8 Val = 0;
+			for (const TSharedPtr<FJsonValue>& R : O->GetArrayField(TEXT("rle")))
+			{
+				const int32 Run = (int32)R->AsNumber();
+				if (Val) for (int32 k = 0; k < Run && At + k < L.Wet.Num(); ++k) L.Wet[At + k] = 1;
+				At += Run; Val ^= 1;
+			}
+			Lakes.Add(MoveTemp(L));
+		}
+	}
+	else for (const TSharedPtr<FJsonValue>& V : Json->GetArrayField(TEXT("lakes")))
 	{
 		const TSharedPtr<FJsonObject> O = V->AsObject();
 		FDragonLake L;
@@ -143,6 +170,22 @@ double UDragonWorldSubsystem::HeightAt(double X, double Y) const
 	auto H = [&](int32 I, int32 J) { return (double)Heights[J * HeightRes + I]; };
 	const double V = FMath::Lerp(FMath::Lerp(H(IX, IY), H(IX + 1, IY), TX), FMath::Lerp(H(IX, IY + 1), H(IX + 1, IY + 1), TX), TY);
 	return (V - 32768.0) / 128.0 * ZScalePercent;
+}
+
+float UDragonWorldSubsystem::ColdAt(double X, double Y) const
+{
+	// North is UE -Y. Temperate up to ~9 km north of the middle, arctic at the northern edge, with a
+	// wobble so the line between them follows no parallel.
+	const double Ym = Y / 100.0, Xm = X / 100.0;
+	const double Wobble = 1800.0 * FMath::Sin(Xm / 5200.0 + 0.7) + 900.0 * FMath::Sin(Xm / 2100.0 + 2.1);
+	const float T = (float)((-Ym - 9000.0 + Wobble) / 9000.0);
+	const float C = FMath::Clamp(T, 0.f, 1.f);
+	return C * C * (3.f - 2.f * C);
+}
+
+double UDragonWorldSubsystem::SnowLineAt(double X, double Y) const
+{
+	return FMath::Lerp(480.0, 40.0, (double)ColdAt(X, Y)) * 100.0;
 }
 
 FString UDragonWorldSubsystem::NearestIsland(const FVector& Where, double& OutDistance) const

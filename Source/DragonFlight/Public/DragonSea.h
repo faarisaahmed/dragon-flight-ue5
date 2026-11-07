@@ -60,5 +60,7 @@ private:
 	bool BuildLake(const UDragonWorldSubsystem& W, const FDragonLake& L, int32 Index);
 	int32 BuildRivers(const UDragonWorldSubsystem& W);
 	UPROPERTY(Transient) TObjectPtr<UProceduralMeshComponent> Rivers;
+	UPROPERTY(Transient) TObjectPtr<class UMaterialInstanceDynamic> SeaMID;
+	float SeaState = 1.f;
 	UPROPERTY(Transient) TArray<TObjectPtr<UProceduralMeshComponent>> LakeSurfaces;
 };

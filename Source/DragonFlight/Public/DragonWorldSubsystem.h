@@ -35,6 +35,10 @@ struct FDragonLake
 	UPROPERTY(BlueprintReadOnly) double Level = 0.0;
 	/** Bounds of the lake grid in UE XY (cm). */
 	UPROPERTY(BlueprintReadOnly) FBox2D Bounds = FBox2D(ForceInit);
+	/** Wet cells (lakes2, from the final terrain): W x H flags over Bounds, Cell cm each. Empty for the old web lakes. */
+	TArray<uint8> Wet;
+	int32 W = 0, H = 0;
+	double Cell = 0.0;
 };
 
 /**
@@ -71,6 +75,17 @@ public:
 	/** Ground height (cm) at a UE world XY, bilinear from the baked heightmap. Sea floor is negative. */
 	UFUNCTION(BlueprintPure, Category = "Dragon|World")
 	double HeightAt(double X, double Y) const;
+
+	/**
+	 * The local snow line (cm above the sea). The archipelago's northern edge lies in the drift
+	 * ice of a cold current, as north Iceland's does: from 9 km north of the middle to the edge the
+	 * snow line falls from 480 m to ~40 m, so the northernmost islands are snow and ice.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dragon|World")
+	double SnowLineAt(double X, double Y) const;
+	/** 0 temperate .. 1 arctic, from the same climate (used for trees, icebergs, the sea's colour). */
+	UFUNCTION(BlueprintPure, Category = "Dragon|World")
+	float ColdAt(double X, double Y) const;
 
 	/** The named island nearest to a point, and the distance to its centre (cm). */
 	UFUNCTION(BlueprintPure, Category = "Dragon|World")

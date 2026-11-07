@@ -15,7 +15,8 @@ enum class EDragonScatterKind : uint8
 	DeadWood,  // stumps and fallen trunks in the woods
 	Rock,      // boulders on scree, slopes and shores
 	Cliff,     // big rock faces on steep ground
-	Ground     // grass, ferns, shrubs, flowers near the camera
+	Ground,    // grass, ferns, shrubs, flowers near the camera
+	Iceberg    // drift ice off the arctic islands (rock and cliff shapes in M_Ice); added at runtime
 };
 
 /** One scatter layer: which meshes, how dense, how far, where. */
@@ -105,6 +106,9 @@ private:
 	TArray<FTileKey> Queue;
 	UPROPERTY(Transient) TArray<TObjectPtr<UStaticMesh>> LoadedMeshes; // keeps soft refs resident (UPROPERTY so GC sees them)
 	TArray<TArray<UStaticMesh*>> LayerMeshes;
+	/** Per layer, per mesh: a wave-worn coast piece (else inland). Empty when the layer doesn't mix them. */
+	TArray<TArray<bool>> ShoreMesh;
+	const class UDragonWorldSubsystem* WorldSub = nullptr;
 
 	TArray<uint8> Mask;   // RGBA
 	TArray<uint8> Mask2;  // RGB
@@ -115,4 +119,5 @@ private:
 	float StatTimer = 5.f;
 
 	UPROPERTY(Transient) TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> Pool;
+	UPROPERTY(Transient) TObjectPtr<class UMaterialInterface> IceMaterial;
 };

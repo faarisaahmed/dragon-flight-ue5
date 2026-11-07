@@ -5,10 +5,12 @@
 #include "DragonRigComponent.h"
 #include "DragonWebRigComponent.h"
 #include "DragonPlasma.h"
+#include "DragonGameMode.h"
 #include "Camera/CameraComponent.h"
 #include "Components/PoseableMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "DragonWindAudio.h"
+#include "DragonSfx.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
@@ -101,6 +103,8 @@ ADragonPawn::ADragonPawn()
 
 	WindAudio = CreateDefaultSubobject<UDragonWindAudio>(TEXT("WindAudio"));
 	WindAudio->SetupAttachment(Feet);
+	Ambience = CreateDefaultSubobject<UDragonAmbience>(TEXT("Ambience"));
+	Ambience->SetupAttachment(Feet);
 
 	PlasmaClass = ADragonPlasma::StaticClass();
 }
@@ -251,6 +255,15 @@ ADragonPawn::FFrameInput ADragonPawn::GatherInput(float Dt)
 	float MX = 0.f, MY = 0.f;
 	PC->GetInputMouseDelta(MX, MY);
 	if (FMath::Abs(MX) > LOOK_SPIKE || FMath::Abs(MY) > LOOK_SPIKE) { MX = 0.f; MY = 0.f; }
+	// The weather/time panel has the mouse: no looking, no firing with the buttons.
+	const ADragonPlayerController* DPC = Cast<ADragonPlayerController>(PC);
+	if (DPC && DPC->bPanelOpen)
+	{
+		MX = MY = 0.f;
+		In.bFire = AnyDown({ EKeys::U, EKeys::Gamepad_RightTrigger });
+		In.bFirePressed = AnyPressed({ EKeys::U });
+		In.bAim = AnyDown({ EKeys::E });
+	}
 	PendingYaw -= MX * MouseSensitivity * (bInvertX ? -1.f : 1.f);
 	// UE mouse Y is up-positive. Web: mouse up raises the camera over him (camPitch increases).
 	PendingPitch += MY * MouseSensitivity * (bInvertY ? -1.f : 1.f);
@@ -320,6 +333,19 @@ void ADragonPawn::Tick(float DeltaSeconds)
 
 	TickCamera(Dt, In);
 	WindAudio->SetFlight(bGrounded ? 0.f : Flight.GetSpeedRatio(), bGrounded ? 0.f : Flight.GetTurboT(), bGrounded);
+	// Wingbeats: a push of air at the start of each downstroke, loud in a hover or a hard
+	// climb, gone in a glide.
+	if (WebRig && !bGrounded)
+	{
+		const float Ph = WebRig->GetWingPhase01();
+		if (Ph < LastWingPhase - 0.5f)
+		{
+			const float Strength = FMath::Clamp((WebRig->GetWingAmp() - 0.12f) / 0.5f, 0.f, 1.f) * (1.f - WebRig->GetGlide());
+			const float Beat = FMath::Max(0.2f, WebRig->GetDownstroke() * 0.9f);
+			DragonSfx::Wingbeat(this, GetActorLocation(), Strength, Beat);
+		}
+		LastWingPhase = Ph;
+	}
 }
 
 void ADragonPawn::TickFlight(float Dt, const FFrameInput& In)

@@ -93,6 +93,27 @@ ADragonPlayerController::ADragonPlayerController()
 	bShowMouseCursor = false;
 }
 
+void ADragonPlayerController::SetPanelOpen(bool bOpen)
+{
+	bPanelOpen = bOpen;
+	bShowMouseCursor = bOpen;
+	bEnableClickEvents = bOpen;
+	if (bOpen)
+	{
+		FInputModeGameAndUI Mode;
+		Mode.SetHideCursorDuringCapture(false);
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::LockAlways);
+		SetInputMode(Mode);
+		// Start the cursor over the panel.
+		int32 SX = 0, SY = 0; GetViewportSize(SX, SY);
+		SetMouseLocation(SX - 200, 140);
+	}
+	else
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+}
+
 void ADragonPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
@@ -119,6 +140,8 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 			if (++Reports == 3 && FParse::Param(FCommandLine::Get(), TEXT("PerfProfile"))) ConsoleCommand(TEXT("ProfileGPU"));
 		}
 	}
+	if (WasInputKeyJustPressed(EKeys::Tab) || WasInputKeyJustPressed(EKeys::T)) SetPanelOpen(!bPanelOpen);
+	if (bPanelOpen && WasInputKeyJustPressed(EKeys::Escape)) SetPanelOpen(false);
 	if (WasInputKeyJustPressed(EKeys::Slash) || WasInputKeyJustPressed(EKeys::F1)) bShowHelp = !bShowHelp;
 	if (WasInputKeyJustPressed(EKeys::F2))
 	{
