@@ -101,6 +101,11 @@ public:
 
 	/** Teleport (metres, UE axes) — debug and respawn. */
 	void TeleportToM(const FVector& NewPosM, bool bAirborne = true);
+	/** Photo mode: level flight at PosM (m) facing UE yaw YawDeg, chase camera snapped behind. */
+	void PhotoPose(const FVector& PosM, float YawDeg);
+	/** Photo mode: one bolt from the mouth at TargetM (m), as if the player fired. */
+	void PhotoFire(const FVector& TargetM);
+	FVector GetPosM() const { return PosM; }
 
 	/** Ground height (m) under a UE-axis point in metres, excluding water and the dragon. */
 	float SolidAtM(float X, float Y) const;

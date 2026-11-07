@@ -133,7 +133,7 @@ void ADragonPlasma::Explode(const FVector& AtCm, const FVector& Normal, bool bWa
 	if (ADragonFX* FX = ADragonFX::Get(this))
 	{
 		if (bAir) FX->PlasmaBlast(AtCm, FVector::UpVector, true, BlastRadiusM * M * 0.35f);
-		else FX->PlasmaBlast(AtCm, Normal, bWater, BlastRadiusM * M * 0.5f);
+		else FX->PlasmaBlast(AtCm, Normal, bWater, BlastRadiusM * M * 0.65f);
 	}
 	DragonSfx::PlasmaBlast(this, AtCm, bWater || bAir);
 	// Anything physics-simulating in the blast gets pushed (crates, debris, later: targets).

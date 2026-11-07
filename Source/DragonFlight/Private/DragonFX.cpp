@@ -300,8 +300,8 @@ void ADragonFX::PlasmaBlast(const FVector& At, const FVector& Normal, bool bWate
 		P.Pos = At + Up * (R * 0.15f) + RandDir() * R * 0.08f;
 		P.Vel = RandDir() * R * 0.6f;
 		P.Drag = 5.f;
-		P.Life = 0.28f + 0.1f * Rand();
-		P.Size0 = R * 0.4f; P.Size1 = R * (1.3f + 0.4f * Rand()); P.GrowPow = 0.35f;
+		P.Life = 0.5f + 0.15f * Rand();
+		P.Size0 = R * 0.45f; P.Size1 = R * (1.6f + 0.4f * Rand()); P.GrowPow = 0.35f;
 		P.Colour0 = (k < 2 ? PlasmaHot * 5.f : FMath::Lerp(PlasmaBlue, PlasmaViolet, Rand()) * 4.f); P.Colour1 = PlasmaViolet * 1.2f;
 		P.FadeIn = 0.f;
 		Spawn(P);
@@ -363,8 +363,8 @@ void ADragonFX::PlasmaBlast(const FVector& At, const FVector& Normal, bool bWate
 		P.Pos = At + Up * R * 0.1f + FVector(RandDir().X, RandDir().Y, 0.f) * R * 0.45f;
 		P.Vel = Up * (200.f + 400.f * Rand()) + RandDir() * 150.f;
 		P.Drag = 1.5f; P.Buoyancy = 500.f;
-		P.Life = 0.7f + 0.9f * Rand();
-		P.Size0 = R * 0.35f; P.Size1 = R * (0.6f + 0.3f * Rand()); P.GrowPow = 0.6f;
+		P.Life = 1.0f + 1.2f * Rand();
+		P.Size0 = R * 0.4f; P.Size1 = R * (0.8f + 0.4f * Rand()); P.GrowPow = 0.6f;
 		P.Colour0 = FireOrange * (5.f + 3.f * Rand()); P.Colour1 = FireDeep * 1.2f;
 		P.FadeIn = 0.15f; P.Spin = Rand() - 0.5f;
 		Spawn(P);

@@ -1,4 +1,5 @@
 #include "DragonPhotoDirector.h"
+#include "DragonPawn.h"
 #include "DragonFlight.h"
 #include "DragonGameMode.h"
 #include "DragonSky.h"
@@ -261,6 +262,102 @@ void ADragonPhotoDirector::PlanShots()
 			}
 		}
 	}
+	// Showcase: the player's view flying in on one island of each kind (home, volcanic, woodland,
+	// moorland, the arctic), and the dragon firing at a sea cliff, in the light that suits each.
+	{
+		TArray<const FDragonIsland*> Pick;
+		TArray<FString> Kind;
+		auto AddIsle = [&](const FDragonIsland* I, const FString& K) { if (I && !Pick.Contains(I)) { Pick.Add(I); Kind.Add(K); } };
+		const FDragonIsland* HomeIsle = nullptr;
+		for (const FDragonIsland& I : W->GetIslands())
+			if (!HomeIsle || FVector::Dist2D(I.Centre, Home) < FVector::Dist2D(HomeIsle->Centre, Home)) HomeIsle = &I;
+		AddIsle(HomeIsle, TEXT("home"));
+		if (const TSharedPtr<FJsonObject> J = W->GetJson())
+		{
+			const TSharedPtr<FJsonObject>* Bio = nullptr;
+			if (J->TryGetObjectField(TEXT("biomes"), Bio))
+			{
+				TSet<FString> Done;
+				for (const FDragonIsland& I : W->GetIslands())
+				{
+					FString B;
+					if ((*Bio)->TryGetStringField(I.Name, B) && !Done.Contains(B) && I.Radius > 60000.0) { Done.Add(B); AddIsle(&I, B); }
+				}
+			}
+		}
+		{
+			const FDragonIsland* Cold = nullptr;
+			for (const FDragonIsland& I : W->GetIslands())
+				if (I.Radius > 60000.0 && (!Cold || W->ColdAt(I.Centre.X, I.Centre.Y) > W->ColdAt(Cold->Centre.X, Cold->Centre.Y))) Cold = &I;
+			AddIsle(Cold, TEXT("arctic"));
+		}
+		const float Light[] = { 17.5f, 19.8f, 15.0f, 18.5f, 14.0f, 16.5f };
+		for (int32 k = 0; k < Pick.Num(); ++k)
+		{
+			const FDragonIsland& I = *Pick[k];
+			const FString Nm = I.Name.Replace(TEXT(" "), TEXT("")).Replace(TEXT("'"), TEXT(""));
+			// Of 16 bearings, the one whose approach is the widest open water (no fjords), then walk
+			// out from the centre to the coast along it.
+			auto CoastAlong = [&](const FVector& Dir)
+			{
+				FVector C = FVector(I.Centre.X, I.Centre.Y, 0.0);
+				for (double r = 0.0; r < I.Radius * 3.0; r += 1000.0)
+				{
+					C = FVector(I.Centre.X, I.Centre.Y, 0.0) + Dir * r;
+					if (r > I.Radius * 0.3 && W->HeightAt(C.X, C.Y) < -200.0) break;
+				}
+				return C;
+			};
+			FVector D(1, 0, 0); double BestScore = -1e9;
+			for (int32 a = 0; a < 16; ++a)
+			{
+				const double Ang = 0.3 * k + a * UE_DOUBLE_TWO_PI / 16.0;
+				const FVector Dir(FMath::Cos(Ang), FMath::Sin(Ang), 0.0);
+				const FVector Side(-Dir.Y, Dir.X, 0.0);
+				const FVector C = CoastAlong(Dir);
+				double Score = 0.0;
+				for (double Out = 5000.0; Out <= 60000.0; Out += 5000.0)
+					for (double Sd = -40000.0; Sd <= 40000.0; Sd += 10000.0)
+					{
+						const FVector Q = C + Dir * Out + Side * Sd;
+						Score += W->HeightAt(Q.X, Q.Y) < -500.0 ? 1.0 : 0.0;
+					}
+				// and something worth looking at: high ground just inland
+				const FVector In = C - Dir * 20000.0;
+				Score += FMath::Clamp(W->HeightAt(In.X, In.Y) / 2000.0, 0.0, 15.0);
+				if (Score > BestScore) { BestScore = Score; D = Dir; }
+			}
+			const FVector Coast = CoastAlong(D);
+			// Flying in, angled 18 degrees off the centre line so the coast runs across the view.
+			FShot Fl; Fl.Name = FString::Printf(TEXT("30_fly_%s_%s"), *Kind[k], *Nm); Fl.bChase = true; Fl.bPose = true;
+			Fl.Hours = Light[k % 6];
+			const FVector Start = Coast + D * 90000.0;
+			Fl.PoseM = FVector(Start.X, Start.Y, 13000.0) / 100.0;
+			Fl.PoseYaw = (-D).Rotation().Yaw + 18.f;
+			Shots.Add(Fl);
+			// Firing at the cliffs: nearer in, the bolt bursting on the first high ground ahead.
+			FShot Fi = Fl; Fi.Name = FString::Printf(TEXT("31_fire_%s_%s"), *Kind[k], *Nm); Fi.bDragonFires = true; Fi.PlasmaLead = 0.15f;
+			const FVector Near = Coast + D * 30000.0;
+			Fi.PoseM = FVector(Near.X, Near.Y, 7000.0) / 100.0;
+			Fi.PoseYaw = (-D).Rotation().Yaw;
+			FVector T = Coast;
+			for (double r = 0.0; r < I.Radius; r += 1000.0)
+			{
+				T = Coast - D * r;
+				if (W->HeightAt(T.X, T.Y) > 1500.0) break;
+			}
+			T.Z = W->HeightAt(T.X, T.Y) + 800.0;
+			Fi.Target = T;
+			Shots.Add(Fi);
+			if (k < 2)
+			{
+				FShot Fa = Fi; Fa.Name = FString::Printf(TEXT("31c_after_%s_%s"), *Kind[k], *Nm); Fa.PlasmaLead = 1.0f;   // fire and smoke a second on
+				Shots.Add(Fa);
+				FShot Fm = Fi; Fm.Name = FString::Printf(TEXT("31b_bolt_%s_%s"), *Kind[k], *Nm); Fm.PlasmaLead = -0.3f;   // the bolt on its way
+				Shots.Add(Fm);
+			}
+		}
+	}
 	// Weather: a storm rolling over the home coast, and rain.
 	{
 		FShot St; St.Name = TEXT("22_storm"); St.Weather = (uint8)EDragonWeather::Storm; St.Hours = 15.f;
@@ -328,6 +425,8 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 		if (APawn* P = PC->GetPawn())
 		{
 			P->CustomTimeDilation = 1.f;
+			if (S.bPose)
+				if (ADragonPawn* DP = Cast<ADragonPawn>(P)) DP->PhotoPose(S.PoseM, S.PoseYaw);
 			PC->SetViewTarget(P);
 		}
 	}
@@ -418,6 +517,15 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 			const FVector Dir = (S.Target - From).GetSafeNormal();
 			FActorSpawnParameters SP; SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 			if (ADragonPlasma* B = GetWorld()->SpawnActor<ADragonPlasma>(ADragonPlasma::StaticClass(), From, Dir.Rotation(), SP)) B->Launch(Dir * 60000.0);
+		}
+	}
+	// The dragon's own shot: fire when bolt flight + lead = time left to the shutter.
+	if (S.bDragonFires && !bFired && !bShotRequested)
+	{
+		if (ADragonPawn* DP = Cast<ADragonPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+		{
+			const float Flight = (float)(FVector::Dist(DP->GetPosM() * 100.0, S.Target) / 60000.0);
+			if (Timer >= Settle - Flight - S.PlasmaLead) { bFired = true; DP->PhotoFire(S.Target / 100.0); }
 		}
 	}
 	if (!bShotRequested && Timer >= Settle)

@@ -42,6 +42,10 @@ private:
 		float PlasmaLead = 0.35f;    // seconds between the burst and the shot (negative: mid-flight)
 		FVector Target = FVector::ZeroVector;
 		bool bPanel = false;         // show the HUD with the weather panel open
+		bool bPose = false;          // chase shot: put the dragon at PoseM (m) facing PoseYaw first
+		FVector PoseM = FVector::ZeroVector;
+		float PoseYaw = 0.f;
+		bool bDragonFires = false;   // chase shot: the dragon fires at Target (cm), bursting PlasmaLead s before the shutter
 	};
 
 	void PlanShots();

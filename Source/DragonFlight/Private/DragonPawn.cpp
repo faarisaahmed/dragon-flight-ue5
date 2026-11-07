@@ -480,6 +480,34 @@ void ADragonPawn::TeleportToM(const FVector& NewPosM, bool bAirborne)
 	ApplyTransform();
 }
 
+void ADragonPawn::PhotoPose(const FVector& NewPosM, float YawDeg)
+{
+	TeleportToM(NewPosM, true);
+	bGrounded = false;
+	bFlaring = false;
+	Flight.SetHeading(F::YawToHeading(YawDeg));
+	CamYaw = Flight.Heading + PI;
+	bCamInit = false;
+	ApplyTransform();
+}
+
+void ADragonPawn::PhotoFire(const FVector& TargetM)
+{
+	const FVector Fwd = F::Forward(Flight.Heading);
+	const FVector Muzzle = PosM + FVector(0, 0, 1.6f * DragonScale) + Fwd * (5.2f * DragonScale);
+	const FVector Dir = (TargetM - Muzzle).GetSafeNormal();
+	const float Speed = MUZZLE_SPEED + FMath::Max(0.f, (float)FVector::DotProduct(Flight.GetVelocity(), Dir));
+	if (UWorld* World = GetWorld())
+	{
+		FActorSpawnParameters SP;
+		SP.Owner = this;
+		SP.Instigator = this;
+		SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		UClass* Cls = PlasmaClass ? PlasmaClass.Get() : ADragonPlasma::StaticClass();
+		if (ADragonPlasma* P = World->SpawnActor<ADragonPlasma>(Cls, Muzzle * M, Dir.Rotation(), SP)) P->Launch(Dir * Speed * M);
+	}
+}
+
 // --- Landing (main.js 1183-1236, 2769-2825) --------------------------------
 void ADragonPawn::GroundAttitude(float X, float Y, float H, float& OutPitch, float& OutRoll, float& OutSteep) const
 {
