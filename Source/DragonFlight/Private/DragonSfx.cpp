@@ -60,11 +60,11 @@ namespace
 			const float F = t < 0.10f ? FMath::Lerp(1300.f, Top, t / 0.10f) : Bottom + (Top - Bottom) * FMath::Exp(-(t - 0.10f) * 2.8f);
 			const float Vib = 1.f + 0.018f * FMath::Sin(t * 2.f * PI * 9.f) + 0.006f * R.N();
 			Ph += 2.0 * PI * F * Vib / RATE;
-			const float Tone = FMath::Sin(Ph) + 0.4f * FMath::Sin(2.0 * Ph + 0.3) + 0.18f * FMath::Sin(3.0 * Ph + 1.1);
+			const float Tone = (float)(FMath::Sin(Ph) + 0.4 * FMath::Sin(2.0 * Ph + 0.3) + 0.18 * FMath::Sin(3.0 * Ph + 1.1));
 			// breath: noise ring-modulated onto the pitch, so the shriek is airy, not a pure whistle
 			const float Wn = R.N();
 			Lp += (Wn - Lp) * LpK(F * 0.6f);
-			const float Breath = Lp * FMath::Sin(Ph * 1.0) * 2.4f;
+			const float Breath = Lp * (float)FMath::Sin(Ph) * 2.4f;
 			const float Env = FMath::Clamp(t / 0.035f, 0.f, 1.f) * FMath::Exp(-t * 2.1f);
 			float S = (Tone * 0.55f + Breath * 0.6f) * Env;
 			// charge crackle in the first 80 ms
@@ -365,7 +365,7 @@ void UDragonAmbience::BeginPlay()
 			R += (S->SurfLp1R * (0.3f + Crash) + S->SurfLp2R * 0.35f * Crash) * S->SmSurf;
 			// Open sea: a soft slow wash.
 			S->Phase += 1.0 / RATE;
-			const float Wash = 0.55f + 0.45f * FMath::Sin(S->Phase * 2.0 * PI / 5.3) * FMath::Sin(S->Phase * 2.0 * PI / 8.9 + 1.0);
+			const float Wash = 0.55f + 0.45f * (float)(FMath::Sin(S->Phase * 2.0 * PI / 5.3) * FMath::Sin(S->Phase * 2.0 * PI / 8.9 + 1.0));
 			S->SeaLpL += (S->BrownL * 5.f - S->SeaLpL) * KSea; S->SeaLpR += (S->BrownR * 5.f - S->SeaLpR) * KSea;
 			L += S->SeaLpL * Wash * S->SmSea * 0.6f; R += S->SeaLpR * Wash * S->SmSea * 0.6f;
 			Out[i * 2] = (int16)FMath::Clamp(L * 12000.f, -32000.f, 32000.f);

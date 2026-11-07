@@ -248,31 +248,38 @@ void ADragonFX::PlasmaMuzzle(const FVector& At, const FVector& Dir)
 
 void ADragonFX::PlasmaTrail(const FVector& From, const FVector& To, const FVector& Vel)
 {
-	// A glow every ~2.5 m of flight: a soft violet wake that thins and sinks into the air.
-	const float D = FVector::Dist(From, To);
-	const int32 N = FMath::Clamp(FMath::CeilToInt(D / 250.f), 1, 40);
+	// The wake: overlapping streaks laid along the path, so it reads as one glowing ribbon
+	// that thins and fades behind the bolt, with a softer violet haze around it.
+	const FVector D = To - From;
+	const float Len = D.Size();
+	if (Len < 1.f) return;
+	const FVector Dir = D / Len;
+	const int32 N = FMath::Clamp(FMath::CeilToInt(Len / 600.f), 1, 12);
 	for (int32 i = 0; i < N; ++i)
 	{
-		const float A = (i + Rand()) / N;
+		const float A0 = (float)i / N, A1 = (i + 1.f) / N;
 		FDragonPuff P;
 		P.Kind = EDragonPuff::Glow;
-		P.Pos = FMath::Lerp(From, To, A) + RandDir() * 18.f;
-		P.Vel = Vel * 0.04f + RandDir() * 60.f;
-		P.Drag = 3.f;
-		P.Life = 0.22f + Rand() * 0.18f;
-		P.Size0 = 150.f + Rand() * 40.f; P.Size1 = 50.f; P.GrowPow = 0.7f;
-		P.Colour0 = FMath::Lerp(PlasmaBlue, PlasmaViolet, Rand()) * 3.2f; P.Colour1 = PlasmaViolet * 0.6f;
+		P.Pos = FMath::Lerp(From, To, (A0 + A1) * 0.5f);
+		P.Axis = Dir; P.LengthCm = Len / N * 1.6f;
+		P.Life = 0.35f + Rand() * 0.1f;
+		P.Size0 = 110.f; P.Size1 = 30.f; P.GrowPow = 0.8f;
+		P.Colour0 = FMath::Lerp(PlasmaBlue, PlasmaViolet, 0.35f + 0.3f * Rand()) * 3.f; P.Colour1 = PlasmaViolet * 0.5f;
 		P.FadeIn = 0.f;
 		Spawn(P);
+		FDragonPuff H = P;
+		H.Size0 = 320.f; H.Size1 = 160.f; H.Life = 0.5f; H.LengthCm = Len / N * 1.8f;
+		H.Colour0 = PlasmaViolet * 0.7f; H.Colour1 = PlasmaViolet * 0.1f;
+		Spawn(H);
 	}
 	// The odd spark thrown off the bolt.
-	if (Rand() < 0.35f)
+	if (Rand() < 0.5f)
 	{
 		FDragonPuff S;
 		S.Kind = EDragonPuff::Glow;
-		S.Pos = To; S.Vel = Vel * 0.15f + RandDir() * 900.f; S.Drag = 2.f; S.Gravity = 300.f;
-		S.Life = 0.3f + Rand() * 0.3f; S.Size0 = 22.f; S.Size1 = 10.f; S.Stretch = 0.03f;
-		S.Colour0 = PlasmaHot * 8.f; S.Colour1 = PlasmaBlue * 2.f; S.FadeIn = 0.f;
+		S.Pos = To; S.Vel = Vel * 0.1f + RandDir() * 1200.f; S.Drag = 2.f; S.Gravity = 300.f;
+		S.Life = 0.3f + Rand() * 0.3f; S.Size0 = 26.f; S.Size1 = 10.f; S.Stretch = 0.03f;
+		S.Colour0 = PlasmaHot * 6.f; S.Colour1 = PlasmaBlue * 2.f; S.FadeIn = 0.f;
 		Spawn(S);
 	}
 }
@@ -295,7 +302,7 @@ void ADragonFX::PlasmaBlast(const FVector& At, const FVector& Normal, bool bWate
 		P.Drag = 5.f;
 		P.Life = 0.28f + 0.1f * Rand();
 		P.Size0 = R * 0.4f; P.Size1 = R * (1.3f + 0.4f * Rand()); P.GrowPow = 0.35f;
-		P.Colour0 = (k < 2 ? PlasmaHot * 14.f : PlasmaBlue * 9.f); P.Colour1 = PlasmaViolet * 2.f;
+		P.Colour0 = (k < 2 ? PlasmaHot * 5.f : FMath::Lerp(PlasmaBlue, PlasmaViolet, Rand()) * 4.f); P.Colour1 = PlasmaViolet * 1.2f;
 		P.FadeIn = 0.f;
 		Spawn(P);
 	}
@@ -310,7 +317,7 @@ void ADragonFX::PlasmaBlast(const FVector& At, const FVector& Normal, bool bWate
 		P.Drag = 4.5f; P.Gravity = 200.f;
 		P.Life = 0.35f + 0.3f * Rand();
 		P.Size0 = R * 0.25f; P.Size1 = R * 0.6f; P.Stretch = 0.012f;
-		P.Colour0 = FMath::Lerp(PlasmaBlue, PlasmaViolet, Rand()) * 6.f; P.Colour1 = FireOrange * 2.5f;
+		P.Colour0 = FMath::Lerp(PlasmaBlue, PlasmaViolet, Rand()) * 3.5f; P.Colour1 = FireOrange * 1.8f;
 		P.FadeIn = 0.f;
 		Spawn(P);
 	}

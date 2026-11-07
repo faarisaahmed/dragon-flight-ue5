@@ -21,7 +21,7 @@ ADragonPlasma::ADragonPlasma()
 	RootComponent = Core;
 	Core->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Core->SetCastShadow(false);
-	Core->SetRelativeScale3D(FVector(1.1f)); // core radius 0.55 m
+	Core->SetRelativeScale3D(FVector(1.7f, 1.5f, 1.5f)); // core ~0.8 m across the flight, a little longer along it
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	if (Sphere.Succeeded()) Core->SetStaticMesh(Sphere.Object);
 
@@ -83,8 +83,9 @@ void ADragonPlasma::Tick(float DeltaSeconds)
 
 	// The sheath stretches along the flight and the whole bolt flickers like an arc.
 	const float Flick = 0.82f + 0.18f * FMath::Sin(Age * 61.f) * FMath::Sin(Age * 23.f + 0.7f);
-	Sheath->SetRelativeScale3D(FVector(3.6f, 1.25f, 1.25f) * (0.95f + 0.1f * Flick));
-	Sheath->SetRelativeLocation(FVector(-90.f, 0.f, 0.f));
+	// (relative to the core's scale) a 4.5 m sheath trailing back from it
+	Sheath->SetRelativeScale3D(FVector(1.75f, 1.35f, 1.35f) * (0.95f + 0.1f * Flick));
+	Sheath->SetRelativeLocation(FVector(-45.f, 0.f, 0.f));
 	Glow->SetIntensity(60000.f * Flick);
 	if (CoreMID) CoreMID->SetScalarParameterValue(TEXT("Fade"), Flick);
 

@@ -52,7 +52,7 @@ wForest = max(wForest, land * bio.r * 0.85 * (1.0 - smoothstep(0.45, 0.75, slope
 wHeath = lerp(wHeath, wHeath + wGrass * 0.8, bio.b); wGrass *= 1.0 - bio.b * 0.8;
 wMud = max(wMud, bio.b * land * smoothstep(0.35, 0.8, flow + nz * 0.3) * (1.0 - smoothstep(0.1, 0.3, slope)) * 0.8);
 // Volcanic: young lava fields (rough black rock) instead of much of the turf, no woods.
-wScree = max(wScree, bio.g * land * saturate(0.55 + nz2 * 0.9 - mk.g * 0.3));
+wScree = max(wScree, bio.g * land * saturate(0.45 + nz * 0.5 + nz2 * 0.25 - mk.g * 0.25) * 0.8);
 wForest *= 1.0 - bio.g; wGrass *= 1.0 - bio.g * 0.5;
 float sn = saturate(wSnow);
 wCliff *= 1.0 - sn * 0.55; wScree *= 1.0 - sn; wSand *= 1.0 - sn; wShingle *= 1.0 - sn;
@@ -80,9 +80,9 @@ TOPLAYER(Scree,   6.0, wScree,   lerp(float3(0.72, 0.72, 0.74), float3(0.22, 0.2
 // Summer turf on these islands is a deep, wet green, broken by patches of heather and
 // bracken (browner) and greener flushes along the gullies; tundra browns in the cold north.
 float patchy = saturate(0.5 + nz * 0.9);
-float3 turf = lerp(float3(0.36, 0.64, 0.27), float3(0.46, 0.62, 0.30), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
+float3 turf = lerp(float3(0.30, 0.62, 0.22), float3(0.42, 0.62, 0.27), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
 // (volcanic isles: the woolly fringe-moss of Iceland's lava fields, yellow-green)
-TOPLAYER(Grass,   3.0, wGrass,   lerp(lerp(turf, float3(0.58, 0.56, 0.42), cold), float3(0.62, 0.66, 0.30), bio.g) * (0.88 + 0.16 * nz), 1.0)
+TOPLAYER(Grass,   3.0, wGrass,   lerp(lerp(turf, float3(0.58, 0.56, 0.42), cold), float3(0.50, 0.58, 0.30), bio.g) * (0.88 + 0.16 * nz), 1.0)
 // (moorland: heather, purple-brown, in drifts)
 TOPLAYER(Heath,   4.0, wHeath,   lerp(lerp(lerp(float3(0.58, 0.60, 0.40), float3(0.62, 0.50, 0.46), saturate(nz2 + 0.3)), float3(0.62, 0.55, 0.46), cold), lerp(float3(0.50, 0.38, 0.40), float3(0.42, 0.40, 0.30), saturate(nz * 0.8 + 0.4)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
 TOPLAYER(Forest,  4.0, wForest,  float3(0.62, 0.62, 0.56), 1.0)
@@ -146,7 +146,7 @@ TOPLAYER(Mud,     3.0, wMud,     float3(0.75, 0.72, 0.70), 0.55)
 float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 [branch] if (ff > 0.001)
 {
-	float3 farG = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 70.0).rgb * float3(0.62, 0.76, 0.52);
+	float3 farG = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 70.0).rgb * float3(0.50, 0.78, 0.42);
 	float3 farR = Texture2DSample(FarRockD,  FarRockDSampler,  pm.xy / 60.0).rgb * 0.9;
 	float3 farS = Texture2DSample(FarSnowD,  FarSnowDSampler,  pm.xy / 80.0).rgb;
 	float gG = (wGrass + wHeath + wForest) / wSum, gR = (wCliff + wScree + wSand + wShingle + wMud) / wSum, gS = wSnow / wSum;
@@ -154,6 +154,13 @@ float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 	C = lerp(C, farC, ff);
 }
 
+// Woods from afar: past the distance the trees are drawn to, the canopy itself is the colour
+// you see - a near-black conifer green, a little bluer with distance - not the forest floor.
+{
+	float canopy = (wForest / wSum) * smoothstep(1800.0, 4800.0, dist) * (1.0 - sn);
+	C = lerp(C, float3(0.045, 0.07, 0.04) * (0.85 + 0.3 * nz), canopy * 0.9);
+	R = lerp(R, 0.85, canopy);
+}
 // Water-fed ground: gully floors and stream lines darker, mossier and damper.
 float wet = smoothstep(0.35, 0.85, flow) * (1.0 - sn) * (1.0 - wCliff / wSum * 0.6) * step(1.0, h);
 C = lerp(C, C * float3(0.62, 0.72, 0.55), wet * 0.75);
