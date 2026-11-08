@@ -577,6 +577,10 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 		// on the mini for the forests). Past 120 m nobody sees the sway; the shadows cache.
 		if (L.Kind == EDragonScatterKind::Tree || L.Kind == EDragonScatterKind::Sapling || L.Kind == EDragonScatterKind::Shrub)
 			C->WorldPositionOffsetDisableDistance = FMath::RoundToInt(120.f * M);
+		// Scatter never moves, and a swaying bough's shadow needn't sway: let the shadow cache keep
+		// it. (Auto re-rendered every swaying tree's shadow each frame: on foot in a forest that
+		// was most of the frame.)
+		C->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Static;
 		C->SetupAttachment(RootComponent);
 		C->RegisterComponent();
 		C->AddInstances(PerMesh[m], false, true);

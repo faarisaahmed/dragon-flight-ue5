@@ -30,6 +30,7 @@ namespace
 	double LegT = 0.0;
 	TArray<float> FrameMs;
 	double GameMs = 0, RenderMs = 0, GpuMs = 0; int32 Samples = 0;
+	float WorstMs = 0, WorstGame = 0, WorstRender = 0, WorstGpu = 0;
 	FString Out;
 	double SETTLE = 5.0, MEASURE = 15.0;
 }
@@ -51,6 +52,18 @@ void ADragonPlayerController::TickBench(float Dt)
 	{
 		static double Boot = 0.0; Boot += Dt;
 		if (Boot < 10.0) return;
+		// -BenchCVars=r.A=1,r.B=2 : settings to try (works in Shipping, where -ini: and the console don't).
+		FString CV;
+		if (FParse::Value(FCommandLine::Get(), TEXT("BenchCVars="), CV, false))
+		{
+			TArray<FString> Pairs; CV.ParseIntoArray(Pairs, TEXT(","));
+			for (const FString& Pr : Pairs)
+			{
+				FString K, V;
+				if (Pr.Split(TEXT("="), &K, &V))
+					if (IConsoleVariable* C = IConsoleManager::Get().FindConsoleVariable(*K)) { C->Set(*V, ECVF_SetByConsole); UE_LOG(LogDragon, Display, TEXT("Bench cvar %s=%s"), *K, *V); }
+			}
+		}
 		FParse::Value(FCommandLine::Get(), TEXT("BenchSettle="), SETTLE);
 		FParse::Value(FCommandLine::Get(), TEXT("BenchMeasure="), MEASURE);
 		// Build the route: open sea, the home island low and on foot, the biggest islands, dusk, rain.
@@ -79,7 +92,8 @@ void ADragonPlayerController::TickBench(float Dt)
 		FVector2D VSize(0, 0); if (GEngine->GameViewport) GEngine->GameViewport->GetViewportSize(VSize);
 		const IConsoleVariable* CSP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage"));
 		const IConsoleVariable* CSS = IConsoleManager::Get().FindConsoleVariable(TEXT("r.SecondaryScreenPercentage.GameViewport"));
-		Out = FString::Printf(TEXT("viewport %.0fx%.0f  screen%% %.0f  secondary%% %.0f\n"), VSize.X, VSize.Y, CSP ? CSP->GetFloat() : -1.f, CSS ? CSS->GetFloat() : -1.f);
+		Out = CV.IsEmpty() ? FString() : FString::Printf(TEXT("cvars %s\n"), *CV);
+		Out += FString::Printf(TEXT("viewport %.0fx%.0f  screen%% %.0f  secondary%% %.0f\n"), VSize.X, VSize.Y, CSP ? CSP->GetFloat() : -1.f, CSS ? CSS->GetFloat() : -1.f);
 		Out += FString::Printf(TEXT("Bench %s  preset %d  res %dx%d  %s\n%-22s %7s %7s %7s %7s %7s %7s\n"),
 			*FDateTime::Now().ToString(), S ? S->GetOverallScalabilityLevel() : -1,
 			S ? S->GetScreenResolution().X : 0, S ? S->GetScreenResolution().Y : 0, *GetRenderResLabel(),
@@ -99,7 +113,7 @@ void ADragonPlayerController::TickBench(float Dt)
 		else { P->PhotoPose(FVector(L.PosM.X, L.PosM.Y, G + L.AglM), L.Yaw); P->PhotoSpeed(L.Speed); }
 		ADragonPawn::FDragonScript Sc; Sc.bOn = true; Sc.WalkFwd = L.bGround ? 1.f : 0.f; Sc.Turn = L.bGround ? 0.f : 0.12f;
 		P->SetScript(Sc);
-		LegT = 0.0; FrameMs.Reset(); GameMs = RenderMs = GpuMs = 0; Samples = 0;
+		LegT = 0.0; FrameMs.Reset(); GameMs = RenderMs = GpuMs = 0; Samples = 0; WorstMs = WorstGame = WorstRender = WorstGpu = 0;
 		return;
 	}
 	const double Prev = LegT;
@@ -114,9 +128,10 @@ void ADragonPlayerController::TickBench(float Dt)
 #endif
 	if (LegT < SETTLE) return;
 	FrameMs.Add(Dt * 1000.f);
-	GameMs += FPlatformTime::ToMilliseconds(GGameThreadTime);
-	RenderMs += FPlatformTime::ToMilliseconds(GRenderThreadTime);
-	GpuMs += FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles());
+	const float Gm = FPlatformTime::ToMilliseconds(GGameThreadTime), Rm = FPlatformTime::ToMilliseconds(GRenderThreadTime);
+	const float Gp = FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles());
+	GameMs += Gm; RenderMs += Rm; GpuMs += FMath::Min(Gp, 200.f);
+	if (Dt * 1000.f > WorstMs) { WorstMs = Dt * 1000.f; WorstGame = Gm; WorstRender = Rm; WorstGpu = Gp; }
 	++Samples;
 	if (LegT < SETTLE + MEASURE) return;
 
@@ -124,8 +139,8 @@ void ADragonPlayerController::TickBench(float Dt)
 	double Sum = 0; for (float f : FrameMs) Sum += f;
 	const float Avg = Sum / FMath::Max(1, FrameMs.Num());
 	const float Low = Sorted[FMath::Clamp(int32(Sorted.Num() * 0.99f), 0, Sorted.Num() - 1)];
-	Out += FString::Printf(TEXT("%-22s %7.1f %7.1f %7.1f %7.1f %7.1f %7.1f\n"), *L.Name, 1000.0 / Avg, 1000.0 / Low, Sorted.Last(),
-		GameMs / Samples, RenderMs / Samples, GpuMs / Samples);
+	Out += FString::Printf(TEXT("%-22s %7.1f %7.1f %7.1f %7.1f %7.1f %7.1f   worst: game %.1f render %.1f gpu %.1f\n"), *L.Name, 1000.0 / Avg, 1000.0 / Low, Sorted.Last(),
+		GameMs / Samples, RenderMs / Samples, GpuMs / Samples, WorstGame, WorstRender, WorstGpu);
 	UE_LOG(LogDragon, Display, TEXT("Bench %s: %.1f fps, 1%% low %.1f"), *L.Name, 1000.0 / Avg, 1000.0 / Low);
 	++LegIdx; LegT = -1.0;
 	if (LegIdx >= Legs.Num())
