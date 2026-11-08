@@ -24,6 +24,7 @@ class DRAGONFLIGHT_API ADragonPhotoDirector : public AActor
 public:
 	ADragonPhotoDirector();
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 	virtual void Tick(float DeltaSeconds) override;
 
 	/** Seconds to let a view settle (streaming, Lumen, exposure) before shooting it. */

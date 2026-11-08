@@ -20,16 +20,38 @@
 #include "Misc/Paths.h"
 #include "UnrealClient.h"
 #include "RenderUtils.h"
+#include "Scalability.h"
 #if WITH_EDITOR
 #include "ShaderCompiler.h"
 #include "TextureCompiler.h"
 #include "StaticMeshCompiler.h"
+
 #endif
+
+namespace
+{
+	Scalability::FQualityLevels GPlayerLevels;
+	bool bHavePlayerLevels = false;
+
+	void RestorePlayerLevels()
+	{
+		if (!bHavePlayerLevels) return;
+		Scalability::SetQualityLevels(GPlayerLevels, true);
+		if (UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr) S->LoadSettings(true);
+		bHavePlayerLevels = false;
+	}
+}
 
 ADragonPhotoDirector::ADragonPhotoDirector()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bTickEvenWhenPaused = true;
+}
+
+void ADragonPhotoDirector::EndPlay(const EEndPlayReason::Type Reason)
+{
+	RestorePlayerLevels();
+	Super::EndPlay(Reason);
 }
 
 void ADragonPhotoDirector::BeginPlay()
@@ -46,6 +68,10 @@ void ADragonPhotoDirector::BeginPlay()
 	if (UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr)
 	{
 		// Not ApplySettings: that also saves, and a photo run must never change the player's own settings.
+		// The engine also writes the live quality levels back to GameUserSettings.ini when it quits,
+		// so remember the player's and put them back before exit.
+		GPlayerLevels = Scalability::GetQualityLevels();
+		bHavePlayerLevels = true;
 		S->SetOverallScalabilityLevel(FMath::Clamp(Quality, 0, 4));
 		S->ApplyNonResolutionSettings();
 	}
@@ -654,6 +680,7 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 	if (!Shots.IsValidIndex(Index))
 	{
 		UE_LOG(LogDragon, Display, TEXT("[Photo] all shots done"));
+		RestorePlayerLevels();
 		FPlatformMisc::RequestExit(false, TEXT("AutoShot done"));
 		SetActorTickEnabled(false);
 		return;
