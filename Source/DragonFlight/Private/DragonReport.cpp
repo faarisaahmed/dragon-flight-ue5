@@ -230,6 +230,9 @@ void DragonReport::SendSnapshot(const FString& Where)
 	if (Handle.IsValid()) UGameViewportClient::OnScreenshotCaptured().Remove(Handle);
 	Handle = UGameViewportClient::OnScreenshotCaptured().AddLambda([Where](int32 W, int32 H, const TArray<FColor>& Pixels)
 	{
+		// Copy what we need first: removing the delegate destroys this lambda and its captures
+		// (using Where after that crashed the game right after every F8 screenshot).
+		const FString WhereCopy = Where;
 		UGameViewportClient::OnScreenshotCaptured().Remove(Handle);
 		Handle.Reset();
 		IImageWrapperModule& IW = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
@@ -243,12 +246,12 @@ void DragonReport::SendSnapshot(const FString& Where)
 		const FString Dir = DesktopDir() / TEXT("Dragon Flight Screenshots");
 		IFileManager::Get().MakeDirectory(*Dir, true);
 		const bool bSaved = FFileHelper::SaveArrayToFile(Data, *(Dir / Name + TEXT(".jpg")));
-		if (bSaved) FFileHelper::SaveStringToFile(Where + TEXT("\n") + SystemSummary(), *(Dir / Name + TEXT(".txt")));
+		if (bSaved) FFileHelper::SaveStringToFile(WhereCopy + TEXT("\n") + SystemSummary(), *(Dir / Name + TEXT(".txt")));
 		SavedNote = bSaved ? TEXT("Screenshot saved to Desktop > Dragon Flight Screenshots. ") : TEXT("");
 		UE_LOG(LogDragon, Display, TEXT("Report: screenshot saved %s (%s)"), bSaved ? TEXT("ok") : TEXT("FAILED"), *(Dir / Name));
 		SetNotice(SavedNote + TEXT("Sending it to Faaris..."), 4.0);
 		// (A "Name: value" message would be read as a header line; keep it plain.)
-		PostFile(TEXT("F8 screenshot"), TEXT("camera"), Anonymise(Where.Replace(TEXT("Where: "), TEXT("Screenshot taken "))), Name + TEXT(".jpg"), Data);
+		PostFile(TEXT("F8 screenshot"), TEXT("camera"), Anonymise(WhereCopy.Replace(TEXT("Where: "), TEXT("Screenshot taken "))), Name + TEXT(".jpg"), Data);
 	});
 	FScreenshotRequest::RequestScreenshot(false);
 }
