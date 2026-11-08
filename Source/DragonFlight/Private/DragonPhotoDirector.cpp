@@ -408,6 +408,12 @@ void ADragonPhotoDirector::PlanShots()
 						Gl.SideOffset = FVector(0.0, 2200.0, 150.0); Shots.Add(Gl);
 					}
 					FShot Fr = Sd; Fr.Name = TEXT("51d_front_walk"); Fr.Script.WalkFwd = 1.f; Fr.SettleS = 5.f; Fr.SideOffset = FVector(1300.0, 700.0, 120.0); Shots.Add(Fr);
+					// Close on the legs: six moments of one walk cycle.
+					for (int32 i = 0; i < 6; ++i)
+					{
+						FShot Lg = Sd; Lg.Name = FString::Printf(TEXT("51e_legs_walk_%d"), i); Lg.Script.WalkFwd = 1.f; Lg.SettleS = 5.f + 0.13f * i;
+						Lg.SideOffset = FVector(120.0, 1500.0, 40.0); Lg.SideAim = FVector(120.0, 0.0, 30.0); Lg.SideFov = 24.f; Shots.Add(Lg);
+					}
 				}
 				// ... and in the air: cruising (two moments of the beat), slow, hovering, from below.
 				{

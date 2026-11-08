@@ -617,6 +617,19 @@ void UDragonWebRigComponent::FoldIK(float K)
 				const int32 Bn = Finger[s][d * 3 + g], Ch = Finger[s][d * 3 + g + 1];
 				Aim(Bn, Ch, FVector(X * (0.05 - 0.06 * g + 0.012 * (5 - d)), -(Drop + 0.04 * g), 1.0));
 			}
+			// the last joint has no child to aim at: bend it off its parent's line (+ lays it down; sign found by test shots), so the
+			// tips lie over the hips instead of standing out behind him like a shelf
+			const int32 Tip = Finger[s][d * 3 + 2];
+			if (Tip >= 0 && B[Tip].Parent >= 0)
+			{
+				const FVector P = Model(Tip).GetLocation();
+				const FVector Along = (P - Model(B[Tip].Parent).GetLocation()).GetSafeNormal();
+				static const float TipBend = [] { float V = 0.55f; FParse::Value(FCommandLine::Get(), TEXT("-FoldTip="), V); return V; }();
+				const FVector Want = (Along + FVector(X * 0.05, TipBend, 0.0)).GetSafeNormal();
+				const FQuat Was = B[Tip].Q;
+				AimModel(Tip, P + Along, P + Want);
+				SetQ(Tip, FQuat::Slerp(Was, B[Tip].Q, K));
+			}
 		}
 	}
 }
@@ -1266,7 +1279,9 @@ void UDragonWebRigComponent::UpdateGait(float RawDt, const FDragonWebRigInput& I
 		GaitAim(L.C, WPos(L.D), L.Foot);
 		if (L.E >= 0)
 		{
-			const float Curl = L.bDown ? 0.f : 0.7f * FMath::Sin(PI * L.S) * Amp;
+			// toes fold under as the paw leaves the ground, then open and reach just before it lands
+			const float Curl = L.bDown ? 0.f : (0.38f * FMath::Sin(PI * FMath::Min(1.f, L.S * 1.5f))
+				- (L.S > 0.6f ? 0.28f * FMath::Sin(PI * (L.S - 0.6f) / 0.4f) : 0.f)) * Amp;
 			FVector Tip = L.Foot + Nose * (FMath::Cos(Curl) * L.ToeLen) + UpW * (-FMath::Sin(Curl) * L.ToeLen);
 			Tip.Y = FMath::Max(Tip.Y, L.bDown ? GroundAt(Tip.X, Tip.Z) + L.ToeH * 0.5 : -1e9);
 			GaitAim(L.D, WPos(L.E), Tip);
@@ -1292,6 +1307,43 @@ void UDragonWebRigComponent::UpdateGait(float RawDt, const FDragonWebRigInput& I
 			FMath::Sin(Ph - K * 2.4f) * (0.05f * WalkK + 0.03f * TrotK) * Amp +
 			FMath::Sin(TimeMs * 0.0009f - K * 2.f) * (bStill ? 0.03f : 0.01f));
 		RotateLocal(TailB[i], AX, -0.06f * GallopK * (1.f - K) + FMath::Sin(Ph * 2.f - K * 2.f) * 0.03f * GallopK);
+	}
+	TailCarriage(GroundAt);
+}
+
+// A long tail is not a rod held out level: it falls from the hips, then the
+// last third rises again a little so the tip skims clear of the ground.
+void UDragonWebRigComponent::TailCarriage(TFunctionRef<double(double, double)> GroundAt)
+{
+	if (TailB[0] < 0 || TailB[10] < 0) return;
+	auto WPos = [&](int32 I) { return ModelToWeb(Model(I).GetLocation()); };
+	if (TailDownSign == 0.f)
+	{
+		const FQuat Saved = B[TailB[0]].Q;
+		const double Y0 = WPos(TailB[10]).Y;
+		RotateLocal(TailB[0], AX, 0.1f);
+		const double Y1 = WPos(TailB[10]).Y;
+		SetQ(TailB[0], Saved);
+		TailDownSign = Y1 < Y0 ? 1.f : -1.f;
+	}
+	FQuat Base[11];
+	for (int32 i = 0; i < 11; ++i) Base[i] = B[TailB[i]].Q;
+	float Scale = 1.f;
+	for (int32 Pass = 0; Pass < 4; ++Pass)
+	{
+		for (int32 i = 0; i < 11; ++i)
+		{
+			const float A = i < 5 ? 0.05f : (i < 8 ? 0.015f : -0.025f);
+			SetQ(TailB[i], Base[i] * AxisQ(AX, A * Scale * TailDownSign));
+		}
+		double Clear = 1e9;
+		for (int32 i = 2; i < 11; ++i)
+		{
+			const FVector P = WPos(TailB[i]);
+			Clear = FMath::Min(Clear, P.Y - GroundAt(P.X, P.Z));
+		}
+		if (Clear > 0.12) break;
+		Scale *= 0.55f;
 	}
 }
 

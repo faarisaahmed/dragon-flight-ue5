@@ -172,6 +172,7 @@ private:
 	/** Legs in the air, by IK: hind legs trailing back along the belly, forelegs folded under the
 	 *  chest; Ready (0..1) lowers them toward a landing reach. K blends over the current pose. */
 	void FlightLegs(float K, float Ready, float Dt);
+	void TailCarriage(TFunctionRef<double(double, double)> GroundAt);
 	float SFlightReady = 0.f;
 	/** The folded wing, built by aiming each bone (anatomy, not a baked pose): humerus back and up,
 	 *  forearm forward to a wrist high over the shoulder, the fingers stacked back along the flank. */
@@ -237,6 +238,7 @@ private:
 	// --- gait.js ---
 	bool bGaitTried = false, bGaitOK = false, bGaitFirst = true, bStill = true;
 	FGaitLeg Legs[4];
+	float TailDownSign = 0.f; // which way a local X turn bends the tail down, measured once
 	float HipH = 1.f, GPhase01 = 0.f, Lean = 0.f, HeadYawLag = 0.f, Carry = 0.f, YawRate = 0.f, PrevYaw = 0.f;
 	FVector GVel = FVector::ZeroVector, PrevPos = FVector::ZeroVector, HipsRestPos = FVector::ZeroVector;
 
