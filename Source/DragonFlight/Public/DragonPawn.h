@@ -44,6 +44,8 @@ public:
 
 	// --- Components ------------------------------------------------------------
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<USceneComponent> Feet;
+	/** MPC_Weather: its Focus tells tree materials where the dragon is, so they clear the view. */
+	UPROPERTY(Transient) TObjectPtr<class UMaterialParameterCollection> ViewMPC;
 	/** Pitch and roll pivot, 1.45 m above the feet (BODY_CENTRE). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dragon") TObjectPtr<USceneComponent> Attitude;
 	/** Hangs the mesh back down to the feet; carries the wingbeat heave. */

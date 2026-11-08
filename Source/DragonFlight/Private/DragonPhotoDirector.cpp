@@ -392,6 +392,28 @@ void ADragonPhotoDirector::PlanShots()
 				FShot Wa = La; Wa.Name = TEXT("43_walk"); Wa.bPoseGround = true; Wa.PoseM.Z = TurfZ; Wa.Script = ADragonPawn::FDragonScript(); Wa.Script.bOn = true; Wa.Script.WalkFwd = 1.f; Wa.SettleS = 4.f;
 				Shots.Add(Wa);
 				FShot Ga = Wa; Ga.Name = TEXT("43b_gallop"); Ga.Script.bSprint = true; Ga.SettleS = 5.f; Shots.Add(Ga);
+				// Standing in thick forest: the trees between the camera and the dragon must clear.
+				if (TActorIterator<ADragonScatter> It(GetWorld()); It)
+				{
+					FVector Best = FVector::ZeroVector; float BestF = 0.f;
+					for (int32 Ring = 1; Ring < 40 && BestF < 0.85f; ++Ring)
+						for (int32 a = 0; a < 16; ++a)
+						{
+							const FVector Q = Turf + FVector(FMath::Cos(a * 0.3927), FMath::Sin(a * 0.3927), 0.0) * (Ring * 5000.0);
+							const double G0 = W->HeightAt(Q.X, Q.Y);
+							if (G0 < 1000.0 || FMath::Abs(W->HeightAt(Q.X + 1500.0, Q.Y) - G0) > 400.0 || FMath::Abs(W->HeightAt(Q.X, Q.Y + 1500.0) - G0) > 400.0) continue;
+							const float Fo = It->ForestAt(Q.X, Q.Y);
+							if (Fo > BestF) { BestF = Fo; Best = Q; }
+						}
+					if (BestF > 0.3f)
+					{
+						FShot Fs = Wa; Fs.Name = TEXT("45_forest"); Fs.PoseM = FVector(Best.X / 100.0, Best.Y / 100.0, W->HeightAt(Best.X, Best.Y) / 100.0);
+						Fs.Script = ADragonPawn::FDragonScript(); Fs.Script.bOn = true; Fs.SettleS = 5.f;
+						Shots.Add(Fs);
+						FShot Fw = Fs; Fw.Name = TEXT("45b_forest_walk"); Fw.Script.WalkFwd = 1.f; Fw.SettleS = 5.f; Shots.Add(Fw);
+					}
+					UE_LOG(LogDragon, Display, TEXT("[Photo] forest pose: cover %.2f"), BestF);
+				}
 				const FVector Bay = Coast + D * 15000.0;
 				FShot Sw = Sk; Sw.Name = TEXT("44_swim"); Sw.PoseM = FVector(Bay.X, Bay.Y, 500.0) / 100.0; Sw.PoseSpeed = 4.f; Sw.Script = ADragonPawn::FDragonScript();
 				Sw.Script.bOn = true; Sw.Script.bLand = true; Sw.Script.WalkFwd = 1.f; Sw.SettleS = 8.f; Shots.Add(Sw);

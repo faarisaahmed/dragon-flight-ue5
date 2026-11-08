@@ -171,6 +171,12 @@ void ADragonScatter::BeginPlay()
 	}
 }
 
+float ADragonScatter::ForestAt(double X, double Y)
+{
+	LoadMasks();
+	return SampleMask(X / 100.0, Y / 100.0).X;
+}
+
 bool ADragonScatter::LoadMasks()
 {
 	const FString Dir = UDragonWorldSubsystem::DataDir();

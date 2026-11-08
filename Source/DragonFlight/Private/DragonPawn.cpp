@@ -24,6 +24,8 @@
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
 #include "InputCoreTypes.h"
+#include "Kismet/KismetMaterialLibrary.h"
+#include "Materials/MaterialParameterCollection.h"
 
 using F = FDragonFlightModel;
 
@@ -1421,6 +1423,14 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 	}
 	Camera->SetWorldLocationAndRotation(CamOut * M, Rot);
 	Camera->SetFieldOfView(FMath::Clamp(HFov, 40.f, 150.f));
+
+	// Trees between the camera and the dragon fade out (M_Foliage / M_SurfaceFade read this).
+	if (!ViewMPC) ViewMPC = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/Game/World/Materials/MPC_Weather.MPC_Weather"));
+	if (ViewMPC)
+	{
+		const FVector F = FocusM * M;
+		UKismetMaterialLibrary::SetVectorParameterValue(this, ViewMPC, TEXT("Focus"), FLinearColor(F.X, F.Y, F.Z, 450.f * DragonScale));
+	}
 }
 
 float ADragonPawn::GetCompassDegrees() const

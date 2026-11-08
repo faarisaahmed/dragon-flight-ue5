@@ -42,6 +42,8 @@
 #include "Materials/MaterialExpressionEyeAdaptationInverse.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialExpressionCollectionParameter.h"
+#include "Materials/MaterialExpressionShadowReplace.h"
+#include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Factories/MaterialParameterCollectionFactoryNew.h"
 #include "Engine/Texture2D.h"
 #include "Engine/StaticMesh.h"
@@ -153,7 +155,59 @@ namespace
 			C->PostEditChange();
 			UEditorAssetLibrary::SaveLoadedAsset(C, false);
 		}
+		// Focus: where the dragon is (xyz, cm) and how wide a clear view of it is (w, cm; 0 = off).
+		if (C && !C->VectorParameters.ContainsByPredicate([](const FCollectionVectorParameter& P) { return P.ParameterName == TEXT("Focus"); }))
+		{
+			FCollectionVectorParameter P; P.ParameterName = TEXT("Focus"); P.DefaultValue = FLinearColor(0, 0, 0, 0);
+			C->VectorParameters.Add(P);
+			C->PostEditChange();
+			UEditorAssetLibrary::SaveLoadedAsset(C, false);
+		}
 		return C;
+	}
+
+	/**
+	 * Opacity for things the camera may end up inside of (trees): 0 right at the camera and
+	 * in a cone from the camera to the dragon, so trunks and boughs never hide it; 1 elsewhere.
+	 * Shadows ignore it, so a faded tree still casts its shade.
+	 */
+	UMaterialExpression* ViewFadeNode(UMaterial* M, int32 X, int32 Y)
+	{
+		UMaterialExpressionCustom* F = Expr<UMaterialExpressionCustom>(M, X, Y);
+		F->Description = TEXT("View fade");
+		F->OutputType = CMOT_Float1;
+		F->Inputs.Reset();
+		for (const TCHAR* In : { TEXT("P"), TEXT("C"), TEXT("Focus") }) { FCustomInput I; I.InputName = In; F->Inputs.Add(I); }
+		F->Code = TEXT(
+			"float3 v = P - C; float dist = length(v);\n"
+			"float nearC = 1.0 - smoothstep(180.0, 520.0, dist);\n"
+			"float occl = 0.0;\n"
+			"if (Focus.w > 0.0) {\n"
+			"  float3 d = Focus.xyz - C; float L = max(length(d), 1.0); float3 dir = d / L;\n"
+			"  float t = dot(v, dir);\n"
+			"  float perp = length(v - dir * t);\n"
+			"  float rad = lerp(160.0, Focus.w, saturate(t / L));\n"
+			"  float along = smoothstep(0.0, 60.0, t) * (1.0 - smoothstep(L - 250.0, L + 50.0, t));\n"
+			"  occl = along * (1.0 - smoothstep(rad * 0.75, rad * 1.15, perp));\n"
+			"}\n"
+			"return 1.0 - max(nearC, occl);\n");
+		F->PostEditChange();
+		UMaterialExpressionWorldPosition* WP = Expr<UMaterialExpressionWorldPosition>(M, X - 300, Y);
+		WP->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		UMaterialExpressionCameraPositionWS* Cam = Expr<UMaterialExpressionCameraPositionWS>(M, X - 300, Y + 80);
+		UMaterialExpressionCollectionParameter* Fo = Expr<UMaterialExpressionCollectionParameter>(M, X - 300, Y + 160);
+		Fo->Collection = WeatherMPC();
+		Fo->ParameterName = TEXT("Focus");
+		if (Fo->Collection) Fo->ParameterId = Fo->Collection->GetParameterId(TEXT("Focus"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(WP, TEXT(""), F, TEXT("P"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Cam, TEXT(""), F, TEXT("C"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Fo, TEXT(""), F, TEXT("Focus"));
+		UMaterialExpressionShadowReplace* Sw = Expr<UMaterialExpressionShadowReplace>(M, X + 250, Y);
+		UMaterialExpressionConstant* One = Expr<UMaterialExpressionConstant>(M, X, Y + 120);
+		One->R = 1.f;
+		UMaterialEditingLibrary::ConnectMaterialExpressions(F, TEXT(""), Sw, TEXT("Default"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(One, TEXT(""), Sw, TEXT("Shadow"));
+		return Sw;
 	}
 
 	/** A node reading MPC_Weather.Wetness. */
@@ -577,8 +631,17 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 	}
 
 	// --- M_Surface: opaque PBR for rocks, bark, deadwood -----------------------
-	if (UMaterial* M = NewMaterial(TEXT("M_Surface")))
+	// M_SurfaceFade is the same, masked, for tree trunks: it clears out of the camera's way.
+	for (const bool bFade : { false, true })
+	if (UMaterial* M = NewMaterial(bFade ? TEXT("M_SurfaceFade") : TEXT("M_Surface")))
 	{
+		if (bFade)
+		{
+			M->BlendMode = BLEND_Masked;
+			M->DitherOpacityMask = true;
+			M->OpacityMaskClipValue = 0.5f;
+			UMaterialEditingLibrary::ConnectMaterialProperty(ViewFadeNode(M, -300, 600), TEXT(""), MP_OpacityMask);
+		}
 		M->SetUsageByFlag(MATUSAGE_InstancedStaticMeshes, true);
 		M->SetUsageByFlag(MATUSAGE_Nanite, true);
 		M->SetUsageByFlag(MATUSAGE_SkeletalMesh, true);
@@ -687,7 +750,10 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			UMaterialExpressionTextureCoordinate* TC = Expr<UMaterialExpressionTextureCoordinate>(M, -700, 560);
 			UMaterialEditingLibrary::ConnectMaterialExpressions(O, TEXT("R"), Cov, TEXT("A"));
 			UMaterialEditingLibrary::ConnectMaterialExpressions(TC, TEXT(""), Cov, TEXT("UV"));
-			UMaterialEditingLibrary::ConnectMaterialProperty(Cov, TEXT(""), MP_OpacityMask);
+			UMaterialExpressionMultiply* Fm = Expr<UMaterialExpressionMultiply>(M, -150, 450);
+			UMaterialEditingLibrary::ConnectMaterialExpressions(Cov, TEXT(""), Fm, TEXT("A"));
+			UMaterialEditingLibrary::ConnectMaterialExpressions(ViewFadeNode(M, -450, 1000), TEXT(""), Fm, TEXT("B"));
+			UMaterialEditingLibrary::ConnectMaterialProperty(Fm, TEXT(""), MP_OpacityMask);
 		}
 		// Light through the leaves.
 		UMaterialExpressionMultiply* SSS = Expr<UMaterialExpressionMultiply>(M, -350, -150);
@@ -1431,6 +1497,26 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			}
 		}
 		Log(FString::Printf(TEXT("weathering on %d rock/cliff/deadwood materials"), Count));
+		// Tree bark fades out of the camera's way like the needles do.
+		if (UMaterial* Fade = LoadObject<UMaterial>(nullptr, *(MatRoot / TEXT("M_SurfaceFade.M_SurfaceFade"))))
+		{
+			int32 NB = 0;
+			TArray<FAssetData> Found;
+			Registry.GetAssetsByPath(FName(*(ModelRoot / TEXT("trees"))), Found, true);
+			for (const FAssetData& A : Found)
+			{
+				if (A.AssetClassPath != UMaterialInstanceConstant::StaticClass()->GetClassPathName()) continue;
+				UMaterialInstanceConstant* MI = Cast<UMaterialInstanceConstant>(A.GetAsset());
+				if (!MI || !MI->Parent || !MI->Parent->GetMaterial()) continue;
+				const FString PN = MI->Parent->GetMaterial()->GetName();
+				if (PN != TEXT("M_Surface") && PN != TEXT("M_SurfaceFade")) continue;
+				MI->SetParentEditorOnly(Fade);
+				UMaterialEditingLibrary::UpdateMaterialInstance(MI);
+				UEditorAssetLibrary::SaveLoadedAsset(MI, false);
+				++NB;
+			}
+			Log(FString::Printf(TEXT("view fade on %d tree bark materials"), NB));
+		}
 		// The scanned grasses are a dry late-summer gold; these islands' turf is wet and green.
 		int32 NG = 0;
 		for (const TCHAR* G : { TEXT("ground") })

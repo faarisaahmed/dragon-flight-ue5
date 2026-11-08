@@ -80,6 +80,9 @@ public:
 	/** Tiles still waiting to be generated. */
 	bool IsBusy() const;
 
+	/** Forest cover 0..1 at a world point (cm); loads the masks if needed. */
+	float ForestAt(double X, double Y);
+
 private:
 	struct FTileKey
 	{
