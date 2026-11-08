@@ -214,10 +214,18 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 			if (++Reports == 3 && FParse::Param(FCommandLine::Get(), TEXT("PerfProfile"))) ConsoleCommand(TEXT("ProfileGPU"));
 		}
 	}
+	// Keep the render height right when the window is resized.
+	{
+		static FVector2D LastSize = FVector2D::ZeroVector;
+		FVector2D Size = FVector2D::ZeroVector;
+		if (GEngine && GEngine->GameViewport) GEngine->GameViewport->GetViewportSize(Size);
+		if (Size != LastSize && Size.Y > 0.0) { LastSize = Size; ApplyRenderScale(); }
+	}
+	if (IsBenchmarking()) { TickBench(DeltaTime); return; }
 	// Switching to another app while flying pauses into the menu and frees the pointer.
 	{
 		const bool bFg = !FSlateApplication::IsInitialized() || FSlateApplication::Get().IsActive();
-		if (bWasForeground && !bFg && Screen == 0 && !FParse::Param(FCommandLine::Get(), TEXT("AutoShot")))
+		if (bWasForeground && !bFg && Screen == 0 && !FParse::Param(FCommandLine::Get(), TEXT("AutoShot")) && !IsBenchmarking())
 		{
 			bWasForeground = false;
 			MenuPage = 0;
@@ -241,13 +249,6 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 	if (WasInputKeyJustPressed(EKeys::F4))
 	{
 		if (ADragonSky* Sky = ADragonSky::Get(this)) Sky->SetWeather((EDragonWeather)(((int32)Sky->Weather + 1) % 6));
-	}
-	// Keep the render height right when the window is resized.
-	{
-		static FVector2D LastSize = FVector2D::ZeroVector;
-		FVector2D Size = FVector2D::ZeroVector;
-		if (GEngine && GEngine->GameViewport) GEngine->GameViewport->GetViewportSize(Size);
-		if (Size != LastSize && Size.Y > 0.0) { LastSize = Size; ApplyRenderScale(); }
 	}
 	if (WasInputKeyJustPressed(EKeys::F5)) RenderRes((GetRenderResMode() + 1) % 6);
 	if (WasInputKeyJustPressed(EKeys::F6)) bShowHud = !bShowHud;
@@ -356,7 +357,14 @@ void ADragonPlayerController::ApplyRenderScale()
 	FVector2D Size(1920, 1080);
 	if (GEngine && GEngine->GameViewport) GEngine->GameViewport->GetViewportSize(Size);
 	const float Lines = RenderLinesFor(GetRenderResMode());
-	const float Pct = FMath::Clamp(Lines / FMath::Max(Size.Y, 1.0) * 100.f, 33.f, 100.f);
+	// On a 4K (HiDPI) screen the upscaler and all post-processing would run at the full 2160
+	// lines: ~10 ms a frame on the mini for detail nobody sees. Upscale to at most 1440 lines
+	// (1080 below Max) and let a cheap final pass stretch that to the window.
+	const float OutLines = FMath::Max(Lines, GetRenderResMode() == 5 ? (float)Size.Y : (Lines > 1080.f ? 1440.f : 1080.f));
+	const float Secondary = FMath::Clamp(OutLines / FMath::Max(Size.Y, 1.0) * 100.f, 25.f, 100.f);
+	if (IConsoleVariable* SS = IConsoleManager::Get().FindConsoleVariable(TEXT("r.SecondaryScreenPercentage.GameViewport")))
+		SS->Set(Secondary, ECVF_SetByGameSetting);
+	const float Pct = FMath::Clamp(Lines / FMath::Max(Size.Y * Secondary / 100.f, 1.0) * 100.f, 33.f, 100.f);
 	if (IConsoleVariable* SP = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage")))
 		SP->Set(Pct, ECVF_SetByGameSetting);
 }

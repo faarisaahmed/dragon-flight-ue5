@@ -34,6 +34,9 @@ class DRAGONFLIGHT_API ADragonPlayerController : public APlayerController
 public:
 	ADragonPlayerController();
 	virtual void PlayerTick(float DeltaTime) override;
+	/** -Bench: a scripted flight that measures frame rate per place (DragonBench.cpp). */
+	static bool IsBenchmarking();
+	void TickBench(float Dt);
 
 	/** 0 Low .. 4 Cinematic ("Max"). */
 	UFUNCTION(Exec) void Quality(int32 Level);

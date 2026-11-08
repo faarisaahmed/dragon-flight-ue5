@@ -476,6 +476,13 @@ void ADragonSky::Apply(float DeltaSeconds)
 	Sun->SetVisibility(Day > 0.001f);
 	Moon->SetIntensity(MoonLux * Night * (1.f - Live.SunDim * 0.6f));
 	Moon->SetVisibility(Night > 0.001f);
+	// Only one of the two casts shadows at a time. Through dusk both are up, and two directional
+	// lights mean two full sets of virtual shadow maps: dusk ran at half the frame rate of noon.
+	{
+		const bool bMoonShadows = SunElevation < -2.f;
+		if (Moon->CastShadows != bMoonShadows) Moon->SetCastShadows(bMoonShadows);
+		if (Sun->CastShadows == bMoonShadows) Sun->SetCastShadows(!bMoonShadows);
+	}
 	// Golden hour: warmer as the sun nears the horizon (the atmosphere's
 	// transmittance does most of this; a little extra keeps the gold the web game had).
 	// The atmosphere's own transmittance already reddens a low sun strongly; a 3600 K source on
