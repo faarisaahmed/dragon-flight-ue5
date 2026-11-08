@@ -24,6 +24,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Framework/Application/SlateApplication.h"
 #include "UnrealClient.h"
+#include "RHI.h"
 
 ADragonGameMode::ADragonGameMode()
 {
@@ -188,6 +189,53 @@ void ADragonPlayerController::OnPossess(APawn* InPawn)
 	ApplyControls();
 }
 
+// Frame pacing. Running the GPU flat out on this game's long cloud pass makes every
+// tenth frame or so take two or three times as long on macOS (measured: 47 fps average
+// with 50 ms hitches at Wrathholm; capped at 45 the same view is a flat 45, worst 22 ms).
+// So: start uncapped; when hitches show up, cap a step under the rate the GPU actually
+// manages; step back up only when the GPU has clear room. A limit the player set wins.
+void ADragonPlayerController::TickPacer(float Dt)
+{
+	static const bool bOff = FParse::Param(FCommandLine::Get(), TEXT("NoPacer")) || FCString::Strifind(FCommandLine::Get(), TEXT("MaxFPS")) != nullptr;
+	UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+	if (bOff || !S || S->GetFrameRateLimit() > 0.f || Dt <= 0.f) return;
+	if (UGameplayStatics::IsGamePaused(this)) return;
+
+	constexpr float MinCap = 40.f, MaxCap = 60.f, Window = 3.f;
+	static float Cap = 0.f;            // 0 = uncapped
+	static float WinT = 0.f, CalmT = 0.f, GpuMs = 0.f, AvgMs = 0.f;
+	static int32 Frames = 0, Hitches = 0;
+	const float Ms = Dt * 1000.f;
+	// a hitch: a frame far slower than the ones around it (a load or a menu isn't one)
+	if (AvgMs > 0.f && Ms > 1.7f * AvgMs && Ms < 250.f) ++Hitches;
+	if (Ms < 250.f) AvgMs = AvgMs > 0.f ? AvgMs + (Ms - AvgMs) * 0.05f : Ms;
+	const float G = FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles());
+	if (G > 0.f) GpuMs = GpuMs > 0.f ? GpuMs + (G - GpuMs) * 0.05f : G;
+	WinT += Dt; ++Frames;
+	if (WinT < Window) return;
+
+	const float Fps = Frames / WinT;
+	float NewCap = Cap;
+	if (Hitches >= 3)
+	{
+		const float Under = FMath::FloorToFloat(Fps / 5.f) * 5.f;
+		NewCap = FMath::Max(MinCap, FMath::Min(Cap > 0.f ? Cap - 5.f : MaxCap, Under));
+		CalmT = 0.f;
+	}
+	else if (Hitches == 0 && Cap > 0.f && (CalmT += WinT) >= 15.f && GpuMs * 1.03f < 1000.f / (Cap + 5.f))
+	{
+		NewCap = Cap + 5.f >= MaxCap ? 0.f : Cap + 5.f;
+		CalmT = 0.f;
+	}
+	if (NewCap != Cap)
+	{
+		Cap = NewCap;
+		GEngine->SetMaxFPS(Cap);
+		UE_LOG(LogDragon, Display, TEXT("Pacer: %s (%.0f fps, %d hitches, gpu %.1f ms)"), Cap > 0.f ? *FString::Printf(TEXT("cap %.0f"), Cap) : TEXT("uncapped"), Fps, Hitches, GpuMs);
+	}
+	WinT = 0.f; Frames = 0; Hitches = 0;
+}
+
 void ADragonPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
@@ -221,6 +269,7 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 		if (GEngine && GEngine->GameViewport) GEngine->GameViewport->GetViewportSize(Size);
 		if (Size != LastSize && Size.Y > 0.0) { LastSize = Size; ApplyRenderScale(); }
 	}
+	TickPacer(DeltaTime);
 	if (IsBenchmarking()) { TickBench(DeltaTime); return; }
 	// Switching to another app while flying pauses into the menu and frees the pointer.
 	{
