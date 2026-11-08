@@ -22,6 +22,8 @@
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
 #include "Kismet/GameplayStatics.h"
+#include "Framework/Application/SlateApplication.h"
+#include "UnrealClient.h"
 
 ADragonGameMode::ADragonGameMode()
 {
@@ -115,16 +117,27 @@ void ADragonPlayerController::SetScreen(int32 NewScreen, bool bPause)
 	UGameplayStatics::SetGamePaused(this, bOpen && bPause);
 	if (bOpen)
 	{
+		// A free pointer, like any game's pause menu: it can leave the window for other apps.
 		FInputModeGameAndUI Mode;
 		Mode.SetHideCursorDuringCapture(false);
-		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::LockAlways);
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
 		SetInputMode(Mode);
-		int32 SX = 0, SY = 0; GetViewportSize(SX, SY);
-		SetMouseLocation(SX / 2, SY / 2);
+		if (bWasForeground)
+		{
+			int32 SX = 0, SY = 0; GetViewportSize(SX, SY);
+			SetMouseLocation(SX / 2, SY / 2);
+		}
 	}
 	else
 	{
+		// Back to flying: hide, capture and lock the pointer to the game again.
 		SetInputMode(FInputModeGameOnly());
+		if (FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().SetAllUserFocusToGameViewport();
+			if (UGameViewportClient* VC = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+				if (FViewport* V = VC->Viewport) { V->CaptureMouse(true); V->LockMouseToViewport(true); }
+		}
 	}
 }
 
@@ -200,6 +213,17 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 			static int32 Reports = 0;
 			if (++Reports == 3 && FParse::Param(FCommandLine::Get(), TEXT("PerfProfile"))) ConsoleCommand(TEXT("ProfileGPU"));
 		}
+	}
+	// Switching to another app while flying pauses into the menu and frees the pointer.
+	{
+		const bool bFg = !FSlateApplication::IsInitialized() || FSlateApplication::Get().IsActive();
+		if (bWasForeground && !bFg && Screen == 0 && !FParse::Param(FCommandLine::Get(), TEXT("AutoShot")))
+		{
+			bWasForeground = false;
+			MenuPage = 0;
+			SetScreen(1);
+		}
+		bWasForeground = bFg;
 	}
 	// Esc: menu (or back to the game from anything); Tab / M: the chart; T: weather & time; F1: controls.
 	if (WasInputKeyJustPressed(EKeys::Escape)) SetScreen(Screen == 0 ? 1 : 0);

@@ -465,7 +465,12 @@ void ADragonPhotoDirector::PlanShots()
 			{ TEXT("b_dusk"),  FVector(1500, 650, -160), FVector(250, 0, 80), 34.f, 21.4f, EDragonWeather::Clear },
 			{ TEXT("c_night"), FVector(2600, 0, -420),  FVector(0, 0, 60),   34.f, 23.5f, EDragonWeather::Clear },
 			{ TEXT("d_head"),  FVector(900, 380, 60),   FVector(380, 0, 110), 30.f, 21.2f, EDragonWeather::Clear },
-			{ TEXT("e_storm"), FVector(2600, 0, -420),  FVector(0, 0, 60),   34.f, 17.0f, EDragonWeather::Storm } };
+			{ TEXT("e_storm"), FVector(2600, 0, -420),  FVector(0, 0, 60),   34.f, 17.0f, EDragonWeather::Storm },
+			// in flight by day, as the player sees it: from above and to the side, sea and islands below
+			{ TEXT("f_gold"),  FVector(1400, 1500, 700), FVector(100, 0, 40), 38.f, 17.6f, EDragonWeather::Fair },
+			{ TEXT("g_day"),   FVector(1400, 1500, 700), FVector(100, 0, 40), 38.f, 13.0f, EDragonWeather::Fair },
+			{ TEXT("h_gold3q"), FVector(2000, -900, 300), FVector(150, 0, 60), 36.f, 17.8f, EDragonWeather::Fair },
+			{ TEXT("i_above"), FVector(500, 900, 1900),  FVector(200, 0, 0),  76.f, 16.5f, EDragonWeather::Fair } };
 		for (const FIc& I : Ic)
 		{
 			FShot Ic1 = Close; Ic1.Name = FString::Printf(TEXT("90_icon_%s"), I.N);

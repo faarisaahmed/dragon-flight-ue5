@@ -389,7 +389,10 @@ void ADragonHUD::DrawMenu(ADragonPlayerController* PC)
 	const float W = Canvas->ClipX, H = Canvas->ClipY;
 	Rect(0, 0, W, H, FLinearColor(0.f, 0.005f, 0.01f, 0.62f));
 	const float PW = 980.f * U, PH = 640.f * U, X0 = (W - PW) * 0.5f, Y0 = (H - PH) * 0.5f;
+	// A click outside the panel is a click back into the game.
+	if (bClick && DragSlider < 0 && !Hover(X0, Y0, PW, PH)) { bClick = false; PC->SetScreen(0); return; }
 	Panel(X0, Y0, PW, PH);
+	Txt(TEXT("Esc or click outside to return to the sky"), W * 0.5f, Y0 + PH + 16.f * U, EFace::Cond, 15.f, FLinearColor(0.80f, 0.86f, 0.92f, 0.55f), 0.5f);
 
 	// Title and the knotted rule.
 	Txt(TEXT("Dragon Flight"), X0 + PW * 0.5f, Y0 + 30.f * U, EFace::Title, 40.f, Frost, 0.5f);
