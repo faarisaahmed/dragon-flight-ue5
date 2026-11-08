@@ -392,6 +392,32 @@ void ADragonPhotoDirector::PlanShots()
 				FShot Wa = La; Wa.Name = TEXT("43_walk"); Wa.bPoseGround = true; Wa.PoseM.Z = TurfZ; Wa.Script = ADragonPawn::FDragonScript(); Wa.Script.bOn = true; Wa.Script.WalkFwd = 1.f; Wa.SettleS = 4.f;
 				Shots.Add(Wa);
 				FShot Ga = Wa; Ga.Name = TEXT("43b_gallop"); Ga.Script.bSprint = true; Ga.SettleS = 5.f; Shots.Add(Ga);
+				// Rig tests, seen from the side: standing, a walk cycle in four moments, a gallop.
+				{
+					FShot Sd = Wa; Sd.bSide = true;
+					Sd.Name = TEXT("51_side_stand"); Sd.Script.WalkFwd = 0.f; Sd.SettleS = 4.f; Shots.Add(Sd);
+					const TCHAR* Ph[] = { TEXT("a"), TEXT("b"), TEXT("c"), TEXT("d") };
+					for (int32 i = 0; i < 4; ++i)
+					{
+						FShot Wk = Sd; Wk.Name = FString::Printf(TEXT("51b_side_walk_%s"), Ph[i]); Wk.Script.WalkFwd = 1.f; Wk.SettleS = 5.f + 0.22f * i; Shots.Add(Wk);
+					}
+					for (int32 i = 0; i < 2; ++i)
+					{
+						FShot Gl = Sd; Gl.Name = FString::Printf(TEXT("51c_side_gallop_%s"), Ph[i]); Gl.Script.WalkFwd = 1.f; Gl.Script.bSprint = true; Gl.SettleS = 5.f + 0.15f * i;
+						Gl.SideOffset = FVector(0.0, 2200.0, 150.0); Shots.Add(Gl);
+					}
+					FShot Fr = Sd; Fr.Name = TEXT("51d_front_walk"); Fr.Script.WalkFwd = 1.f; Fr.SettleS = 5.f; Fr.SideOffset = FVector(1300.0, 700.0, 120.0); Shots.Add(Fr);
+				}
+				// ... and in the air: cruising (two moments of the beat), slow, hovering, from below.
+				{
+					FShot Fs = Sk; Fs.bSide = true; Fs.PoseM.Z = 80.0; Fs.Script = ADragonPawn::FDragonScript(); Fs.Script.bOn = true; Fs.Script.Move = 1.f;
+					Fs.PoseSpeed = 28.f; Fs.SideOffset = FVector(0.0, 1700.0, 100.0); Fs.SideFov = 45.f;
+					Fs.Name = TEXT("50_side_fly_a"); Fs.SettleS = 3.f; Shots.Add(Fs);
+					FShot Fb = Fs; Fb.Name = TEXT("50_side_fly_b"); Fb.SettleS = 3.25f; Shots.Add(Fb);
+					FShot Sl = Fs; Sl.Name = TEXT("50b_side_slow"); Sl.PoseSpeed = 12.f; Sl.Script.Move = 0.f; Sl.SettleS = 1.2f; Shots.Add(Sl);
+					FShot Hv2 = Fs; Hv2.Name = TEXT("50c_side_hover"); Hv2.PoseSpeed = 0.f; Hv2.Script.Move = 0.f; Shots.Add(Hv2);
+					FShot Bl = Fs; Bl.Name = TEXT("50d_below_fly"); Bl.SideOffset = FVector(900.0, 900.0, -500.0); Bl.SideAim = FVector(0.0, 0.0, 0.0); Shots.Add(Bl);
+				}
 				// Standing in thick forest: the trees between the camera and the dragon must clear.
 				if (TActorIterator<ADragonScatter> It(GetWorld()); It)
 				{
@@ -546,7 +572,8 @@ void ADragonPhotoDirector::Frame(const FShot& S)
 		{
 			P->CustomTimeDilation = 1.f;
 			PosePawn(S);
-			PC->SetViewTarget(P);
+			if (S.bSide && Camera) { Camera->GetCameraComponent()->SetFieldOfView(S.SideFov); PC->SetViewTarget(Camera); }
+			else PC->SetViewTarget(P);
 		}
 	}
 	else if (Camera)
@@ -644,6 +671,17 @@ void ADragonPhotoDirector::Tick(float DeltaSeconds)
 	if (bMech && S.Script.bOn)
 		if (const ADragonPawn* DP = Cast<ADragonPawn>(UGameplayStatics::GetPlayerPawn(this, 0))) Timer = DP->GetScriptTime();
 	const float Settle = S.SettleS > 0.f ? S.SettleS : S.bChase ? 4.f : SettleSeconds;
+	// Side camera: rides beside the dragon, level, wherever it goes.
+	if (S.bSide && Camera)
+		if (const APawn* P = UGameplayStatics::GetPlayerPawn(this, 0))
+		{
+			const FRotator Yaw(0.f, P->GetActorRotation().Yaw, 0.f);
+			const FVector F = Yaw.Vector(), R = FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y);
+			const FVector L = P->GetActorLocation();
+			const FVector From = L + F * S.SideOffset.X + R * S.SideOffset.Y + FVector(0, 0, S.SideOffset.Z);
+			const FVector At = L + F * S.SideAim.X + R * S.SideAim.Y + FVector(0, 0, S.SideAim.Z);
+			Camera->SetActorLocationAndRotation(From, (At - From).Rotation());
+		}
 	// Landscape grass builds lazily around the camera; build this view's synchronously.
 	if (!bShotRequested && !bGrassBuilt && Timer >= Settle - 2.f)
 	{

@@ -1,5 +1,9 @@
 #include "DragonWebRigComponent.h"
 #include "DragonFlight.h"
+#include "HAL/FileManager.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
 #include "Components/PoseableMeshComponent.h"
 #include "Engine/SkinnedAsset.h"
 #include "Engine/SkinnedAssetCommon.h"
@@ -236,6 +240,14 @@ bool UDragonWebRigComponent::Bind(UPoseableMeshComponent* InMesh)
 			B[*G].UE = u;
 			++Matched;
 		}
+	}
+	if (FParse::Param(FCommandLine::Get(), TEXT("RigDebug")))
+	{
+		FString Un = FString::Printf(TEXT("bind %s: matched %d of %d web bones, UE has %d\nunmatched web:"), *Asset->GetName(), Matched, NG, NU);
+		for (int32 g = 0; g < B.Num(); ++g) if (B[g].UE == INDEX_NONE) Un += TEXT(" ") + FString(UTF8_TO_TCHAR(GDragonWebBones[g].Name));
+		Un += TEXT("\nunmatched UE:");
+		for (int32 u = 0; u < NU; ++u) if (UEToGl[u] == INDEX_NONE) Un += TEXT(" ") + Ref.GetBoneName(u).ToString();
+		FFileHelper::SaveStringToFile(Un + TEXT("\n"), *(FPaths::ProjectSavedDir() / TEXT("RigDebug.txt")), FFileHelper::EEncodingOptions::AutoDetect, &IFileManager::Get(), FILEWRITE_Append);
 	}
 	if (Matched < NG * 3 / 4 || Find(TEXT("Wing_Finger.001.L")) == INDEX_NONE || B[Find(TEXT("Wing_Finger.001.L"))].UE == INDEX_NONE)
 	{
@@ -567,7 +579,46 @@ float UDragonWebRigComponent::ApplyFold(float Dt)
 		if (E.bSolved) SetQ(E.Bone, FQuat::Slerp(E.FromQ, E.FoldQ, Fold));
 		else SetQ(E.Bone, B[E.Bone].RestQ * AxisQ(E.Axis, E.Amount * Fold));
 	}
+	FoldIK(Fold);
 	return Fold;
+}
+
+void UDragonWebRigComponent::FoldIK(float K)
+{
+	if (K <= 0.001f) return;
+	// Model frame: nose -Z, up +Y, .L on -X.
+	auto Aim = [&](int32 Bone, int32 Child, const FVector& Dir)
+	{
+		if (Bone < 0 || Child < 0) return;
+		const FVector P = Model(Bone).GetLocation();
+		const FVector C = Model(Child).GetLocation();
+		const double Len = FVector::Dist(P, C);
+		const FQuat Was = B[Bone].Q;
+		AimModel(Bone, C, P + Dir.GetSafeNormal() * Len);
+		SetQ(Bone, FQuat::Slerp(Was, B[Bone].Q, K));
+	};
+	for (int32 s = 0; s < 2; ++s)
+	{
+		const double X = s == 0 ? -1.0 : 1.0;   // outward
+		// shoulder: up and a little out, so the arm clears the back
+		Aim(WShoulder[s], WUpper[s], FVector(X * 0.95, 0.12, 0.20));
+		// humerus: back and up, close to the flank
+		Aim(WUpper[s], WFore[s], FVector(X * 0.10, -0.22, 1.0));
+		// forearm: forward and a little up; the wrist ends at the shoulder's peak
+		const int32 Hand0 = Finger[s][0];
+		Aim(WFore[s], Hand0, FVector(X * 0.04, 0.10, -1.0));
+		// fingers: back along the flank, the long leading finger on top, each lower one a few
+		// degrees further down, so the membrane between them lies in narrow pleats
+		for (int32 d = 0; d < 6; ++d)
+		{
+			const double Drop = 0.12 + 0.10 * (5 - d);
+			for (int32 g = 0; g < 2; ++g)
+			{
+				const int32 Bn = Finger[s][d * 3 + g], Ch = Finger[s][d * 3 + g + 1];
+				Aim(Bn, Ch, FVector(X * (0.06 - 0.05 * g + 0.02 * (5 - d)), -(Drop + 0.08 * g), 1.0));
+			}
+		}
+	}
 }
 
 void UDragonWebRigComponent::ApplyStow()
@@ -966,6 +1017,96 @@ void UDragonWebRigComponent::GaitAim(int32 Bone, const FVector& ChildW, const FV
 	SetQ(Bone, ParentQ.Inverse() * NewM);
 }
 
+void UDragonWebRigComponent::AimModel(int32 Bone, const FVector& ChildM, const FVector& TargetM)
+{
+	if (Bone < 0) return;
+	const FTransform& M = Model(Bone);
+	const FVector P = M.GetLocation();
+	FVector U = ChildM - P, V = TargetM - P;
+	if (U.SizeSquared() < 1e-12 || V.SizeSquared() < 1e-12) return;
+	U.Normalize(); V.Normalize();
+	const FQuat NewM = FQuat::FindBetweenNormals(U, V) * M.GetRotation();
+	const int32 Par = B[Bone].Parent;
+	const FQuat ParentQ = Par >= 0 ? Model(Par).GetRotation() : FQuat::Identity;
+	SetQ(Bone, ParentQ.Inverse() * NewM);
+}
+
+void UDragonWebRigComponent::FlightLegs(float K, float Ready, float Dt)
+{
+	if (!bGaitTried) { bGaitTried = true; bGaitOK = CreateGait(); }
+	if (!bGaitOK || K <= 0.001f) return;
+	// The model's own frame: nose toward -Z, up +Y (glTF).
+	const FVector Fwd(0, 0, -1), Up(0, 1, 0);
+	const FVector Back = -Fwd, Down = -Up;
+	for (FGaitLeg& L : Legs)
+	{
+		const FVector A = Model(L.A).GetLocation();
+		const double L1 = FVector::Dist(Model(L.A).GetLocation(), Model(L.B).GetLocation());
+		const double L2 = FVector::Dist(Model(L.B).GetLocation(), Model(L.C).GetLocation());
+		const double L3 = FVector::Dist(Model(L.C).GetLocation(), Model(L.D).GetLocation());
+		const double Ls = L1 + L2;
+		const double ToeL = L.E >= 0 ? FVector::Dist(Model(L.D).GetLocation(), Model(L.E).GetLocation()) : L3 * 0.4;
+		const FVector Side = FVector(FMath::Sign(A.X) * 1.0, 0, 0);   // keep the feet a little in toward the body line
+		FVector Ct, Dt3, Et, Pole;
+		if (!L.bFore)
+		{
+			// Hind: thigh back along the belly (hip extended ~50 deg), knee eased, ankle opened so
+			// the foot trails toward the tail with the toes relaxed. Ready: swing forward and down.
+			const FVector CruiseC = A + Back * (0.78 * Ls) + Down * (0.34 * Ls) - Side * (0.04 * Ls);
+			const FVector ReadyC = A + Back * (0.05 * Ls) + Down * (0.92 * Ls);
+			Ct = FMath::Lerp(CruiseC, ReadyC, (double)Ready);
+			Dt3 = Ct + FMath::Lerp(Back * (0.92 * L3) + Down * (0.30 * L3), Fwd * (0.25 * L3) + Down * (0.95 * L3), (double)Ready);
+			Et = Dt3 + FMath::Lerp(Back * (0.75 * ToeL) + Down * (0.55 * ToeL), Fwd * (0.95 * ToeL) + Down * (0.2 * ToeL), (double)Ready);
+			Pole = FMath::Lerp(Down, Fwd, (double)Ready);
+		}
+		else
+		{
+			// Fore: elbow drawn back against the ribs, forearm forward and down under the chest,
+			// wrist flexed so the paw curls back toward the sternum. Ready: reach down and forward.
+			const FVector CruiseC = A + Down * (0.50 * Ls) + Fwd * (0.06 * Ls) - Side * (0.05 * Ls);
+			const FVector ReadyC = A + Down * (0.88 * Ls) + Fwd * (0.25 * Ls);
+			Ct = FMath::Lerp(CruiseC, ReadyC, (double)Ready);
+			Dt3 = Ct + FMath::Lerp(Back * (0.75 * L3) + Up * (0.55 * L3), Fwd * (0.30 * L3) + Down * (0.95 * L3), (double)Ready);
+			Et = Dt3 + FMath::Lerp(Back * (0.55 * ToeL) + Up * (0.75 * ToeL), Fwd * (0.95 * ToeL) + Down * (0.15 * ToeL), (double)Ready);
+			Pole = FMath::Lerp(Back + Up * 0.3, Back, (double)Ready);
+		}
+		// Save the current local rotations, solve, then blend toward the solution by K.
+		const int32 Ch[4] = { L.A, L.B, L.C, L.D };
+		FQuat Was[4];
+		for (int32 j = 0; j < 4; ++j) Was[j] = Ch[j] >= 0 ? B[Ch[j]].Q : FQuat::Identity;
+		FVector ToT = Ct - A;
+		double D = FMath::Clamp(ToT.Size(), FMath::Abs(L1 - L2) + 1e-3, Ls * 0.995);
+		const FVector Axis = ToT.GetSafeNormal();
+		const FVector Cc = A + Axis * D;
+		const double Along = (L1 * L1 - L2 * L2 + D * D) / (2 * D);
+		const double H = FMath::Sqrt(FMath::Max(0.0, L1 * L1 - Along * Along));
+		FVector Pl = Pole - Axis * FVector::DotProduct(Pole, Axis);
+		if (Pl.SizeSquared() < 1e-8) Pl = Down; Pl.Normalize();
+		const FVector Knee = A + Axis * Along + Pl * H;
+		AimModel(L.A, Model(L.B).GetLocation(), Knee);
+		AimModel(L.B, Model(L.C).GetLocation(), Cc);
+		AimModel(L.C, Model(L.D).GetLocation(), Dt3);
+		if (L.E >= 0) AimModel(L.D, Model(L.E).GetLocation(), Et);
+		for (int32 j = 0; j < 4; ++j)
+			if (Ch[j] >= 0) SetQ(Ch[j], FQuat::Slerp(Was[j], B[Ch[j]].Q, K));
+		static int32 Dumped = 0;
+		if (Dumped < 4 && FParse::Param(FCommandLine::Get(), TEXT("RigDebug")))
+		{
+			++Dumped;
+			FString Sx = FString::Printf(TEXT("leg fore=%d A=%s B=%s C=%s D=%s | wantC=%s wantD=%s knee=%s | L1 %.3f L2 %.3f L3 %.3f\n"), L.bFore ? 1 : 0,
+				*Model(L.A).GetLocation().ToString(), *Model(L.B).GetLocation().ToString(), *Model(L.C).GetLocation().ToString(), *Model(L.D).GetLocation().ToString(),
+				*Ct.ToString(), *Dt3.ToString(), *Knee.ToString(), L1, L2, L3);
+			if (Dumped == 1)
+			{
+				const int32 HeadI = HeadB, TailI = TailB[10];
+				Sx = FString::Printf(TEXT("head %s tail %s nose(web) %s up(web) %s\n"), HeadI >= 0 ? *Model(HeadI).GetLocation().ToString() : TEXT("-"),
+					TailI >= 0 ? *Model(TailI).GetLocation().ToString() : TEXT("-"), *ModelDirToWeb(FVector(0, 0, -1)).ToString(), *ModelDirToWeb(FVector(0, 1, 0)).ToString()) + Sx;
+			}
+			FFileHelper::SaveStringToFile(Sx, *(FPaths::ProjectSavedDir() / TEXT("RigDebug.txt")), FFileHelper::EEncodingOptions::AutoDetect, &IFileManager::Get(), FILEWRITE_Append);
+		}
+	}
+}
+
 void UDragonWebRigComponent::UpdateGait(float RawDt, const FDragonWebRigInput& In)
 {
 	const float Dt = FMath::Min(RawDt, 0.05f);
@@ -1181,6 +1322,12 @@ float UDragonWebRigComponent::Animate(float Dt, const FDragonWebRigInput& In)
 		UpdateWings(Dt, In);
 		HeaveM = WHeave;
 		UpdateFlightRig(Dt, In.FS, GetBeat());
+		{
+			// Legs ready to land when slow (hovering, flaring in), tucked away at speed.
+			const float WantReady = 1.f - Smooth(In.FS.SpeedT, 0.025f, 0.055f);   // SpeedT 1 = 335 m/s: ready below ~10 m/s, tucked by ~18
+			SFlightReady += (WantReady - SFlightReady) * Damp(2.5f, Dt);
+			FlightLegs(1.f, SFlightReady * 0.85f, Dt);
+		}
 		if (bOpeningWings)
 		{
 			if (ApplyFold(Dt) <= 0.001f) bOpeningWings = false;

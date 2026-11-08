@@ -167,6 +167,15 @@ private:
 	bool CreateGait();
 	void UpdateGait(float RawDt, const FDragonWebRigInput& In);
 	void GaitAim(int32 Bone, const FVector& ChildW, const FVector& TargetW);
+	/** Same, with positions in the model's own space. */
+	void AimModel(int32 Bone, const FVector& ChildM, const FVector& TargetM);
+	/** Legs in the air, by IK: hind legs trailing back along the belly, forelegs folded under the
+	 *  chest; Ready (0..1) lowers them toward a landing reach. K blends over the current pose. */
+	void FlightLegs(float K, float Ready, float Dt);
+	float SFlightReady = 0.f;
+	/** The folded wing, built by aiming each bone (anatomy, not a baked pose): humerus back and up,
+	 *  forearm forward to a wrist high over the shoulder, the fingers stacked back along the flank. */
+	void FoldIK(float K);
 	void ApplyAim(float Dt, const FDragonWebRigInput& In);
 	void ApplyStow();
 	void WriteToMesh();

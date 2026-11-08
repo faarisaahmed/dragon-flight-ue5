@@ -133,7 +133,7 @@ void ADragonPlayerController::TickBench(float Dt)
 			}
 		}
 		static float Turn = 0.12f; FParse::Value(FCommandLine::Get(), TEXT("BenchTurn="), Turn);
-		ADragonPawn::FDragonScript Sc; Sc.bOn = true; Sc.WalkFwd = L.bGround ? 1.f : 0.f; Sc.Turn = L.bGround ? 0.f : Turn;
+		ADragonPawn::FDragonScript Sc; Sc.bOn = true; Sc.WalkFwd = L.bGround ? 1.f : 0.f; Sc.Turn = L.bGround ? 0.f : Turn; Sc.Move = L.bGround ? 0.f : 1.f;   // fly, don't hover
 		P->SetScript(Sc);
 		LegT = 0.0; FrameMs.Reset(); GameMs = RenderMs = GpuMs = 0; Samples = 0; WorstMs = WorstGame = WorstRender = WorstGpu = 0; Spikes.Reset(); NSpikes = 0; PrevDt = 0;
 		return;

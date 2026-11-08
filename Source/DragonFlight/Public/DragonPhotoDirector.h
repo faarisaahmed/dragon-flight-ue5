@@ -56,6 +56,10 @@ private:
 		float PoseSpeed = -1.f;      // m/s of flight at the pose (-1: leave it)
 		ADragonPawn::FDragonScript Script;   // scripted keys for the shot (tests of the mechanics)
 		float SettleS = 0.f;         // seconds from pose to shutter (0: the default)
+		bool bSide = false;          // chase shot seen by a camera riding beside the dragon (rig tests)
+		FVector SideOffset = FVector(0.0, 1500.0, 120.0);   // forward, right, up of the dragon's heading (cm)
+		FVector SideAim = FVector(0.0, 0.0, 60.0);
+		float SideFov = 45.f;
 	};
 
 	void PlanShots();
