@@ -92,7 +92,7 @@ TOPLAYER(Scree,   6.0, wScree,   lerp(float3(0.72, 0.72, 0.74), float3(0.22, 0.2
 // Summer turf on these islands is a deep, wet green, broken by patches of heather and
 // bracken (browner) and greener flushes along the gullies; tundra browns in the cold north.
 float patchy = saturate(0.5 + nz * 0.9);
-float3 turf = lerp(float3(0.13, 0.36, 0.08), float3(0.21, 0.42, 0.11), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
+float3 turf = lerp(float3(0.15, 0.31, 0.09), float3(0.22, 0.36, 0.12), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
 // on the steep ledges and cliff tops the turf is wet, short and dark, not sunlit lawn
 turf *= lerp(float3(1.0, 1.0, 1.0), float3(0.62, 0.72, 0.62), smoothstep(0.30, 0.62, slope));
 // (volcanic isles: the woolly fringe-moss of Iceland's lava fields, yellow-green)
@@ -105,13 +105,13 @@ TOPLAYER(Grass,   3.0, wGrass,   DESAT(0.85) * rush * lerp(lerp(turf, float3(0.3
 // (the heath scan is orange bracken: its colour is mostly replaced by the tint, keeping its detail)
 // (summer heath on a wet northern island reads green from a distance: grass and bilberry with
 // browner drifts of heather, not straw)
-TOPLAYER(Heath,   4.0, wHeath,   DESAT(0.9) * lerp(lerp(lerp(float3(0.17, 0.34, 0.10), float3(0.28, 0.24, 0.16), smoothstep(0.45, 0.75, nz2 + nz * 0.3)), float3(0.30, 0.36, 0.26), cold), lerp(float3(0.15, 0.31, 0.09), float3(0.22, 0.13, 0.17), smoothstep(0.55, 0.8, nz * 0.7 + nz2 * 0.5 + 0.3)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
+TOPLAYER(Heath,   4.0, wHeath,   DESAT(0.9) * lerp(lerp(lerp(float3(0.17, 0.34, 0.10), float3(0.28, 0.24, 0.16), smoothstep(0.45, 0.75, nz2 + nz * 0.3)), float3(0.30, 0.36, 0.26), cold), lerp(float3(0.18, 0.29, 0.11), float3(0.24, 0.17, 0.18), smoothstep(0.5, 0.85, nz * 0.7 + nz2 * 0.5 + 0.3)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
 TOPLAYER(Forest,  4.0, wForest,  DESAT(0.6) * float3(0.15, 0.19, 0.11), 1.0)   // needle litter and moss in the shade of the pines
 TOPLAYER(Sand,    5.0, wSand,    lerp(float3(0.42, 0.42, 0.44), float3(0.10, 0.10, 0.11), bio.g), 1.0)   // black sand on the volcanic isles
 TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0)
 TOPLAYER(Snow,    6.0, wSnow,    float3(1.22, 1.24, 1.28), 0.75)
 // (on the moors the "mud" is blanket bog: sphagnum and cotton-grass, a dark wet green, not khaki)
-TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DESAT(0.8) * lerp(float3(0.13, 0.25, 0.08), float3(0.26, 0.22, 0.12), smoothstep(0.5, 0.8, nz2 + 0.3)), bio.b), 0.55)
+TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DESAT(0.8) * lerp(float3(0.15, 0.25, 0.09), float3(0.22, 0.20, 0.12), smoothstep(0.5, 0.8, nz2 + 0.3)), bio.b), 0.55)
 
 // Cliffs: triplanar, so a vertical face is not a smear of stretched pixels. On top of
 // the scanned rock, the structure that makes a sea cliff read from a kilometre out:
@@ -168,7 +168,7 @@ TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DE
 float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 [branch] if (ff > 0.001)
 {
-	float3 farG = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 70.0).rgb * lerp(lerp(float3(0.32, 0.64, 0.24), float3(0.46, 0.52, 0.42), cold), float3(0.32, 0.46, 0.24), bio.b);
+	float3 farG = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 70.0).rgb * lerp(lerp(float3(0.36, 0.58, 0.28), float3(0.46, 0.52, 0.42), cold), float3(0.36, 0.42, 0.26), bio.b);
 	float3 farR = Texture2DSample(FarRockD,  FarRockDSampler,  pm.xy / 60.0).rgb * 0.9;
 	float3 farS = Texture2DSample(FarSnowD,  FarSnowDSampler,  pm.xy / 80.0).rgb;
 	float gG = (wGrass + wHeath + wForest) / wSum, gR = (wCliff + wScree + wSand + wShingle + wMud) / wSum, gS = wSnow / wSum;
