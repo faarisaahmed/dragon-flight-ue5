@@ -603,7 +603,7 @@ void UDragonWebRigComponent::FoldIK(float K)
 		// shoulder: up and a little out, so the arm clears the back
 		Aim(WShoulder[s], WUpper[s], FVector(X * 0.95, 0.12, 0.20));
 		// humerus: back and up, close to the flank
-		Aim(WUpper[s], WFore[s], FVector(X * 0.10, -0.22, 1.0));
+		Aim(WUpper[s], WFore[s], FVector(X * 0.14, -0.16, 1.0));
 		// forearm: forward and a little up; the wrist ends at the shoulder's peak
 		const int32 Hand0 = Finger[s][0];
 		Aim(WFore[s], Hand0, FVector(X * 0.04, 0.10, -1.0));
@@ -611,11 +611,11 @@ void UDragonWebRigComponent::FoldIK(float K)
 		// degrees further down, so the membrane between them lies in narrow pleats
 		for (int32 d = 0; d < 6; ++d)
 		{
-			const double Drop = 0.12 + 0.10 * (5 - d);
+			const double Drop = 0.08 + 0.03 * (5 - d);
 			for (int32 g = 0; g < 2; ++g)
 			{
 				const int32 Bn = Finger[s][d * 3 + g], Ch = Finger[s][d * 3 + g + 1];
-				Aim(Bn, Ch, FVector(X * (0.06 - 0.05 * g + 0.02 * (5 - d)), -(Drop + 0.08 * g), 1.0));
+				Aim(Bn, Ch, FVector(X * (0.05 - 0.06 * g + 0.012 * (5 - d)), -(Drop + 0.04 * g), 1.0));
 			}
 		}
 	}
