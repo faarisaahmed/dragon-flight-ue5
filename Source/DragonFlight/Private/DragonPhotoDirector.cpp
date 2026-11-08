@@ -45,8 +45,9 @@ void ADragonPhotoDirector::BeginPlay()
 	FParse::Value(FCommandLine::Get(), TEXT("AutoShotQuality="), Quality);
 	if (UGameUserSettings* S = GEngine ? GEngine->GetGameUserSettings() : nullptr)
 	{
+		// Not ApplySettings: that also saves, and a photo run must never change the player's own settings.
 		S->SetOverallScalabilityLevel(FMath::Clamp(Quality, 0, 4));
-		S->ApplySettings(false);
+		S->ApplyNonResolutionSettings();
 	}
 
 	if (ADragonPlayerController* PC = Cast<ADragonPlayerController>(UGameplayStatics::GetPlayerController(this, 0)))
