@@ -19,6 +19,10 @@
 #include "HAL/FileManager.h"
 #include "RenderCore.h"
 #include "RHI.h"
+#include "UnrealClient.h"
+#include "Components/VolumetricCloudComponent.h"
+#include "RenderTimer.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/GameViewportClient.h"
 #include "HAL/IConsoleManager.h"
 
@@ -31,6 +35,7 @@ namespace
 	TArray<float> FrameMs;
 	double GameMs = 0, RenderMs = 0, GpuMs = 0; int32 Samples = 0;
 	float WorstMs = 0, WorstGame = 0, WorstRender = 0, WorstGpu = 0;
+	FString Spikes; int32 NSpikes = 0; float PrevDt = 0; double PrevT = 0;
 	FString Out;
 	double SETTLE = 5.0, MEASURE = 15.0;
 }
@@ -110,10 +115,27 @@ void ADragonPlayerController::TickBench(float Dt)
 		Sky->Hours = L.Hours;
 		const double G = FMath::Max(0.0, W->HeightAt(L.PosM.X * 100.0, L.PosM.Y * 100.0) / 100.0);
 		if (L.bGround) P->PhotoGround(FVector(L.PosM.X, L.PosM.Y, G), L.Yaw);
-		else { P->PhotoPose(FVector(L.PosM.X, L.PosM.Y, G + L.AglM), L.Yaw); P->PhotoSpeed(L.Speed); }
-		ADragonPawn::FDragonScript Sc; Sc.bOn = true; Sc.WalkFwd = L.bGround ? 1.f : 0.f; Sc.Turn = L.bGround ? 0.f : 0.12f;
+		else
+		{
+			float Yaw = L.Yaw; FParse::Value(FCommandLine::Get(), TEXT("BenchYaw="), Yaw);
+			P->PhotoPose(FVector(L.PosM.X, L.PosM.Y, G + L.AglM), Yaw); P->PhotoSpeed(L.Speed);
+		}
+		if (ADragonSky* Sk = ADragonSky::Get(this))
+		{
+			float CH = -1.f; FParse::Value(FCommandLine::Get(), TEXT("BenchCloudHeight="), CH);
+			float CS = -1.f; FParse::Value(FCommandLine::Get(), TEXT("BenchCloudStart="), CS);
+			if (UVolumetricCloudComponent* VC = Sk->FindComponentByClass<UVolumetricCloudComponent>())
+			{
+				if (CH > 0.f) VC->SetLayerHeight(CH);
+				if (CS > 0.f) VC->SetTracingStartMaxDistance(CS);
+				float CM = -1.f; FParse::Value(FCommandLine::Get(), TEXT("BenchCloudMax="), CM);
+				if (CM > 0.f) VC->SetTracingMaxDistance(CM);
+			}
+		}
+		static float Turn = 0.12f; FParse::Value(FCommandLine::Get(), TEXT("BenchTurn="), Turn);
+		ADragonPawn::FDragonScript Sc; Sc.bOn = true; Sc.WalkFwd = L.bGround ? 1.f : 0.f; Sc.Turn = L.bGround ? 0.f : Turn;
 		P->SetScript(Sc);
-		LegT = 0.0; FrameMs.Reset(); GameMs = RenderMs = GpuMs = 0; Samples = 0; WorstMs = WorstGame = WorstRender = WorstGpu = 0;
+		LegT = 0.0; FrameMs.Reset(); GameMs = RenderMs = GpuMs = 0; Samples = 0; WorstMs = WorstGame = WorstRender = WorstGpu = 0; Spikes.Reset(); NSpikes = 0; PrevDt = 0;
 		return;
 	}
 	const double Prev = LegT;
@@ -126,12 +148,23 @@ void ADragonPlayerController::TickBench(float Dt)
 		ConsoleCommand(TEXT("ProfileGPU"));
 	}
 #endif
+	if (Prev < SETTLE + 6.0 && LegT >= SETTLE + 6.0 && FParse::Param(FCommandLine::Get(), TEXT("BenchShot")))
+		FScreenshotRequest::RequestScreenshot(FPaths::ProjectSavedDir() / FString::Printf(TEXT("BenchShot_%s.png"), *L.Name), false, false);
 	if (LegT < SETTLE) return;
 	FrameMs.Add(Dt * 1000.f);
 	const float Gm = FPlatformTime::ToMilliseconds(GGameThreadTime), Rm = FPlatformTime::ToMilliseconds(GRenderThreadTime);
 	const float Gp = FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles());
 	GameMs += Gm; RenderMs += Rm; GpuMs += FMath::Min(Gp, 200.f);
 	if (Dt * 1000.f > WorstMs) { WorstMs = Dt * 1000.f; WorstGame = Gm; WorstRender = Rm; WorstGpu = Gp; }
+	// A spike: the frame after it carries its thread times (they are reported a frame late).
+	if (PrevDt * 1000.f > 40.f && NSpikes < 40)
+	{
+		++NSpikes;
+		Spikes += FString::Printf(TEXT("    spike t=%.1fs %.0f ms: game %.1f (wait %.1f) render %.1f (wait %.1f) rhi %.1f gpu %.1f yaw %.0f\n"), PrevT, PrevDt * 1000.f,
+			Gm, FPlatformTime::ToMilliseconds(GGameThreadWaitTime), Rm, FPlatformTime::ToMilliseconds(GRenderThreadWaitTime),
+			FPlatformTime::ToMilliseconds(GRHIThreadTime), Gp, PlayerCameraManager ? PlayerCameraManager->GetCameraRotation().Yaw : 0.f);
+	}
+	PrevDt = Dt; PrevT = LegT;
 	++Samples;
 	if (LegT < SETTLE + MEASURE) return;
 
@@ -141,6 +174,7 @@ void ADragonPlayerController::TickBench(float Dt)
 	const float Low = Sorted[FMath::Clamp(int32(Sorted.Num() * 0.99f), 0, Sorted.Num() - 1)];
 	Out += FString::Printf(TEXT("%-22s %7.1f %7.1f %7.1f %7.1f %7.1f %7.1f   worst: game %.1f render %.1f gpu %.1f\n"), *L.Name, 1000.0 / Avg, 1000.0 / Low, Sorted.Last(),
 		GameMs / Samples, RenderMs / Samples, GpuMs / Samples, WorstGame, WorstRender, WorstGpu);
+	Out += Spikes;
 	UE_LOG(LogDragon, Display, TEXT("Bench %s: %.1f fps, 1%% low %.1f"), *L.Name, 1000.0 / Avg, 1000.0 / Low);
 	++LegIdx; LegT = -1.0;
 	if (LegIdx >= Legs.Num())

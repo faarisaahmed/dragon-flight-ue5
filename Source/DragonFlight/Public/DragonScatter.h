@@ -4,7 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "DragonScatter.generated.h"
 
-class UHierarchicalInstancedStaticMeshComponent;
+class UInstancedStaticMeshComponent;
 class UStaticMesh;
 
 UENUM(BlueprintType)
@@ -93,7 +93,7 @@ private:
 	struct FTile
 	{
 		// One HISM per mesh variant in the layer.
-		TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> Components;
+		TArray<TObjectPtr<UInstancedStaticMeshComponent>> Components;
 	};
 
 	bool LoadMasks();
@@ -125,6 +125,6 @@ private:
 	float PlanTimer = 0.f;
 	float StatTimer = 5.f;
 
-	UPROPERTY(Transient) TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> Pool;
+	UPROPERTY(Transient) TArray<TObjectPtr<UInstancedStaticMeshComponent>> Pool;
 	UPROPERTY(Transient) TObjectPtr<class UMaterialInterface> IceMaterial;
 };

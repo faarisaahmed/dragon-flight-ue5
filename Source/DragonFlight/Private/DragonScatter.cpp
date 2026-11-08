@@ -1,7 +1,7 @@
 #include "DragonScatter.h"
 #include "DragonFlight.h"
 #include "DragonWorldSubsystem.h"
-#include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
@@ -449,7 +449,11 @@ void ADragonScatter::Tick(float DeltaSeconds)
 	// Time-sliced generation.
 	const double Start = FPlatformTime::Seconds();
 	int32 Done = 0;
-	while (Done < Queue.Num() && (FPlatformTime::Seconds() - Start) * 1000.0 < BudgetMs)
+	// Each tile adds components the render thread must set up; a handful at once was a 20 ms
+	// render-thread stall (visible stutter crossing into an island). Two a frame, unless a
+	// loading screen or a photo has asked for a big budget.
+	const int32 MaxTiles = BudgetMs > 10.f ? 1000 : 2;
+	while (Done < Queue.Num() && Done < MaxTiles && (FPlatformTime::Seconds() - Start) * 1000.0 < BudgetMs)
 	{
 		const FTileKey K = Queue[Done++];
 		if (!Tiles.Contains(K)) BuildTile(K.Layer, K.X, K.Y);
@@ -465,7 +469,7 @@ void ADragonScatter::Tick(float DeltaSeconds)
 		for (const TPair<FTileKey, FTile>& T : Tiles)
 		{
 			++NT[T.Key.Layer];
-			for (const UHierarchicalInstancedStaticMeshComponent* C : T.Value.Components) if (C) Inst[T.Key.Layer] += C->GetInstanceCount();
+			for (const UInstancedStaticMeshComponent* C : T.Value.Components) if (C) Inst[T.Key.Layer] += C->GetInstanceCount();
 		}
 		FString Msg;
 		for (int32 i = 0; i < ScatterLayers.Num(); ++i) Msg += FString::Printf(TEXT(" %s %d tiles/%d inst (%d meshes);"), *ScatterLayers[i].Name.ToString(), NT[i], Inst[i], LayerMeshes[i].Num());
@@ -561,7 +565,7 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 	for (int32 m = 0; m < Meshes.Num(); ++m)
 	{
 		if (PerMesh[m].Num() == 0) continue;
-		UHierarchicalInstancedStaticMeshComponent* C = NewObject<UHierarchicalInstancedStaticMeshComponent>(this, NAME_None, RF_Transient);
+		UInstancedStaticMeshComponent* C = NewObject<UInstancedStaticMeshComponent>(this, NAME_None, RF_Transient);
 		C->SetStaticMesh(Meshes[m]);
 		if (L.Kind == EDragonScatterKind::Iceberg && IceMaterial)
 			for (int32 k = 0; k < Meshes[m]->GetStaticMaterials().Num(); ++k) C->SetMaterial(k, IceMaterial);
@@ -592,7 +596,7 @@ void ADragonScatter::DropTile(const FTileKey& Key)
 {
 	if (FTile* T = Tiles.Find(Key))
 	{
-		for (UHierarchicalInstancedStaticMeshComponent* C : T->Components)
+		for (UInstancedStaticMeshComponent* C : T->Components)
 		{
 			if (C) C->DestroyComponent();
 		}

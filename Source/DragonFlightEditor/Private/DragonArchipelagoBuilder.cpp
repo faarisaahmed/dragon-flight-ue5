@@ -727,9 +727,22 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		// (default = the trees: the scanned conifers are studio-bright; a northern spruce wood is a
 		// deep blue-black green from the air. Ground plants set their own tint.)
 		Tint->ParameterName = TEXT("Tint"); Tint->DefaultValue = FLinearColor(0.50f, 0.62f, 0.50f);
-		UMaterialExpressionMultiply* Mul = Expr<UMaterialExpressionMultiply>(M, -350, -350);
-		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), Mul, TEXT("A"));
-		UMaterialEditingLibrary::ConnectMaterialExpressions(Tint, TEXT(""), Mul, TEXT("B"));
+		// Recolour (ground plants): the scans are dry late-summer gold. Keep their light and dark
+		// (the detail) but take the hue from Tint, so the turf is the wet green of a northern isle.
+		UMaterialExpressionScalarParameter* Rc = Expr<UMaterialExpressionScalarParameter>(M, -700, -580);
+		Rc->ParameterName = TEXT("Recolor"); Rc->DefaultValue = 0.f;
+		UMaterialExpressionCustom* Mul = Expr<UMaterialExpressionCustom>(M, -350, -350);
+		Mul->Description = TEXT("Tint / recolour");
+		Mul->OutputType = CMOT_Float3;
+		Mul->Inputs.Reset();
+		for (const TCHAR* In : { TEXT("C"), TEXT("T"), TEXT("K") }) { FCustomInput I; I.InputName = In; Mul->Inputs.Add(I); }
+		Mul->Code = TEXT(
+			"float l = dot(C, float3(0.3, 0.59, 0.11));\n"
+			"return lerp(C * T, l * T * 2.2, K);\n");
+		Mul->PostEditChange();
+		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), Mul, TEXT("C"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Tint, TEXT(""), Mul, TEXT("T"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Rc, TEXT(""), Mul, TEXT("K"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Mul, TEXT(""), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(N, TEXT("RGB"), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("R"), MP_AmbientOcclusion);
@@ -1530,7 +1543,10 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 				{
 					const FString N = MI->GetName();
 					const bool bGrass = N.Contains(TEXT("grass")) || N.Contains(TEXT("moss")) || N.Contains(TEXT("fern"));
-					UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), bGrass ? FLinearColor(0.70f, 0.98f, 0.55f) : FLinearColor(0.85f, 0.95f, 0.8f));
+					// grass, moss, fern: recoloured to a fresh green (mostly; a little of the scan's
+					// warmth stays in the tips); flowers and shrubs keep their own colours, a touch cooled.
+					UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), bGrass ? FLinearColor(0.20f, 0.42f, 0.10f) : FLinearColor(0.85f, 0.95f, 0.8f));
+					UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("Recolor"), bGrass ? 0.92f : 0.f);
 					UMaterialEditingLibrary::UpdateMaterialInstance(MI);
 					UEditorAssetLibrary::SaveLoadedAsset(MI, false);
 					++NG;
