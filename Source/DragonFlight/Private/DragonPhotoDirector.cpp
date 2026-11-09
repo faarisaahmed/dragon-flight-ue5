@@ -457,6 +457,14 @@ void ADragonPhotoDirector::PlanShots()
 					FShot Fb = Fs; Fb.Name = TEXT("50_side_fly_b"); Fb.SettleS = 3.25f; Shots.Add(Fb);
 					FShot Sl = Fs; Sl.Name = TEXT("50b_side_slow"); Sl.PoseSpeed = 12.f; Sl.Script.Move = 0.f; Sl.SettleS = 1.2f; Shots.Add(Sl);
 					FShot Hv2 = Fs; Hv2.Name = TEXT("50c_side_hover"); Hv2.PoseSpeed = 0.f; Hv2.Script.Move = 0.f; Shots.Add(Hv2);
+					// The tail fins from above-behind and straight behind, cruising and slow; one wingbeat in eight frames.
+					FShot Ft = Fs; Ft.Name = TEXT("50e_fins_top"); Ft.SideOffset = FVector(-1300.0, 250.0, 700.0); Ft.SideAim = FVector(-350.0, 0.0, 0.0); Ft.SideFov = 32.f; Shots.Add(Ft);
+					FShot Fb2 = Ft; Fb2.Name = TEXT("50f_fins_rear"); Fb2.SideOffset = FVector(-1500.0, 0.0, 120.0); Fb2.SideAim = FVector(0.0, 0.0, 0.0); Fb2.SideFov = 40.f; Shots.Add(Fb2);
+					FShot Fs2 = Ft; Fs2.Name = TEXT("50g_fins_top_slow"); Fs2.PoseSpeed = 12.f; Fs2.Script.Move = 0.f; Fs2.SettleS = 1.2f; Shots.Add(Fs2);
+					for (int32 i = 0; i < 8; ++i)
+					{
+						FShot Sq = Fs; Sq.Name = FString::Printf(TEXT("50h_beat_%d"), i); Sq.SettleS = 3.f + 0.18f * i; Shots.Add(Sq);
+					}
 					FShot Bl = Fs; Bl.Name = TEXT("50d_below_fly"); Bl.SideOffset = FVector(900.0, 900.0, -500.0); Bl.SideAim = FVector(0.0, 0.0, 0.0); Shots.Add(Bl);
 				}
 				// Standing in thick forest: the trees between the camera and the dragon must clear.

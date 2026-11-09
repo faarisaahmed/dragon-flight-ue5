@@ -238,7 +238,8 @@ private:
 	// --- gait.js ---
 	bool bGaitTried = false, bGaitOK = false, bGaitFirst = true, bStill = true;
 	FGaitLeg Legs[4];
-	float TailDownSign = 0.f; // which way a local X turn bends the tail down, measured once
+	float TailDownSign = 0.f;
+	float NeckUpSign = 0.f, NeckLenM = 1.f; // which way a local X turn on the neck raises the head, and the neck length (m)
 	float HipH = 1.f, GPhase01 = 0.f, Lean = 0.f, HeadYawLag = 0.f, Carry = 0.f, YawRate = 0.f, PrevYaw = 0.f;
 	FVector GVel = FVector::ZeroVector, PrevPos = FVector::ZeroVector, HipsRestPos = FVector::ZeroVector;
 

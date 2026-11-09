@@ -775,7 +775,7 @@ void UDragonWebRigComponent::UpdateFlightRig(float Dt, const FDragonFlightState&
 	const float Tuck = (1.f - LEG_LOOSE * (1.f - SSpeed)) * (1.f + ROLL_LEG * RollMag);
 	for (int32 s = 0; s < 2; ++s)
 	{
-		const float Paddle = FMath::Sin(Phase * 0.5f + (s == 0 ? 0.f : 1.1f)) * 0.05f;
+		const float Paddle = FMath::Sin(TimeS * 2.2f + (s == 0 ? 0.f : 1.1f)) * 0.05f;   // not from the beat phase: a fraction of it jumps every wrap
 		SetE(Thigh[s], AX, TUCK_THIGH * Tuck + Paddle);
 		SetE(Shin[s], AX, TUCK_SHIN * Tuck);
 		SetE(Ankle[s], AX, TUCK_ANKLE * Tuck);
@@ -821,28 +821,58 @@ void UDragonWebRigComponent::UpdateFlightRig(float Dt, const FDragonFlightState&
 		}
 	}
 
-	// --- Tail fins: rudder and elevator ---
-	const float Spread = FIN_SPREAD * (1.f - SSpeed) - FMath::Abs(Knife) * 0.25f + HANG_FIN * SHang;
-	for (int32 s = 0; s < 2; ++s)
+	// --- Tail fins: a horizontal tailplane, never a hanging flap ---
+	// The bind pose holds both fins flat out from the tail. In flight they stay in that plane:
+	// they fan wider when slow (more area, more control) and sweep back at speed; both trail up
+	// together to pitch him up, oppositely to roll and turn (elevons); and they flutter a little in the airflow.
+	// Rotations are about the tail's own up and side axes, so they follow the tail as it bends.
 	{
-		const float Sign = s == 0 ? 1.f : -1.f;
-		const float Rudder = (FIN_RUDDER * STurn + ROLL_FIN * SRoll) * Sign;
-		const float Elevator = FIN_ELEVATOR * SClimb;
-		for (int32 i = 1; i <= 6; ++i)
+		static const float FanTest = [] { float V = 1.f; FParse::Value(FCommandLine::Get(), TEXT("-FinFan="), V); return V; }();
+		const float FanOpen = FanTest * (FMath::Lerp(0.45f, 0.10f, FMath::Clamp(SSpeed * 1.5f, 0.f, 1.f)) + 0.15f * SHang - FMath::Abs(Knife) * 0.15f);
+		const float ElevUp = 0.32f * SClimb;
+		const float Diff = 0.28f * STurn + 0.30f * SRoll;
+		for (int32 s = 0; s < 2; ++s)
 		{
-			const float K = (i - 1) / 5.f;
-			SetE(FinStrut[s][i - 1], AX, -Spread * (0.4f + K * 0.9f) + Elevator);
-			AddE(FinStrut[s][i - 1], AZ, Rudder);
-			SetE(FinTip[s][i - 1], AX, -Spread * (0.3f + K * 0.6f) + Elevator * 0.6f);
+			const float Sign = s == 0 ? 1.f : -1.f;   // .L sits on -X
+			for (int32 i = 0; i < 6; ++i)
+			{
+				const int32 St_ = FinStrut[s][i];
+				if (St_ < 0 || B[St_].Parent < 0) continue;
+				const float K = i / 5.f;
+				const FQuat ParRest = RestModel[B[St_].Parent].GetRotation();
+				const FVector UpP = ParRest.Inverse().RotateVector(FVector(0, 1, 0));
+				const FVector SideP = ParRest.Inverse().RotateVector(FVector(1, 0, 0));
+				const float Flutter = FMath::Sin(TimeS * 13.f + i * 0.9f + s * 2.1f) * 0.025f * (0.3f + SSpeed);
+				const float Pitch = ElevUp + Diff * Sign + Flutter;          // + = trailing edge up
+				const float Fan = FanOpen * (0.35f + 0.65f * K);
+				SetQ(St_, FQuat(UpP, -Fan * Sign) * FQuat(SideP, -Pitch * (0.5f + 0.5f * K)) * B[St_].RestQ);
+			}
 		}
 	}
 
 	// --- Tail ---
-	for (int32 i = 1; i <= 11; ++i)
+	// A long tail is not a rod: the body's heave on each beat runs down it as a travelling wave that
+	// grows toward the tip, it sags a little when slow, curves into turns, and drifts slightly side to side.
 	{
-		const float K = i / 11.f;
-		SetE(TailB[i - 1], AZ, (TAIL_CARVE * STurn + ROLL_TAIL * SRoll) * (0.35f + K));
-		AddE(TailB[i - 1], AX, FMath::Sin(Phase * 0.6f - K * 1.8f) * TAIL_WAVE + SClimb * 0.02f);
+		if (TailDownSign == 0.f && TailB[0] >= 0 && TailB[10] >= 0)
+		{
+			// which way +X on the tail bones turns the tip down (model up is +Y)
+			const FQuat Saved = B[TailB[0]].Q;
+			const double Y0 = Model(TailB[10]).GetLocation().Y;
+			RotateLocal(TailB[0], AX, 0.1f);
+			const double Y1 = Model(TailB[10]).GetLocation().Y;
+			SetQ(TailB[0], Saved);
+			TailDownSign = Y1 < Y0 ? 1.f : -1.f;
+		}
+		const float BeatAmp = FMath::Clamp(WAmp / A_CRUISE, 0.f, 1.6f) * (1.f - GlideK * 0.7f);
+		for (int32 i = 1; i <= 11; ++i)
+		{
+			const float K = i / 11.f;
+			SetE(TailB[i - 1], AZ, (TAIL_CARVE * 1.6f * STurn + ROLL_TAIL * SRoll) * (0.35f + K)
+				+ FMath::Sin(TimeS * 1.1f - K * 2.0f) * 0.006f);
+			AddE(TailB[i - 1], AX, FMath::Sin(Phase - 0.8f - K * 2.6f) * (0.010f + 0.022f * K) * BeatAmp
+				+ SClimb * 0.02f + TailDownSign * 0.012f * (1.f - SSpeed) * (1.f - K));
+		}
 	}
 
 	// --- Head, neck, crest, ears ---
@@ -863,9 +893,31 @@ void UDragonWebRigComponent::UpdateFlightRig(float Dt, const FDragonFlightState&
 		SetE(EarC[s], AZ, Back * 0.5f);
 	}
 
-	const float Blink = FMath::Max(0.f, FMath::Sin(Phase * 0.21f) - 0.965f) * 9.f;
+	const float Blink = FMath::Max(0.f, FMath::Sin(TimeS * 0.9f) - 0.965f) * 9.f;
 	SetE(Eye[0], AX, FMath::Clamp(Blink, 0.f, 1.f) * 0.35f);
 	SetE(Eye[1], AX, FMath::Clamp(Blink, 0.f, 1.f) * 0.35f);
+
+	// --- Head held steady through the beat ---
+	// The body heaves up and down under each wingbeat; like a bird or a bat, he lets the neck take
+	// most of it so the head (and his eyes) keep a smooth line.
+	if (NeckB[0] >= 0 && HeadB >= 0)
+	{
+		if (NeckUpSign == 0.f)
+		{
+			const FQuat Saved = B[NeckB[0]].Q;
+			const double Y0 = Model(HeadB).GetLocation().Y;
+			RotateLocal(NeckB[0], AX, 0.1f);
+			const double Y1 = Model(HeadB).GetLocation().Y;
+			SetQ(NeckB[0], Saved);
+			NeckUpSign = Y1 > Y0 ? 1.f : -1.f;
+			const float WorldScale = FMath::Max(1e-3f, (float)ModelDirToWeb(FVector(0, 1, 0)).Size());
+			NeckLenM = FMath::Max(0.3f, (float)FVector::Dist(Model(NeckB[0]).GetLocation(), Model(HeadB).GetLocation()) * WorldScale);
+		}
+		static const float Steady = [] { float V = 0.8f; FParse::Value(FCommandLine::Get(), TEXT("-HeadSteady="), V); return V; }();
+		const float Counter = FMath::Clamp(-WHeave / NeckLenM, -0.15f, 0.15f) * Steady * NeckUpSign;
+		AddE(NeckB[0], AX, Counter * 0.6f);
+		if (NeckB[1] >= 0) AddE(NeckB[1], AX, Counter * 0.4f);
+	}
 }
 
 // ===========================================================================
@@ -1107,7 +1159,19 @@ void UDragonWebRigComponent::FlightLegs(float K, float Ready, float Dt)
 		AimModel(L.A, Model(L.B).GetLocation(), Knee);
 		AimModel(L.B, Model(L.C).GetLocation(), Cc);
 		AimModel(L.C, Model(L.D).GetLocation(), Dt3);
-		if (L.E >= 0) AimModel(L.D, Model(L.E).GetLocation(), Et);
+		if (L.E >= 0)
+		{
+			// Toes keep their own bend against the foot (a fixed aim crushed the claws into the paw),
+			// eased a third straighter when tucked so the paw trails pointed and relaxed.
+			auto AngX = [](const FVector& V) { return FMath::Atan2(V.Y, V.Z); };   // angle in the side (YZ) plane
+			const FVector RC = RestModel[L.C].GetLocation(), RD = RestModel[L.D].GetLocation(), RE = RestModel[L.E].GetLocation();
+			const float Bend0 = FMath::UnwindRadians(AngX(RE - RD) - AngX(RD - RC));
+			const FVector Meta = Model(L.D).GetLocation() - Model(L.C).GetLocation();
+			const float TA = AngX(Meta) + Bend0 * (1.f - 0.35f * (1.f - Ready));
+			const FVector Dir(0.0, FMath::Sin(TA), FMath::Cos(TA));
+			AimModel(L.D, Model(L.E).GetLocation(), Model(L.D).GetLocation() + Dir * ToeL);
+			(void)Et;
+		}
 		for (int32 j = 0; j < 4; ++j)
 			if (Ch[j] >= 0) SetQ(Ch[j], FQuat::Slerp(Was[j], B[Ch[j]].Q, K));
 		static int32 Dumped = 0;
