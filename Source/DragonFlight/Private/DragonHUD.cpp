@@ -739,9 +739,23 @@ void ADragonHUD::DrawHUD()
 	LastMouse = Mouse;
 	if (PC)
 	{
-		float X = 0, Y = 0;
-		if (PC->GetMousePosition(X, Y)) Mouse = FVector2D(X, Y);
 		const bool bUI = PC->Screen != 0;
+		if (PC->bShowMouseCursor)
+		{
+			float X = 0, Y = 0;
+			if (PC->GetMousePosition(X, Y)) Mouse = FVector2D(X, Y);
+		}
+		else if (bUI)
+		{
+			// The game's own pointer: starts mid-screen, moved by the raw mouse movement.
+			if (!bPointerWasUI) Mouse = FVector2D(Canvas->ClipX * 0.5f, Canvas->ClipY * 0.5f);
+			float DX = 0.f, DY = 0.f;
+			PC->GetInputMouseDelta(DX, DY);
+			const float K = PointerSpeed * Canvas->ClipY / 1080.f;
+			Mouse.X = FMath::Clamp(Mouse.X + DX * K, 0.f, Canvas->ClipX - 1.f);
+			Mouse.Y = FMath::Clamp(Mouse.Y - DY * K, 0.f, Canvas->ClipY - 1.f);
+		}
+		bPointerWasUI = bUI;
 		bClick = bUI && PC->WasInputKeyJustPressed(EKeys::LeftMouseButton);
 		bHeld = bUI && PC->IsInputKeyDown(EKeys::LeftMouseButton);
 		if (PC->Screen != 2) bMapWasOpen = false;
@@ -754,6 +768,28 @@ void ADragonHUD::DrawHUD()
 		if (PC && PC->Screen == 1) DrawMenu(PC);
 	}
 
+	if (PC && PC->Screen != 0 && !PC->bShowMouseCursor) DrawPointer();
+
 	const FString Notice = DragonReport::Notice();
 	if (!Notice.IsEmpty()) Txt(Notice, Canvas->ClipX * 0.5f, Canvas->ClipY * 0.1f, EFace::Medium, 18.f, Bronze, 0.5f);
+}
+
+void ADragonHUD::DrawPointer()
+{
+	// An arrow: dark outline, light fill, tip exactly at the hot spot.
+	auto Arrow = [this](float S, const FLinearColor& C, const FVector2D& O)
+	{
+		const FVector2D Tip = Mouse + O;
+		const FVector2D A = Tip, B = Tip + FVector2D(0.f, 19.f) * S, Cc = Tip + FVector2D(5.f, 14.5f) * S,
+			D = Tip + FVector2D(13.5f, 13.5f) * S;
+		TArray<FCanvasUVTri> Tris;
+		FCanvasUVTri T1; T1.V0_Pos = A; T1.V1_Pos = B; T1.V2_Pos = Cc; T1.V0_Color = T1.V1_Color = T1.V2_Color = C;
+		FCanvasUVTri T2; T2.V0_Pos = A; T2.V1_Pos = Cc; T2.V2_Pos = D; T2.V0_Color = T2.V1_Color = T2.V2_Color = C;
+		Tris.Add(T1); Tris.Add(T2);
+		FCanvasTriangleItem It(Tris, GWhiteTexture);
+		It.BlendMode = SE_BLEND_Translucent;
+		Canvas->DrawItem(It);
+	};
+	Arrow(1.25f * U, FLinearColor(0.f, 0.f, 0.f, 0.75f), FVector2D(-1.5f, -2.5f) * U);
+	Arrow(1.0f * U, FLinearColor(0.96f, 0.94f, 0.90f, 1.f), FVector2D::ZeroVector);
 }

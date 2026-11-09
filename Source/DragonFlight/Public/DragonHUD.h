@@ -75,6 +75,10 @@ private:
 	FVector2D LastMouse = FVector2D::ZeroVector;
 	bool bClick = false;      // left button went down this frame
 	bool bHeld = false;
+	bool bPointerWasUI = false;
+	/** Screen pixels (at 1080p) per unit of raw mouse movement for the game's own pointer. */
+	float PointerSpeed = 1.2f;
+	void DrawPointer();
 	int32 DragSlider = -1;
 	FString LastIsland;
 	float IslandBanner = 0.f;

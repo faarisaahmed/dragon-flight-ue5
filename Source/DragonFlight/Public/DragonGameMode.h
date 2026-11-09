@@ -63,6 +63,8 @@ public:
 	/** Menu page: 0 Settings, 1 Weather & time, 2 Controls. */
 	int32 MenuPage = 0;
 	void SetScreen(int32 NewScreen, bool bPause = true);
+	void CapturePointer();
+	void ReleasePointer();
 
 	/** Saved controls: mouse sensitivity as a multiple of the default (0.25..3), invert Y. */
 	static float GetMouseScale();

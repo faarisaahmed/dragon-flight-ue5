@@ -113,33 +113,34 @@ void ADragonPlayerController::SetScreen(int32 NewScreen, bool bPause)
 	Screen = NewScreen;
 	const bool bOpen = Screen != 0;
 	bPanelOpen = bOpen;
-	bShowMouseCursor = bOpen;
 	bEnableClickEvents = bOpen;
 	UGameplayStatics::SetGamePaused(this, bOpen && bPause);
-	if (bOpen)
+	// The menu and chart use the game's own pointer, moved by the same mouse movement that
+	// steers him, so the system cursor stays captured and hidden. A freed system cursor got
+	// stuck at the screen edge (seen when playing over a remote/streamed screen). Only when
+	// another app has the focus is the system cursor handed back.
+	if (bOpen && !bWasForeground) ReleasePointer(); else CapturePointer();
+}
+
+void ADragonPlayerController::CapturePointer()
+{
+	bShowMouseCursor = false;
+	SetInputMode(FInputModeGameOnly());
+	if (FSlateApplication::IsInitialized())
 	{
-		// A free pointer, like any game's pause menu: it can leave the window for other apps.
-		FInputModeGameAndUI Mode;
-		Mode.SetHideCursorDuringCapture(false);
-		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-		SetInputMode(Mode);
-		if (bWasForeground)
-		{
-			int32 SX = 0, SY = 0; GetViewportSize(SX, SY);
-			SetMouseLocation(SX / 2, SY / 2);
-		}
+		FSlateApplication::Get().SetAllUserFocusToGameViewport();
+		if (UGameViewportClient* VC = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+			if (FViewport* V = VC->Viewport) { V->CaptureMouse(true); V->LockMouseToViewport(true); }
 	}
-	else
-	{
-		// Back to flying: hide, capture and lock the pointer to the game again.
-		SetInputMode(FInputModeGameOnly());
-		if (FSlateApplication::IsInitialized())
-		{
-			FSlateApplication::Get().SetAllUserFocusToGameViewport();
-			if (UGameViewportClient* VC = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-				if (FViewport* V = VC->Viewport) { V->CaptureMouse(true); V->LockMouseToViewport(true); }
-		}
-	}
+}
+
+void ADragonPlayerController::ReleasePointer()
+{
+	bShowMouseCursor = true;
+	FInputModeGameAndUI Mode;
+	Mode.SetHideCursorDuringCapture(false);
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	SetInputMode(Mode);
 }
 
 namespace { const TCHAR* ControlsSection = TEXT("/Script/DragonFlight.DragonControls"); }
@@ -280,6 +281,8 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 			MenuPage = 0;
 			SetScreen(1);
 		}
+		// Back in the game with the menu up: take the pointer again (the game draws its own).
+		if (!bWasForeground && bFg && Screen != 0) CapturePointer();
 		bWasForeground = bFg;
 	}
 	// Esc: menu (or back to the game from anything); Tab / M: the chart; T: weather & time; F1: controls.
