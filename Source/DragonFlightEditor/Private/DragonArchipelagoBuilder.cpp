@@ -26,6 +26,7 @@
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionVertexNormalWS.h"
+#include "Materials/MaterialExpressionLocalPosition.h"
 #include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionLandscapeGrassOutput.h"
 #include "LandscapeGrassType.h"
@@ -793,9 +794,12 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Wind->Description = TEXT("Wind");
 		Wind->OutputType = CMOT_Float3;
 		Wind->Inputs.Reset();
-		for (const TCHAR* In : { TEXT("P"), TEXT("Pivot"), TEXT("T"), TEXT("Strength") }) { FCustomInput I; I.InputName = In; Wind->Inputs.Add(I); }
+		for (const TCHAR* In : { TEXT("P"), TEXT("LP"), TEXT("T"), TEXT("Strength") }) { FCustomInput I; I.InputName = In; Wind->Inputs.Add(I); }
+		// Height above the tree's own base, from its local position: the object position of an
+		// instanced component is the component's (a whole scatter tile), so on a hillside trees
+		// far above the tile's origin bent tens of metres and flung their leaves across the sky.
 		Wind->Code = TEXT(
-			"float hgt = max(0.0, P.z - Pivot.z) * 0.01;\n"
+			"float hgt = clamp(LP.z * 0.01, 0.0, 45.0);\n"
 			"float bend = hgt * hgt * 0.004 + hgt * 0.01;\n"
 			"float gust = sin(T * 0.7 + dot(P.xy, float2(0.0011, 0.0007))) * 0.5 + 0.5;\n"
 			"float flut = sin(T * 3.1 + dot(P.xyz, float3(0.031, 0.027, 0.04)));\n"
@@ -805,12 +809,12 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Wind->PostEditChange();
 		UMaterialExpressionWorldPosition* WP = Expr<UMaterialExpressionWorldPosition>(M, -700, 650);
 		WP->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
-		UMaterialExpressionObjectPositionWS* Pivot = Expr<UMaterialExpressionObjectPositionWS>(M, -700, 730);
+		UMaterialExpressionLocalPosition* Pivot = Expr<UMaterialExpressionLocalPosition>(M, -700, 730);   // origin: the instance
 		UMaterialExpressionTime* Time = Expr<UMaterialExpressionTime>(M, -700, 810);
 		UMaterialExpressionScalarParameter* Str = Expr<UMaterialExpressionScalarParameter>(M, -700, 890);
 		Str->ParameterName = TEXT("WindStrength"); Str->DefaultValue = 1.f;
 		UMaterialEditingLibrary::ConnectMaterialExpressions(WP, TEXT(""), Wind, TEXT("P"));
-		UMaterialEditingLibrary::ConnectMaterialExpressions(Pivot, TEXT(""), Wind, TEXT("Pivot"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Pivot, TEXT(""), Wind, TEXT("LP"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Time, TEXT(""), Wind, TEXT("T"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Str, TEXT(""), Wind, TEXT("Strength"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Wind, TEXT(""), MP_WorldPositionOffset);

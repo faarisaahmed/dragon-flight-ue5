@@ -85,11 +85,11 @@ float fd = smoothstep(25.0, 220.0, dist);   // near tile -> 4.3x tile with dista
 float3 C = 0; float3 Nw = 0; float R = 0; float AO = 0;
 #define UNPACK(n2) float3(n2, sqrt(saturate(1.0 - dot(n2, n2))))
 // Top-projected layer, whiteout-blended onto the surface normal.
-#define TOPLAYER(L, S, W, TINT, RMUL) [branch] if (W > 0.002) { \
+#define TOPLAYER(L, S, W, TINT, RMUL, NS) [branch] if (W > 0.002) { \
 	float2 u1 = pm.xy / (S); float2 u2 = pm.xy / ((S) * 4.3); \
 	float2 g1x = GX.xy / (S), g1y = GY.xy / (S), g2x = g1x / 4.3, g2y = g1y / 4.3; \
 	float3 c = lerp(SG(L##D, u1, g1x, g1y).rgb, SG(L##D, u2, g2x, g2y).rgb, fd); \
-	float2 n2 = lerp(SG(L##N, u1, g1x, g1y).xy, SG(L##N, u2, g2x, g2y).xy, fd) * 2.0 - 1.0; \
+	float2 n2 = (lerp(SG(L##N, u1, g1x, g1y).xy, SG(L##N, u2, g2x, g2y).xy, fd) * 2.0 - 1.0) * (NS); \
 	float3 a = lerp(SG(L##A, u1, g1x, g1y).rgb, SG(L##A, u2, g2x, g2y).rgb, fd); \
 	float3 tn = UNPACK(n2); \
 	float3 wn = normalize(float3(tn.xy + N.xy, abs(tn.z) * N.z)); \
@@ -98,7 +98,7 @@ float3 C = 0; float3 Nw = 0; float R = 0; float AO = 0;
 // (the scan is a yellow-brown gravel: kept for its detail, coloured as grey stone - brightened
 // as it was, it ringed every turf patch and outcrop with a yellow halo)
 #define DESAT(k) lerp(float3(1, 1, 1), dot(c, float3(0.3, 0.59, 0.11)) / max(c, 0.02), k)
-TOPLAYER(Scree,   6.0, wScree,   DESAT(0.9) * lerp(float3(0.50, 0.51, 0.52), float3(0.22, 0.21, 0.21) * (0.85 + 0.3 * nz2), bio.g), 1.0)
+TOPLAYER(Scree,   6.0, wScree,   DESAT(0.9) * lerp(float3(0.50, 0.51, 0.52), float3(0.22, 0.21, 0.21) * (0.85 + 0.3 * nz2), bio.g), 1.0, 1.0)
 // Summer turf on these islands is a deep, wet green, broken by patches of heather and
 // bracken (browner) and greener flushes along the gullies; tundra browns in the cold north.
 float patchy = saturate(0.5 + nz * 0.9);
@@ -109,20 +109,22 @@ turf *= lerp(float3(1.0, 1.0, 1.0), float3(0.62, 0.72, 0.62), smoothstep(0.30, 0
 float rush = 0.78 + 0.34 * Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 37.0 + 0.53).g;   // rushes and tussocks: darker patches
 // The scans are dry and golden (grass) or orange (bracken): DESAT keeps their detail and lets
 // the tint set the colour, so the turf is the wet green of a northern island.
-TOPLAYER(Grass,   3.0, wGrass,   DESAT(0.85) * rush * lerp(lerp(turf, float3(0.36, 0.42, 0.32), cold), float3(0.22, 0.25, 0.19), bio.g) * (0.88 + 0.16 * nz), 1.0)
+TOPLAYER(Grass,   3.0, wGrass,   DESAT(0.85) * rush * lerp(lerp(turf, float3(0.36, 0.42, 0.32), cold), float3(0.22, 0.25, 0.19), bio.g) * (0.88 + 0.16 * nz), 1.0, 1.0)
 // (moorland: heather, purple-brown, in drifts)
 // (the heath scan is orange bracken: its colour is mostly replaced by the tint, keeping its detail)
 // (summer heath on a wet northern island reads green from a distance: grass and bilberry with
 // browner drifts of heather, not straw)
 // (darker than it was: the old tint over the bright litter scan ringed every patch of turf on
 // the cliffs with a yellow-olive halo)
-TOPLAYER(Heath,   4.0, wHeath,   DESAT(0.9) * lerp(lerp(lerp(float3(0.12, 0.22, 0.07), float3(0.18, 0.15, 0.10), smoothstep(0.45, 0.75, nz2 + nz * 0.3)), float3(0.24, 0.28, 0.21), cold), lerp(float3(0.14, 0.22, 0.09), float3(0.19, 0.13, 0.14), smoothstep(0.5, 0.85, nz * 0.7 + nz2 * 0.5 + 0.3)), bio.b) * (0.85 + 0.15 * nz2), 1.0)
-TOPLAYER(Forest,  4.0, wForest,  DESAT(0.6) * float3(0.15, 0.19, 0.11), 1.0)   // needle litter and moss in the shade of the pines
-TOPLAYER(Sand,    5.0, wSand,    lerp(float3(0.42, 0.42, 0.44), float3(0.10, 0.10, 0.11), bio.g), 1.0)   // black sand on the volcanic isles
-TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0)
-TOPLAYER(Snow,    6.0, wSnow,    float3(1.22, 1.24, 1.28), 0.75)
+TOPLAYER(Heath,   4.0, wHeath,   DESAT(0.9) * lerp(lerp(lerp(float3(0.12, 0.22, 0.07), float3(0.18, 0.15, 0.10), smoothstep(0.45, 0.75, nz2 + nz * 0.3)), float3(0.24, 0.28, 0.21), cold), lerp(float3(0.14, 0.22, 0.09), float3(0.19, 0.13, 0.14), smoothstep(0.5, 0.85, nz * 0.7 + nz2 * 0.5 + 0.3)), bio.b) * (0.85 + 0.15 * nz2), 1.0, 1.0)
+TOPLAYER(Forest,  4.0, wForest,  DESAT(0.6) * float3(0.15, 0.19, 0.11), 1.0, 1.0)   // needle litter and moss in the shade of the pines
+TOPLAYER(Sand,    5.0, wSand,    lerp(float3(0.42, 0.42, 0.44), float3(0.10, 0.10, 0.11), bio.g), 1.0, 1.0)   // black sand on the volcanic isles
+TOPLAYER(Shingle, 4.0, wShingle, float3(0.62, 0.63, 0.65), 1.0, 1.0)
+// (the scan is trampled snow: its footprints repeated every few metres over the ice caps, so
+// its contrast and relief are pressed flat - wind-packed snow reads smooth from the air)
+TOPLAYER(Snow,    9.0, wSnow,    (lerp(float3(0.78, 0.78, 0.8), c, 0.3) / max(c, 0.02)) * float3(1.22, 1.24, 1.28), 0.75, 0.3)
 // (on the moors the "mud" is blanket bog: sphagnum and cotton-grass, a dark wet green, not khaki)
-TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DESAT(0.8) * lerp(float3(0.15, 0.25, 0.09), float3(0.22, 0.20, 0.12), smoothstep(0.5, 0.8, nz2 + 0.3)), bio.b), 0.55)
+TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DESAT(0.8) * lerp(float3(0.15, 0.25, 0.09), float3(0.22, 0.20, 0.12), smoothstep(0.5, 0.8, nz2 + 0.3)), bio.b), 0.55, 1.0)
 
 // Cliffs: triplanar, so a vertical face is not a smear of stretched pixels. On top of
 // the scanned rock, the structure that makes a sea cliff read from a kilometre out:

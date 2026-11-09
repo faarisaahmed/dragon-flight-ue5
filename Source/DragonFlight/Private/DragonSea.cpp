@@ -169,15 +169,33 @@ bool ADragonSea::BuildLake(const UDragonWorldSubsystem& W, const FDragonLake& L,
 		// outline is exact; each cell overhangs a little under the shore.
 		TArray<FVector> V; TArray<int32> T; TArray<FVector> Nm; TArray<FVector2D> UV; TArray<FColor> Col; TArray<FProcMeshTangent> Tan;
 		const double C = L.Cell, Pad = C * 0.75;
+		// Carry the surface two cells further in under the shore wherever the ground there stands
+		// above the water: the terrain then cuts the outline, following its own contour. (The
+		// square cells' own edges showed as a stair-stepped shoreline wherever they fell short.)
+		TArray<uint8> Wet = L.Wet;
+		for (int32 Pass = 0; Pass < 2; ++Pass)
+		{
+			TArray<uint8> Next = Wet;
+			for (int32 y = 0; y < L.H; ++y)
+				for (int32 x = 0; x < L.W; ++x)
+				{
+					if (Wet[y * L.W + x]) continue;
+					const bool bNear = (x > 0 && Wet[y * L.W + x - 1]) || (x < L.W - 1 && Wet[y * L.W + x + 1]) || (y > 0 && Wet[(y - 1) * L.W + x]) || (y < L.H - 1 && Wet[(y + 1) * L.W + x]);
+					if (!bNear) continue;
+					const double Gz = W.HeightAt(L.Bounds.Min.X + (x + 0.5) * C, L.Bounds.Min.Y + (y + 0.5) * C);
+					if (Gz > L.Level + 30.0) Next[y * L.W + x] = 1;
+				}
+			Wet = MoveTemp(Next);
+		}
 		for (int32 y = 0; y < L.H; ++y)
 		{
 			// One quad per run of wet cells along the row.
 			int32 x = 0;
 			while (x < L.W)
 			{
-				if (!L.Wet[y * L.W + x]) { ++x; continue; }
+				if (!Wet[y * L.W + x]) { ++x; continue; }
 				const int32 x0 = x;
-				while (x < L.W && L.Wet[y * L.W + x]) ++x;
+				while (x < L.W && Wet[y * L.W + x]) ++x;
 				const double cx0 = L.Bounds.Min.X + (x0 + 0.5) * C, cx1 = L.Bounds.Min.X + (x - 0.5) * C;
 				const double cy = L.Bounds.Min.Y + (y + 0.5) * C;
 				const int32 B = V.Num();
