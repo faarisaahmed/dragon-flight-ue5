@@ -129,7 +129,7 @@ private:
 	{
 		int32 A = INDEX_NONE, B = INDEX_NONE, C = INDEX_NONE, D = INDEX_NONE, E = INDEX_NONE;
 		bool bFore = false;
-		float L1 = 0, L2 = 0, L3 = 0, ToeLen = 0.12f, ToeH = 0, Meta0 = 0;
+		float L1 = 0, L2 = 0, L3 = 0, ToeLen = 0.12f, ToeH = 0, Meta0 = 0, ToePitch0 = 0, TipH = 0;
 		FVector Home = FVector::ZeroVector, Pole = FVector::ZeroVector;
 		bool bPlant = false;
 		FVector Plant = FVector::ZeroVector, LiftFrom = FVector::ZeroVector, Foot = FVector::ZeroVector;

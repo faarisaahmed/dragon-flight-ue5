@@ -995,6 +995,13 @@ bool UDragonWebRigComponent::CreateGait()
 		L.L3 = FVector::Dist(Cw, Dw);
 		L.ToeLen = L.E >= 0 ? FVector::Dist(Dw, W(L.E)) : 0.12f;
 		L.ToeH = Dw.Y - RootW.Y;
+		if (L.E >= 0)
+		{
+			// the toes' own rest angle below level (nose is -Z, up +Y): they reach forward and down to the claws
+			const FVector Dv = Lc(L.E) - Lc(L.D);
+			L.ToePitch0 = FMath::Atan2(-Dv.Y, FMath::Max(-Dv.Z, 1e-3));
+			L.TipH = W(L.E).Y - RootW.Y;
+		}
 		const FVector A = Lc(L.A), Bv = Lc(L.B), C = Lc(L.C), D = Lc(L.D);
 		L.Home = D;
 		const FVector Axis = (C - A).GetSafeNormal();
@@ -1003,6 +1010,7 @@ bool UDragonWebRigComponent::CreateGait()
 		const FVector Md = C - D;
 		L.Meta0 = FMath::Atan2(Md.Z * 1.0, Md.Y); // TAILWARD_SIGN = +1: his nose is toward -Z
 	}
+	UE_LOG(LogDragon, Log, TEXT("WebRig toes: pitch FL %.2f HL %.2f, tip h %.3f %.3f, toe h %.3f %.3f"), Legs[0].ToePitch0, Legs[2].ToePitch0, Legs[0].TipH, Legs[2].TipH, Legs[0].ToeH, Legs[2].ToeH);
 	HipH = (W(Legs[2].A).Y + W(Legs[3].A).Y) / 2.0 - RootW.Y;
 	HipsRestPos = Hips >= 0 ? B[Hips].RestT : FVector::ZeroVector;
 	bGaitFirst = true;
@@ -1122,6 +1130,8 @@ void UDragonWebRigComponent::FlightLegs(float K, float Ready, float Dt)
 
 void UDragonWebRigComponent::UpdateGait(float RawDt, const FDragonWebRigInput& In)
 {
+	static const bool bBindTest = FParse::Param(FCommandLine::Get(), TEXT("GaitBind"));
+	if (bBindTest) return;   // test: leave the legs in the model's bind pose
 	const float Dt = FMath::Min(RawDt, 0.05f);
 	auto GroundAt = [&](double X, double Z) { return (double)In.GroundAtM((float)X, (float)Z); };
 	auto WPos = [&](int32 I) { return ModelToWeb(Model(I).GetLocation()); };
@@ -1277,13 +1287,16 @@ void UDragonWebRigComponent::UpdateGait(float RawDt, const FDragonWebRigInput& I
 		GaitAim(L.A, WPos(L.B), Knee);
 		GaitAim(L.B, WPos(L.C), Ct);
 		GaitAim(L.C, WPos(L.D), L.Foot);
-		if (L.E >= 0)
+		static const bool bToeAim = !FParse::Param(FCommandLine::Get(), TEXT("NoToeAim"));
+		if (L.E >= 0 && bToeAim)
 		{
 			// toes fold under as the paw leaves the ground, then open and reach just before it lands
 			const float Curl = L.bDown ? 0.f : (0.38f * FMath::Sin(PI * FMath::Min(1.f, L.S * 1.5f))
 				- (L.S > 0.6f ? 0.28f * FMath::Sin(PI * (L.S - 0.6f) / 0.4f) : 0.f)) * Amp;
-			FVector Tip = L.Foot + Nose * (FMath::Cos(Curl) * L.ToeLen) + UpW * (-FMath::Sin(Curl) * L.ToeLen);
-			Tip.Y = FMath::Max(Tip.Y, L.bDown ? GroundAt(Tip.X, Tip.Z) + L.ToeH * 0.5 : -1e9);
+			// keep the toes at their own rest angle to the ground; forcing them level folds the claws up into the paw
+			const float Ang = L.ToePitch0 + Curl;
+			FVector Tip = L.Foot + Nose * (FMath::Cos(Ang) * L.ToeLen) + UpW * (-FMath::Sin(Ang) * L.ToeLen);
+			Tip.Y = FMath::Max(Tip.Y, L.bDown ? GroundAt(Tip.X, Tip.Z) + FMath::Max(0.0f, L.TipH) * 0.8 : -1e9);
 			GaitAim(L.D, WPos(L.E), Tip);
 		}
 	}

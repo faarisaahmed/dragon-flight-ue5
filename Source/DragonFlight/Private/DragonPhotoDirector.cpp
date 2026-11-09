@@ -440,6 +440,14 @@ void ADragonPhotoDirector::PlanShots()
 						FShot Lg = Sd; Lg.Name = FString::Printf(TEXT("51e_legs_walk_%d"), i); Lg.Script.WalkFwd = 1.f; Lg.SettleS = 5.f + 0.13f * i;
 						Lg.SideOffset = FVector(120.0, 1500.0, 40.0); Lg.SideAim = FVector(120.0, 0.0, 30.0); Lg.SideFov = 24.f; Shots.Add(Lg);
 					}
+					// Paws up close at ground height: standing, four moments of the walk, and a low front three-quarter.
+					for (int32 i = 0; i < 6; ++i)
+					{
+						FShot Pw = Sd; Pw.Name = FString::Printf(TEXT("51f_paw_%d"), i); Pw.Script.WalkFwd = i == 0 ? 0.f : 1.f; Pw.SettleS = 5.f + 0.17f * i;
+						Pw.SideOffset = FVector(140.0, 480.0, 12.0); Pw.SideAim = FVector(140.0, 0.0, 10.0); Pw.SideFov = 22.f;
+						if (i == 5) { Pw.Script.WalkFwd = 0.f; Pw.SideOffset = FVector(520.0, 260.0, 8.0); Pw.SideAim = FVector(150.0, 40.0, 8.0); }
+						Shots.Add(Pw);
+					}
 				}
 				// ... and in the air: cruising (two moments of the beat), slow, hovering, from below.
 				{
