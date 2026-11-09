@@ -13,5 +13,7 @@ public class DragonFlight : ModuleRules
 			"Json", "JsonUtilities", "RenderCore", "RHI", "PhysicsCore",
 			"DeveloperSettings", "ImageWrapper", "ProceduralMeshComponent", "HTTP"
 		});
+		// The Mac cursor fix (DragonGameMode.cpp) warps the system cursor.
+		if (Target.Platform == UnrealTargetPlatform.Mac) PublicFrameworks.Add("CoreGraphics");
 	}
 }

@@ -25,6 +25,35 @@
 #include "Framework/Application/SlateApplication.h"
 #include "UnrealClient.h"
 #include "RHI.h"
+#if PLATFORM_MAC
+#include <CoreGraphics/CoreGraphics.h>
+#endif
+
+namespace
+{
+	/**
+	 * While the game has the mouse, keep the (hidden) system cursor parked mid-screen. On the
+	 * mini's Retina screen the engine's "keep it in the window" clamp put it on the bottom
+	 * edge, where the Dock rose under it and clicks opened apps. In captured mode the engine
+	 * reads raw motion and the cursor does not follow the mouse, so one warp holds.
+	 */
+	void ParkSystemCursor()
+	{
+#if PLATFORM_MAC
+		const CGRect B = CGDisplayBounds(CGMainDisplayID());
+		const CGPoint Mid = CGPointMake(B.origin.x + B.size.width * 0.5, B.origin.y + B.size.height * 0.5);
+		CGEventRef E = CGEventCreate(nullptr);
+		if (!E) return;
+		const CGPoint At = CGEventGetLocation(E);   // top-left origin, points
+		CFRelease(E);
+		if (FMath::Abs(At.x - Mid.x) > 40.0 || FMath::Abs(At.y - Mid.y) > 40.0)
+		{
+			CGWarpMouseCursorPosition(Mid);
+			CGAssociateMouseAndMouseCursorPosition(false);   // still captured: no drift, no 0.25 s event pause
+		}
+#endif
+	}
+}
 
 ADragonGameMode::ADragonGameMode()
 {
@@ -284,6 +313,7 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 		// Back in the game with the menu up: take the pointer again (the game draws its own).
 		if (!bWasForeground && bFg && Screen != 0) CapturePointer();
 		bWasForeground = bFg;
+		if (bFg && !bShowMouseCursor && !FParse::Param(FCommandLine::Get(), TEXT("NoCursorPark"))) ParkSystemCursor();
 	}
 	// Esc: menu (or back to the game from anything); Tab / M: the chart; T: weather & time; F1: controls.
 	if (WasInputKeyJustPressed(EKeys::Escape)) SetScreen(Screen == 0 ? 1 : 0);
