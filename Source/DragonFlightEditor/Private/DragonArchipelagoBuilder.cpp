@@ -1568,8 +1568,8 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 					const bool bGrass = N.Contains(TEXT("grass")) || N.Contains(TEXT("moss")) || N.Contains(TEXT("fern"));
 					// grass, moss, fern: recoloured to a fresh green (mostly; a little of the scan's
 					// warmth stays in the tips); flowers and shrubs keep their own colours, a touch cooled.
-					UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), bGrass ? FLinearColor(0.22f, 0.37f, 0.12f) : FLinearColor(0.85f, 0.95f, 0.8f));
-					UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("Recolor"), bGrass ? 0.92f : 0.f);
+					UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), bGrass ? FLinearColor(0.17f, 0.27f, 0.10f) : FLinearColor(0.85f, 0.95f, 0.8f));   // a wet, muted northern green (lawn-bright before)
+					UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("Recolor"), bGrass ? 0.85f : 0.f);
 					UMaterialEditingLibrary::UpdateMaterialInstance(MI);
 					UEditorAssetLibrary::SaveLoadedAsset(MI, false);
 					++NG;

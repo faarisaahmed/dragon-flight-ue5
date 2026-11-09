@@ -102,7 +102,9 @@ TOPLAYER(Scree,   6.0, wScree,   DESAT(0.9) * lerp(float3(0.50, 0.51, 0.52), flo
 // Summer turf on these islands is a deep, wet green, broken by patches of heather and
 // bracken (browner) and greener flushes along the gullies; tundra browns in the cold north.
 float patchy = saturate(0.5 + nz * 0.9);
-float3 turf = lerp(float3(0.15, 0.31, 0.09), float3(0.22, 0.36, 0.12), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
+// (muted: the old values read as a mown lawn) and broken by drifts of browner, tussocky grass
+float3 turf = lerp(float3(0.12, 0.23, 0.07), float3(0.19, 0.28, 0.11), patchy) * lerp(1.0, 1.12, saturate(flow * 1.5));
+turf = lerp(turf, float3(0.21, 0.21, 0.11), smoothstep(0.55, 0.9, nz2 * 0.55 + nz * 0.35 + 0.35) * 0.45 * (1.0 - saturate(flow * 2.0)));
 // on the steep ledges and cliff tops the turf is wet, short and dark, not sunlit lawn
 turf *= lerp(float3(1.0, 1.0, 1.0), float3(0.62, 0.72, 0.62), smoothstep(0.30, 0.62, slope));
 // (volcanic isles: the woolly fringe-moss of Iceland's lava fields, yellow-green)

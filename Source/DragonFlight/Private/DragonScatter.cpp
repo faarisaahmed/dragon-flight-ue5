@@ -531,7 +531,11 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 				for (int32 m = 0; m < Meshes.Num(); ++m) if (ShoreMesh[Li][m] == bShore) Ok.Add(m);
 				if (Ok.Num()) MeshIdx = Ok[FMath::Min(Ok.Num() - 1, (int32)(Pick * Ok.Num()))];
 			}
-			const float Scale = FMath::Lerp(L.ScaleRange.X, L.ScaleRange.Y, S01 * S01) * ScaleMul;
+			float Scale = FMath::Lerp(L.ScaleRange.X, L.ScaleRange.Y, S01 * S01) * ScaleMul;
+			// The wave-worn coast scans are already life-size shelves of rock: scaled up they lay
+			// across the coves as huge flat slabs.
+			if (L.Kind == EDragonScatterKind::Rock && Li < ShoreMesh.Num() && ShoreMesh[Li].IsValidIndex(MeshIdx) && ShoreMesh[Li][MeshIdx])
+				Scale = FMath::Min(Scale, 1.15f);
 			FQuat Rot = FQuat(FVector::UpVector, FMath::DegreesToRadians(Yaw));
 			if (L.AlignToSlope > 0.f)
 			{
