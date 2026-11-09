@@ -172,6 +172,19 @@ TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DE
 	float stain = smoothstep(0.35, 0.75, streak);
 	float grey = dot(c, float3(0.3, 0.59, 0.11));
 	c = lerp(float3(grey, grey, grey), c, 0.35) * float3(0.80, 0.80, 0.84);
+	// Crags: the aerial rock scan projected onto the face itself (along it and up it) at two
+	// sizes, so a 100 m cliff breaks into buttresses, gullies and ledges in light and shade
+	// instead of reading as one smooth grey sheet.
+	{
+		float2 fu = float2(along, pm.z);
+		float2 gx = float2(dot(GX.xy, tg), GX.z), gy = float2(dot(GY.xy, tg), GY.z);
+		float m1 = SG(FarRockD, fu / 48.0 + 0.17, gx / 48.0, gy / 48.0).r;
+		float m2 = SG(FarRockD, fu / 13.0 + 0.61, gx / 13.0, gy / 13.0).r;
+		float crag = m1 * 0.65 + m2 * 0.35;
+		c *= lerp(0.55, 1.3, saturate((crag - 0.25) * 1.6));
+		// relief to go with it: tilt the normal along the face with the crag pattern's slope
+		wn += float3(tg * (crag - 0.5) * 0.6, 0.0);
+	}
 	c *= lerp(1.0, 0.5, bio.g);                                  // young basalt is near black
 	c *= tone * (1.0 - joint * 0.45) * (1.0 - stain * 0.35);
 	// Shelves catch light and hold a little moss.
