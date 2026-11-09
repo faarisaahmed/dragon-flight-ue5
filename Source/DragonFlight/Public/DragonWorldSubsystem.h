@@ -94,6 +94,8 @@ public:
 	const TArray<FDragonIsland>& GetIslands() const { return Islands; }
 	const TArray<FDragonRiver>& GetRivers() const { return Rivers; }
 	const TArray<FDragonLake>& GetLakes() const { return Lakes; }
+	/** True where a lake covers (or nearly reaches) ground at height GroundZ, all in cm: nothing grows there. */
+	bool IsInLake(double X, double Y, double GroundZ, double Margin = 150.0) const;
 
 	/** Raw JSON for anything that wants more (village plots, glacier fronts, pads). */
 	TSharedPtr<class FJsonObject> GetJson() const { return Json; }

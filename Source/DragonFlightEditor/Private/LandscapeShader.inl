@@ -13,6 +13,12 @@
 static const TCHAR* GLandscapeHLSL = TEXT(R"HLSL(
 float3 pm = P * 0.01;
 float3 N = normalize(Nv);
+// Screen-space rates of change of the world position, taken here in uniform control flow.
+// Textures sampled inside the [branch] blocks below use them explicitly: derivatives inside a
+// branch whose condition varies per pixel are undefined, and on Metal that picked the smallest
+// mips - sand, shingle and scree showed as blocky checkerboards of a few big texels.
+float3 GX = ddx(pm), GY = ddy(pm);
+#define SG(T, uv, gx, gy) Texture2DSampleGrad(T, T##Sampler, uv, gx, gy)
 float2 muv = pm.xy / WS + 0.5;
 float4 mk = Texture2DSample(MaskA, MaskASampler, muv);
 float3 mk2 = Texture2DSample(MaskB, MaskBSampler, muv).rgb;
@@ -81,9 +87,10 @@ float3 C = 0; float3 Nw = 0; float R = 0; float AO = 0;
 // Top-projected layer, whiteout-blended onto the surface normal.
 #define TOPLAYER(L, S, W, TINT, RMUL) [branch] if (W > 0.002) { \
 	float2 u1 = pm.xy / (S); float2 u2 = pm.xy / ((S) * 4.3); \
-	float3 c = lerp(Texture2DSample(L##D, L##DSampler, u1).rgb, Texture2DSample(L##D, L##DSampler, u2).rgb, fd); \
-	float2 n2 = lerp(Texture2DSample(L##N, L##NSampler, u1).xy, Texture2DSample(L##N, L##NSampler, u2).xy, fd) * 2.0 - 1.0; \
-	float3 a = lerp(Texture2DSample(L##A, L##ASampler, u1).rgb, Texture2DSample(L##A, L##ASampler, u2).rgb, fd); \
+	float2 g1x = GX.xy / (S), g1y = GY.xy / (S), g2x = g1x / 4.3, g2y = g1y / 4.3; \
+	float3 c = lerp(SG(L##D, u1, g1x, g1y).rgb, SG(L##D, u2, g2x, g2y).rgb, fd); \
+	float2 n2 = lerp(SG(L##N, u1, g1x, g1y).xy, SG(L##N, u2, g2x, g2y).xy, fd) * 2.0 - 1.0; \
+	float3 a = lerp(SG(L##A, u1, g1x, g1y).rgb, SG(L##A, u2, g2x, g2y).rgb, fd); \
 	float3 tn = UNPACK(n2); \
 	float3 wn = normalize(float3(tn.xy + N.xy, abs(tn.z) * N.z)); \
 	float k = W / wSum; C += c * (TINT) * k; Nw += wn * k; R += saturate(a.g * (RMUL)) * k; AO += a.r * k; }
@@ -126,15 +133,16 @@ TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DE
 		float S = t == 0 ? 14.0 : 63.0;
 		float ft = t == 0 ? 1.0 - fd : fd;
 		float2 ux = pm.zy / S, uy = pm.xz / S, uz = pm.xy / S;
-		c += ft * (Texture2DSample(CliffD, CliffDSampler, ux).rgb * bw.x
-		         + Texture2DSample(CliffD, CliffDSampler, uy).rgb * bw.y
-		         + Texture2DSample(CliffD, CliffDSampler, uz).rgb * bw.z);
-		a += ft * (Texture2DSample(CliffA, CliffASampler, ux).rgb * bw.x
-		         + Texture2DSample(CliffA, CliffASampler, uy).rgb * bw.y
-		         + Texture2DSample(CliffA, CliffASampler, uz).rgb * bw.z);
-		float3 tX = UNPACK(Texture2DSample(CliffN, CliffNSampler, ux).xy * 2.0 - 1.0);
-		float3 tY = UNPACK(Texture2DSample(CliffN, CliffNSampler, uy).xy * 2.0 - 1.0);
-		float3 tZ = UNPACK(Texture2DSample(CliffN, CliffNSampler, uz).xy * 2.0 - 1.0);
+		float2 xX = GX.zy / S, xY = GY.zy / S, yX = GX.xz / S, yY = GY.xz / S, zX = GX.xy / S, zY = GY.xy / S;
+		c += ft * (SG(CliffD, ux, xX, xY).rgb * bw.x
+		         + SG(CliffD, uy, yX, yY).rgb * bw.y
+		         + SG(CliffD, uz, zX, zY).rgb * bw.z);
+		a += ft * (SG(CliffA, ux, xX, xY).rgb * bw.x
+		         + SG(CliffA, uy, yX, yY).rgb * bw.y
+		         + SG(CliffA, uz, zX, zY).rgb * bw.z);
+		float3 tX = UNPACK(SG(CliffN, ux, xX, xY).xy * 2.0 - 1.0);
+		float3 tY = UNPACK(SG(CliffN, uy, yX, yY).xy * 2.0 - 1.0);
+		float3 tZ = UNPACK(SG(CliffN, uz, zX, zY).xy * 2.0 - 1.0);
 		float3 nX = float3(tX.xy + N.zy, abs(tX.z) * N.x).zyx;
 		float3 nY = float3(tY.xy + N.xz, abs(tY.z) * N.y).xzy;
 		float3 nZ = float3(tZ.xy + N.xy, abs(tZ.z) * N.z);
@@ -145,13 +153,14 @@ TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DE
 	float bandH = 6.5;
 	float band = frac(zw / bandH), bid = floor(zw / bandH);
 	float hsh = frac(sin(bid * 12.9898 + 4.1) * 43758.5453);
-	float tone = lerp(0.62, 1.08, hsh);
-	float ledge = 1.0 - smoothstep(0.0, 0.14, band);          // the shelf at each band's base
-	float joint = smoothstep(0.86, 1.0, band);                 // the dark seam under the shelf above
+	// (Kept faint: strong, even bands read as a layer cake, not as rock.)
+	float tone = lerp(0.90, 1.04, hsh) * (0.92 + 0.16 * saturate(0.5 + nz2));
+	float ledge = (1.0 - smoothstep(0.0, 0.10, band)) * 0.35 * saturate(0.4 + nz);   // a shelf here and there
+	float joint = smoothstep(0.90, 1.0, band) * 0.4 * saturate(0.3 + nz2);            // an occasional seam
 	// Runoff streaks: noise stretched down the face along its horizontal tangent.
 	float2 tg = normalize(float2(-N.y, N.x) + 1e-4);
 	float along = dot(pm.xy, tg);
-	float streak = Texture2DSample(FarRockD, FarRockDSampler, float2(along / 38.0, h / 900.0)).r;
+	float streak = SG(FarRockD, float2(along / 38.0, h / 900.0), float2(dot(GX.xy, tg) / 38.0, GX.z / 900.0), float2(dot(GY.xy, tg) / 38.0, GY.z / 900.0)).r;
 	float stain = smoothstep(0.35, 0.75, streak);
 	float grey = dot(c, float3(0.3, 0.59, 0.11));
 	c = lerp(float3(grey, grey, grey), c, 0.35) * float3(0.80, 0.80, 0.84);
@@ -168,9 +177,9 @@ TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DE
 float ff = smoothstep(900.0, 3500.0, dist) * 0.65;
 [branch] if (ff > 0.001)
 {
-	float3 farG = Texture2DSample(FarGrassD, FarGrassDSampler, pm.xy / 70.0).rgb * lerp(lerp(float3(0.36, 0.58, 0.28), float3(0.46, 0.52, 0.42), cold), float3(0.36, 0.42, 0.26), bio.b);
-	float3 farR = Texture2DSample(FarRockD,  FarRockDSampler,  pm.xy / 60.0).rgb * 0.9;
-	float3 farS = Texture2DSample(FarSnowD,  FarSnowDSampler,  pm.xy / 80.0).rgb;
+	float3 farG = SG(FarGrassD, pm.xy / 70.0, GX.xy / 70.0, GY.xy / 70.0).rgb * lerp(lerp(float3(0.36, 0.58, 0.28), float3(0.46, 0.52, 0.42), cold), float3(0.36, 0.42, 0.26), bio.b);
+	float3 farR = SG(FarRockD, pm.xy / 60.0, GX.xy / 60.0, GY.xy / 60.0).rgb * 0.9;
+	float3 farS = SG(FarSnowD, pm.xy / 80.0, GX.xy / 80.0, GY.xy / 80.0).rgb;
 	float gG = (wGrass + wHeath + wForest) / wSum, gR = (wCliff + wScree + wSand + wShingle + wMud) / wSum, gS = wSnow / wSum;
 	float3 farC = farG * gG + farR * gR + farS * gS;
 	C = lerp(C, farC, ff);

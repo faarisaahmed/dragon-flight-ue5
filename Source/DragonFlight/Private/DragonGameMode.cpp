@@ -350,6 +350,7 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 			const FString Island = WS->NearestIsland(P->GetActorLocation(), Dist);
 			const FVector L = P->GetActorLocation() / 100.0;
 			Where = FString::Printf(TEXT("Where: %s%s, at (%.0f, %.0f) m, alt %.0f m, %s"), Dist < 0.0 ? TEXT("over ") : TEXT("near "), *Island, L.X, L.Y, P->GetAltitudeM(), *P->GetModeName());
+			Where += FString::Printf(TEXT(", facing %.0f"), P->GetCompassDegrees());
 		}
 		if (const ADragonSky* Sky = ADragonSky::Get(this)) Where += FString::Printf(TEXT(", %.1f h, weather %d"), Sky->Hours, (int32)Sky->Weather);
 		DragonReport::SendSnapshot(Where);

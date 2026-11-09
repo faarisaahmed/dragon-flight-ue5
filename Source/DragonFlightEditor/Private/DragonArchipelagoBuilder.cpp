@@ -674,8 +674,16 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"RoughOut = Rgh;\n"
 			"if (W <= 0.0) return C;\n"
 			"float3 p = P * 0.01; float up = saturate(N.z);\n"
-			"float2 c = floor(p.xy * 0.7);\n"
-			"float n = frac(sin(dot(c, float2(12.9898, 78.233))) * 43758.5453) * 0.35 + frac(sin(dot(floor(p.xy * 0.13), float2(39.3, 11.1))) * 1517.3) * 0.65;\n"
+			// smooth value noise (a hash per cell, blended across it): the old per-cell hash with
+			// no blend painted moss and lichen on the rocks as hard squares on the world grid
+			"#define WH(q) frac(sin(dot(q, float2(12.9898, 78.233))) * 43758.5453)\n"
+			"#define WVN(x, o) (lerp(lerp(WH(floor(x)), WH(floor(x) + float2(1, 0)), o.x), lerp(WH(floor(x) + float2(0, 1)), WH(floor(x) + float2(1, 1)), o.x), o.y))\n"
+			"float2 q = p.xy + p.z * float2(0.37, -0.23);\n"
+			"float2 x1 = q * 0.7, x2 = q * 0.13 + 17.3, x3 = q * 2.3 + 5.1;\n"
+			"float2 f1 = frac(x1), f2 = frac(x2), f3 = frac(x3);\n"
+			"f1 = f1 * f1 * (3.0 - 2.0 * f1); f2 = f2 * f2 * (3.0 - 2.0 * f2); f3 = f3 * f3 * (3.0 - 2.0 * f3);\n"
+			"float n = WVN(x1, f1) * 0.35 + WVN(x2, f2) * 0.65;\n"
+			"float lich = WVN(x3, f3) * 0.6 + WVN(x1, f1) * 0.4;\n"
 			"float wob = 1800.0 * sin(p.x / 5200.0 + 0.7) + 900.0 * sin(p.x / 2100.0 + 2.1);\n"
 			"float cold = saturate((-p.y - 9000.0 + wob) / 9000.0); cold = cold * cold * (3.0 - 2.0 * cold);\n"
 			"float snowL = lerp(SnowLine, 40.0, cold);\n"
@@ -683,7 +691,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float3 mossC = lerp(float3(0.06, 0.08, 0.04), float3(0.12, 0.13, 0.08), n);\n"
 			"float3 col = lerp(C * 0.85, mossC, moss * 0.6);\n"
 			// pale crusts of lichen on the bare stone
-			"col = lerp(col, float3(0.46, 0.46, 0.41), W * (1.0 - moss) * 0.35 * smoothstep(0.55, 0.85, frac(n * 13.7)));\n"
+			"col = lerp(col, float3(0.46, 0.46, 0.41), W * (1.0 - moss) * 0.3 * smoothstep(0.62, 0.85, lich));\n"
 			"float snow = W * smoothstep(0.45, 0.8, up + n * 0.2) * smoothstep(snowL - 25.0, snowL + 30.0, p.z + n * 30.0);\n"
 			"col = lerp(col, float3(0.86, 0.88, 0.92), snow);\n"
 			// wet dark rock in the splash zone
@@ -857,8 +865,11 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Sheen->Description = TEXT("Scale sheen");
 		Sheen->OutputType = CMOT_Float3;
 		Sheen->Inputs.Reset();
-		for (const TCHAR* In : { TEXT("Albedo"), TEXT("Amount") }) { FCustomInput I; I.InputName = In; Sheen->Inputs.Add(I); }
+		for (const TCHAR* In : { TEXT("Albedo"), TEXT("Amount"), TEXT("Sat") }) { FCustomInput I; I.InputName = In; Sheen->Inputs.Add(I); }
 		Sheen->Code = TEXT(
+			// the fan textures are a warm brown; a black hide in full sun reads neutral, a little cool
+			"float lum = dot(Albedo, float3(0.3, 0.59, 0.11));\n"
+			"Albedo = lerp(float3(lum, lum, lum * 1.06), Albedo, Sat);\n"
 			"float3 V = normalize(Parameters.CameraVector);\n"
 			"float f = pow(1.0 - saturate(dot(Parameters.WorldNormal, V)), 4.0) * Amount;\n"
 			"return lerp(Albedo, Albedo * 0.7 + float3(0.10, 0.14, 0.20), f);\n");
@@ -874,6 +885,9 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Tint, TEXT(""), Tinted, TEXT("B"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Tinted, TEXT(""), Sheen, TEXT("Albedo"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Amt, TEXT(""), Sheen, TEXT("Amount"));
+		UMaterialExpressionScalarParameter* Sat = Expr<UMaterialExpressionScalarParameter>(M, -700, -480);
+		Sat->ParameterName = TEXT("Saturation"); Sat->DefaultValue = 1.f;
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sat, TEXT(""), Sheen, TEXT("Sat"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Sheen, TEXT(""), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(N, TEXT("RGB"), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(A, TEXT("R"), MP_AmbientOcclusion);
@@ -1073,29 +1087,29 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"    float vary = Texture2DSample(FoamT, FoamTSampler, p.xy / 410.0 + 0.37).r;\n"
 			"    float aa = saturate(dist / 900.0);\n"
 			// breakers: lines parallel to the shore rolling in, white at the front, a bore of foam behind that thins to lace as it ages
-			"    float zone = lerp(lerp(18.0, 50.0, vary), 7.0, cliff) * (0.35 + 0.65 * sea);\n"
+			"    float zone = lerp(lerp(9.0, 26.0, vary), 5.0, cliff) * (0.35 + 0.65 * sea);\n"
 			"    float Lb = lerp(13.0, 9.0, cliff);\n"
 			"    float ph = sd / Lb + T * (4.2 / Lb) + ft3 * 0.9 + vary * 3.0;\n"
 			"    float age = frac(ph);\n"
 			"    float lw = fwidth(ph);\n"
 			"    float front = smoothstep(0.0, max(lw, 0.02), age) * exp(-age * 3.2);\n"
 			"    front = lerp(front, 0.18, saturate(lw * 2.5));\n"
-			"    float lace = smoothstep(0.18 + age * 0.55, 0.36 + age * 0.55, ft * 0.65 + ft2 * 0.5);\n"
+			"    float lace = smoothstep(0.34 + age * 0.5, 0.50 + age * 0.5, ft * 0.65 + ft2 * 0.5);\n"
 			"    float inZone = smoothstep(zone, zone * 0.55, sd) * smoothstep(-0.5, 1.5, sd);\n"
-			"    float brk = front * lerp(lace, 0.6, aa) * inZone * (0.35 + 0.65 * sea);\n"
+			"    float brk = front * lerp(lace, 0.35, aa) * inZone * (0.30 + 0.55 * sea);\n"
 			// some stretches spill, some don't
 			"    brk *= smoothstep(0.25, 0.6, ft3 + 0.25 * sin(ph * 0.37 + vary * 9.0));\n"
 			// swash: the last metres are churned white, reaching further as each wave runs up
-			"    float run = lerp(2.5, 7.0, pow(saturate(0.5 + 0.5 * sin(T * 0.75 + vary * 12.0 + ft3 * 3.0)), 2.0)) * (0.5 + 0.5 * sea);\n"
-			"    float swash = smoothstep(run, run * 0.25, sd) * smoothstep(0.30, 0.55, ft * 0.6 + ft2 * 0.6 + (1.0 - sd / run) * 0.3);\n"
+			"    float run = lerp(1.5, 4.0, pow(saturate(0.5 + 0.5 * sin(T * 0.75 + vary * 12.0 + ft3 * 3.0)), 2.0)) * (0.5 + 0.5 * sea);\n"
+			"    float swash = smoothstep(run, run * 0.25, sd) * smoothstep(0.42, 0.62, ft * 0.6 + ft2 * 0.6 + (1.0 - sd / run) * 0.3);\n"
 			// at the foot of a cliff the swell bursts and falls back: a pulsing collar of white water
 			"    float surge = pow(saturate(0.5 + 0.5 * sin(T * 0.62 + vary * 17.0 + ft3 * 2.0)), 3.0);\n"
-			"    float collarW = lerp(3.0, 12.0, surge) * (0.5 + 0.7 * sea);\n"
-			"    float collar = cliff * smoothstep(collarW, collarW * 0.2, sd) * smoothstep(0.22, 0.5, ft * 0.7 + ft2 * 0.5 + surge * 0.2);\n"
+			"    float collarW = lerp(2.0, 7.0, surge) * (0.5 + 0.6 * sea);\n"
+			"    float collar = cliff * smoothstep(collarW, collarW * 0.2, sd) * smoothstep(0.36, 0.6, ft * 0.7 + ft2 * 0.5 + surge * 0.2);\n"
 			// and the foam it leaves drifts off in lacy streaks for tens of metres
-			"    float streak = smoothstep(0.58, 0.82, ft2 * 0.55 + ft3 * 0.6 + ft * 0.15) * exp(-sd / lerp(14.0, 35.0, cliff * sea)) * (0.3 + 0.5 * cliff) * (0.25 + 0.75 * sea);\n"
+			"    float streak = smoothstep(0.68, 0.88, ft2 * 0.55 + ft3 * 0.6 + ft * 0.15) * exp(-sd / lerp(8.0, 20.0, cliff * sea)) * (0.18 + 0.35 * cliff) * (0.25 + 0.75 * sea);\n"
 			"    streak *= 1.0 - aa * 0.5;\n"
-			"    surf = max(max(brk, swash * (0.7 + 0.3 * sea)), max(collar * (0.45 + 0.55 * sea), streak));\n"
+			"    surf = max(max(brk, swash * (0.6 + 0.3 * sea)), max(collar * (0.4 + 0.45 * sea), streak));\n"
 			// stirred-up water near beaches is milkier and greener; it clears away from the shore
 			"    turbid = exp(-sd / 45.0) * (1.0 - 0.6 * cliff) * (0.4 + 0.6 * sea);\n"
 			"  }\n"
@@ -1822,7 +1836,10 @@ bool FDragonArchipelagoBuilder::ImportDragon()
 			if (BaseTex) UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, TEXT("BaseColor"), BaseTex);
 			if (bWing) UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("SubsurfaceAmount"), 0.15f);
 			if (bWing || Slot == TEXT("acmat_0"))
-				UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), FLinearColor(0.45f, 0.45f, 0.5f));
+			{
+				UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), FLinearColor(0.42f, 0.42f, 0.46f));
+				UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("Saturation"), 0.3f);
+			}
 			UMaterialEditingLibrary::UpdateMaterialInstance(MI);
 			UEditorAssetLibrary::SaveLoadedAsset(MI, false);
 			SM.MaterialInterface = MI;

@@ -14,6 +14,7 @@
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformTime.h"
+#include "Misc/CommandLine.h"
 #include "Scalability.h"
 #include "Materials/MaterialInterface.h"
 
@@ -109,9 +110,8 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 	Add("Rocks",    EDragonScatterKind::Rock,     "rocks",       90.f,  256.f, 5000.f, FVector2D(0.9f, 2.2f), 0.4f, 0.7f, true,  true,  41);
 	// Stones in the grass at your feet (the same scans, small).
 	Add("Stones",   EDragonScatterKind::Stone,    "rocks",       160.f, 64.f,  450.f,  FVector2D(0.12f, 0.4f), 0.1f, 0.8f, true,  false, 43);
-	// Cliff pieces stand upright and are set into steep faces as a skin of real rock
-	// (the 5.5 m landscape grid can only round a sea cliff off); see BuildTile.
-	Add("Cliffs",   EDragonScatterKind::Cliff,    "cliffs",      0.6f,  512.f, 12000.f, FVector2D(0.7f, 1.4f), 4.0f, 0.15f, true, true,  53);
+	// (No cliff pieces any more: set into steep faces, the 20-50 m scans stuck out across coves
+	// as floating ribbons and slabs. The landscape's triplanar rock carries the cliffs.)
 	// Turf itself is the landscape grass system's job now; this adds the odd bigger shrub.
 	Add("Ground",   EDragonScatterKind::Ground,   "ground",      500.f, 32.f, 350.f,  FVector2D(0.7f, 1.3f), 0.05f, 0.6f, false, false, 67);
 	// Juniper, heather and bracken clumps big enough to read from flying height.
@@ -127,6 +127,15 @@ void ADragonScatter::SetupDefaultLayers(const TMap<FName, TArray<TSoftObjectPtr<
 
 void ADragonScatter::BeginPlay()
 {
+	// -NoScatter=Cliffs+Rocks : leave layers out (to see what a layer is responsible for).
+	{
+		FString No;
+		if (FParse::Value(FCommandLine::Get(), TEXT("NoScatter="), No))
+		{
+			TArray<FString> Names; No.ParseIntoArray(Names, TEXT("+"));
+			ScatterLayers.RemoveAll([&](const FDragonScatterLayer& L) { return Names.Contains(L.Name.ToString()); });
+		}
+	}
 	Super::BeginPlay();
 	LoadMasks();
 	if (const UGameInstance* GI = GetGameInstance())
@@ -285,6 +294,8 @@ bool ADragonScatter::Accept(const FDragonScatterLayer& L, double XM, double YM, 
 		return Rand < Smooth(Cold, 0.45f, 0.9f) * Smooth(-H, 14.f, 40.f);
 	}
 	if (Water > 0.5f || Ice > 0.4f) return false;
+	// Lakes (from the final terrain; the baked water mask predates some of them): no trees, rocks or shrubs standing in the water.
+	if (WorldSub && WorldSub->IsInLake(XM * M, YM * M, H * M)) return false;
 	// Climate: the snow line falls toward the north (UDragonWorldSubsystem::SnowLineAt); the tree
 	// line sits well below it, and nothing grows on lying snow.
 	const float SnowM = WorldSub ? (float)(WorldSub->SnowLineAt(XM * M, YM * M) / M) : 480.f;

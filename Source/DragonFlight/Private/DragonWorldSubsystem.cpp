@@ -200,3 +200,21 @@ FString UDragonWorldSubsystem::NearestIsland(const FVector& Where, double& OutDi
 	}
 	return Name;
 }
+
+bool UDragonWorldSubsystem::IsInLake(double X, double Y, double GroundZ, double Margin) const
+{
+	for (const FDragonLake& L : Lakes)
+	{
+		if (L.Wet.Num() != L.W * L.H || L.W <= 0 || GroundZ > L.Level + Margin) continue;
+		if (X < L.Bounds.Min.X - L.Cell || X > L.Bounds.Max.X + L.Cell || Y < L.Bounds.Min.Y - L.Cell || Y > L.Bounds.Max.Y + L.Cell) continue;
+		// The surface overhangs each wet cell by 3/4 of a cell (ADragonSea::BuildLake): check the neighbours too.
+		const int32 cx = FMath::FloorToInt32((X - L.Bounds.Min.X) / L.Cell), cy = FMath::FloorToInt32((Y - L.Bounds.Min.Y) / L.Cell);
+		for (int32 dy = -1; dy <= 1; ++dy)
+			for (int32 dx = -1; dx <= 1; ++dx)
+			{
+				const int32 x = cx + dx, y = cy + dy;
+				if (x >= 0 && y >= 0 && x < L.W && y < L.H && L.Wet[y * L.W + x]) return true;
+			}
+	}
+	return false;
+}

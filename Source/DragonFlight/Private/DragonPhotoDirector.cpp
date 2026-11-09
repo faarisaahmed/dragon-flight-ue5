@@ -1,4 +1,5 @@
 #include "DragonPhotoDirector.h"
+#include "HAL/IConsoleManager.h"
 #include "DragonPawn.h"
 #include "DragonFlight.h"
 #include "DragonGameMode.h"
@@ -75,6 +76,20 @@ void ADragonPhotoDirector::BeginPlay()
 		S->SetOverallScalabilityLevel(FMath::Clamp(Quality, 0, 4));
 		S->ApplyNonResolutionSettings();
 	}
+	// -AutoShotCVars=r.A=1,r.B=2 : settings to try in the shots (Shipping ignores -ini: and the console).
+	{
+		FString CV;
+		if (FParse::Value(FCommandLine::Get(), TEXT("AutoShotCVars="), CV, false))
+		{
+			TArray<FString> Pairs; CV.ParseIntoArray(Pairs, TEXT(","));
+			for (const FString& Pr : Pairs)
+			{
+				FString K, V;
+				if (Pr.Split(TEXT("="), &K, &V))
+					if (IConsoleVariable* C = IConsoleManager::Get().FindConsoleVariable(*K)) { C->Set(*V, ECVF_SetByConsole); UE_LOG(LogDragon, Display, TEXT("[Photo] cvar %s=%s"), *K, *V); }
+			}
+		}
+	}
 
 	if (ADragonPlayerController* PC = Cast<ADragonPlayerController>(UGameplayStatics::GetPlayerController(this, 0)))
 	{
@@ -107,6 +122,27 @@ void ADragonPhotoDirector::BeginPlay()
 void ADragonPhotoDirector::PlanShots()
 {
 	Shots.Reset();
+	// -AutoShotSpots=x:y:alt:bearing:hours[:speed|g]+... : the player's own view at the places in F8
+	// reports (metres, compass bearing of the camera in degrees, time of day), hovering unless a
+	// speed (m/s) is given. Shots 60_spot_0, 60_spot_1, ...
+	FString Spots;
+	if (FParse::Value(FCommandLine::Get(), TEXT("AutoShotSpots="), Spots))
+	{
+		TArray<FString> List; Spots.ParseIntoArray(List, TEXT("+"));
+		for (int32 i = 0; i < List.Num(); ++i)
+		{
+			TArray<FString> F; List[i].ParseIntoArray(F, TEXT(":"));
+			if (F.Num() < 4) continue;
+			FShot Sp; Sp.Name = FString::Printf(TEXT("60_spot_%d"), i); Sp.bChase = true; Sp.bPose = true; Sp.bPanel = true;
+			Sp.PoseM = FVector(FCString::Atod(*F[0]), FCString::Atod(*F[1]), FCString::Atod(*F[2]));
+			Sp.PoseYaw = FCString::Atof(*F[3]) - 90.f;   // bearing (0 = north = -Y) -> UE yaw
+			Sp.Hours = F.Num() > 4 ? FCString::Atof(*F[4]) : 15.5f;
+			Sp.PoseSpeed = F.Num() > 5 ? FCString::Atof(*F[5]) : 0.f;
+			Sp.Script.bOn = true; Sp.Script.Move = 0.f; Sp.SettleS = 4.f;
+			if (F.Num() > 5 && F[5] == TEXT("g")) { Sp.bPoseGround = true; Sp.PoseSpeed = -1.f; Sp.Script = ADragonPawn::FDragonScript(); }   // standing there
+			Shots.Add(Sp);
+		}
+	}
 	FShot Chase; Chase.Name = TEXT("00_chase"); Chase.bChase = true; Chase.Hours = 15.5f;
 	Shots.Add(Chase);
 	FShot Close; Close.Name = TEXT("00b_dragon"); Close.bDragonClose = true; Close.Hours = 15.5f;
