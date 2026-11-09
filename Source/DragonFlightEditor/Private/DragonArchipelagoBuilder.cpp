@@ -677,7 +677,8 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			// smooth value noise (a hash per cell, blended across it): the old per-cell hash with
 			// no blend painted moss and lichen on the rocks as hard squares on the world grid
 			"#define WH(q) frac(sin(dot(q, float2(12.9898, 78.233))) * 43758.5453)\n"
-			"#define WVN(x, o) (lerp(lerp(WH(floor(x)), WH(floor(x) + float2(1, 0)), o.x), lerp(WH(floor(x) + float2(0, 1)), WH(floor(x) + float2(1, 1)), o.x), o.y))\n"
+			// (macro parameters must not be named x or y: they would rewrite the .x/.y swizzles too)
+			"#define WVN(Q_, O_) (lerp(lerp(WH(floor(Q_)), WH(floor(Q_) + float2(1, 0)), O_.x), lerp(WH(floor(Q_) + float2(0, 1)), WH(floor(Q_) + float2(1, 1)), O_.x), O_.y))\n"
 			"float2 q = p.xy + p.z * float2(0.37, -0.23);\n"
 			"float2 x1 = q * 0.7, x2 = q * 0.13 + 17.3, x3 = q * 2.3 + 5.1;\n"
 			"float2 f1 = frac(x1), f2 = frac(x2), f3 = frac(x3);\n"
@@ -689,9 +690,12 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float snowL = lerp(SnowLine, 40.0, cold);\n"
 			"float moss = W * smoothstep(0.62, 0.95, up * 0.75 + n * 0.4) * (1.0 - smoothstep(snowL * 0.7, snowL, p.z)) * smoothstep(1.0, 6.0, p.z);\n"
 			"float3 mossC = lerp(float3(0.06, 0.08, 0.04), float3(0.12, 0.13, 0.08), n);\n"
-			"float3 col = lerp(C * 0.85, mossC, moss * 0.6);\n"
+			// these are basalt islands: the scans (pale sandstones among them) graded to dark grey stone
+			"float lumC = dot(C, float3(0.3, 0.59, 0.11));\n"
+			"float3 rock = lerp(C * 0.85, lerp(float3(lumC, lumC, lumC * 1.04), C, 0.4) * 0.6, saturate(W));\n"
+			"float3 col = lerp(rock, mossC, moss * 0.6);\n"
 			// pale crusts of lichen on the bare stone
-			"col = lerp(col, float3(0.46, 0.46, 0.41), W * (1.0 - moss) * 0.3 * smoothstep(0.62, 0.85, lich));\n"
+			"col = lerp(col, float3(0.36, 0.36, 0.32), W * (1.0 - moss) * 0.18 * smoothstep(0.62, 0.85, lich));\n"
 			"float snow = W * smoothstep(0.45, 0.8, up + n * 0.2) * smoothstep(snowL - 25.0, snowL + 30.0, p.z + n * 30.0);\n"
 			"col = lerp(col, float3(0.86, 0.88, 0.92), snow);\n"
 			// wet dark rock in the splash zone
@@ -900,12 +904,13 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		UMaterialEditingLibrary::ConnectMaterialProperty(Spec, TEXT(""), MP_Specular);
 		// Warm blood-red scatter, kept faint: this is thick hide, not a lizard's ear.
 		UMaterialExpressionVectorParameter* Sss = Expr<UMaterialExpressionVectorParameter>(M, -350, 300);
-		Sss->ParameterName = TEXT("SubsurfaceTint"); Sss->DefaultValue = FLinearColor(0.7f, 0.28f, 0.24f);
+		Sss->ParameterName = TEXT("SubsurfaceTint"); Sss->DefaultValue = FLinearColor(0.55f, 0.30f, 0.28f);
 		UMaterialExpressionScalarParameter* SssAmt = Expr<UMaterialExpressionScalarParameter>(M, -350, 400);
 		SssAmt->ParameterName = TEXT("SubsurfaceAmount"); SssAmt->DefaultValue = 0.1f;
 		// Scatter scaled by the albedo, so near-black hide stays black instead of glowing orange.
 		UMaterialExpressionMultiply* SssC = Expr<UMaterialExpressionMultiply>(M, -150, 300);
-		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT("RGB"), SssC, TEXT("A"));
+		// (from the tinted albedo: the raw warm-brown texture times the red tint browned the sunlit wings)
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Tinted, TEXT(""), SssC, TEXT("A"));
 		UMaterialEditingLibrary::ConnectMaterialExpressions(Sss, TEXT(""), SssC, TEXT("B"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(SssC, TEXT(""), MP_SubsurfaceColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(SssAmt, TEXT(""), MP_Opacity);
@@ -967,7 +972,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		auto* CT = TexO(TEXT("Coast"), TEXT("/Game/World/Data/T_Coast.T_Coast"), SAMPLERTYPE_LinearGrayscale, 420);
 		if (!CT->Texture) CT->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture"));
 		// North Atlantic shallows are a cold bottle green, not a tropical turquoise.
-		auto* ShallowS = Vec(TEXT("ScatterShallow"), bSea ? FLinearColor(0.0035f, 0.010f, 0.009f) : FLinearColor(0.012f, 0.014f, 0.008f), 470);
+		auto* ShallowS = Vec(TEXT("ScatterShallow"), bSea ? FLinearColor(0.0024f, 0.0068f, 0.0066f) : FLinearColor(0.012f, 0.014f, 0.008f), 470);
 		auto* DeepS = Vec(TEXT("ScatterDeep"), bSea ? FLinearColor(0.0015f, 0.0050f, 0.0072f) : FLinearColor(0.006f, 0.008f, 0.006f), 550);
 		auto* Ab = Vec(TEXT("Absorption"), bSea ? FLinearColor(0.36f, 0.070f, 0.042f) : FLinearColor(0.50f, 0.22f, 0.20f), 630);
 
@@ -1119,7 +1124,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			// they'd shrink to dotted lines.
 			"float patch = smoothstep(0.50, 0.80, Texture2DSample(FoamT, FoamTSampler, p.xy / 310.0 + T * float2(0.0021, 0.0013)).r * 0.6\n"
 			"            + Texture2DSample(FoamT, FoamTSampler, p.xy / 97.0 - T * float2(0.0030, 0.0042)).r * 0.5);\n"
-			"float crest = saturate((hz - 0.60) * 2.0) * smoothstep(0.58, 0.88, ft) * patch * 0.75 * (1.0 - smoothstep(250.0, 900.0, dist));\n"
+			"float crest = saturate((hz - 0.70) * 2.0) * smoothstep(0.68, 0.92, ft) * patch * 0.45 * (1.0 - smoothstep(250.0, 900.0, dist));\n"
 			// rapids: white water where the channel steepens (vertex colour R), streaming with the flow
 			"float rap = 0.0;\n"
 			"if (Flow > 0.0) { float rf = Texture2DSample(FoamT, FoamTSampler, float2(UV.x, UV.y - T * Flow * 1.3) / 5.0).r;\n"
@@ -1834,11 +1839,13 @@ bool FDragonArchipelagoBuilder::ImportDragon()
 			if (!MI) continue;
 			MI->SetParentEditorOnly(Parent);
 			if (BaseTex) UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, TEXT("BaseColor"), BaseTex);
-			if (bWing) UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("SubsurfaceAmount"), 0.15f);
+			if (bWing) UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("SubsurfaceAmount"), 0.08f);
 			if (bWing || Slot == TEXT("acmat_0"))
 			{
-				UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), FLinearColor(0.42f, 0.42f, 0.46f));
-				UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("Saturation"), 0.3f);
+				// (the membrane is most of what the chase camera sees from above, in full sun: darker still)
+				const float K = bWing ? 0.30f : 0.40f;
+				UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), FLinearColor(K, K, K * 1.08f));
+				UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("Saturation"), 0.2f);
 			}
 			UMaterialEditingLibrary::UpdateMaterialInstance(MI);
 			UEditorAssetLibrary::SaveLoadedAsset(MI, false);

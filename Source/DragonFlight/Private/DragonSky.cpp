@@ -11,6 +11,7 @@
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SkyLightComponent.h"
+#include "Misc/CommandLine.h"
 #include "Components/PostProcessComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -490,7 +491,8 @@ void ADragonSky::Apply(float DeltaSeconds)
 	Sun->SetTemperature(FMath::Lerp(4900.f, 5900.f, Smooth(SunElevation, 0.f, 14.f)));
 
 	// "Day for night": a generous blue fill at night so the land reads.
-	SkyLight->SetIntensity(FMath::Lerp(1.5f, 3.5f, Night) * (1.f + Live.SunDim * 0.4f));
+	static float SkyFill = [] { float V = 1.f; FParse::Value(FCommandLine::Get(), TEXT("SkyFill="), V); return V; }();   // test: daytime sky-light multiplier
+	SkyLight->SetIntensity(FMath::Lerp(1.5f * SkyFill, 3.5f, Night) * (1.f + Live.SunDim * 0.4f));
 
 	// Under heavy cloud the eye does not adapt it all back to a bright day: a storm reads
 	// dark, cold and drained of colour, a rainy day grey (exposure bias and grading follow

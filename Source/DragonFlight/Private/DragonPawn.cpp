@@ -1404,7 +1404,8 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 
 	// Horizon lean in a carve (subtle).
 	const float TurnT = bGrounded ? 0.f : Flight.GetTurnT();
-	CamLean += ((AimBlend > 0.5f ? 0.f : -TurnT * 0.20f) - CamLean) * F::Damp(3.4f, Dt);
+	// (on the ground the horizon levels quickly: a bank left over from the last turn tipped the view)
+	CamLean += ((AimBlend > 0.5f ? 0.f : -TurnT * 0.20f) - CamLean) * F::Damp(bGrounded ? 9.f : 3.4f, Dt);
 	// Web: positive lean rolls the camera counter-clockwise; in a left turn (TurnT>0) it rolls clockwise.
 	Rot.Roll = -FMath::RadiansToDegrees(CamLean);
 
