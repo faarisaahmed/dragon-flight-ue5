@@ -235,6 +235,8 @@ private:
 	TArray<FFuloRib> FuloRibs;         // membrane ribs between two fingers (indices into FuloDirs)
 	struct FFuloFollow { int32 Bone = INDEX_NONE; int32 WebPos = INDEX_NONE; int32 WebRot = INDEX_NONE; };
 	TArray<FFuloFollow> FuloFollows;   // controls that follow a web bone rigidly
+	struct FFuloRel { int32 Bone = INDEX_NONE; int32 Web = INDEX_NONE; int32 WebParent = INDEX_NONE; };
+	TArray<FFuloRel> FuloRels;         // bones turned as a web bone turns against its parent (tail fins, ears)
 	TArray<float> FuloTailArc; TArray<int32> FuloTailWeb;   // web tail bones by arc
 	int32 FuloHead = INDEX_NONE, FuloNeckStart = INDEX_NONE, FuloWingFold[2] = { -1, -1 };
 	int32 FinMaterial = INDEX_NONE;

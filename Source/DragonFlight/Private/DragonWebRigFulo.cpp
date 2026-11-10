@@ -353,6 +353,57 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 		}
 	}
 
+	// tail fins: each Fulo strut turns as the web strut nearest it in fan angle (same side) turns
+	// against the tail; the ears as the web ears turn against the head
+	FuloRels.Reset();
+	{
+		struct FS { int32 Bone; int32 Side; float Ang; int32 Parent; };
+		TArray<FS> Web, Ful;
+		auto FanAng = [](const FVector& D) { return FMath::RadiansToDegrees(FMath::Atan2(FMath::Abs(D.X), D.Y)); };   // 0 straight back, 90 straight out
+		for (int32 s = 0; s < 2; ++s)
+			for (int32 i = 0; i < 6; ++i)
+			{
+				const int32 St = FindF(TEXT("Tail_Fin_Strut"), i + 1, s == 0 ? TEXT("L") : TEXT("R"));
+				const int32 Tp = FindF(TEXT("Tail_Fin_Tip"), i + 1, s == 0 ? TEXT("L") : TEXT("R"));
+				if (St < 0 || Tp < 0) continue;
+				FS X; X.Bone = St; X.Side = s; X.Parent = B[St].Parent;
+				X.Ang = FanAng(FW(RestModel[Tp].GetLocation() - RestModel[St].GetLocation()));
+				Web.Add(X);
+			}
+		for (int32 i = 0; i < NF; ++i)
+		{
+			const FString& N = R.Name(i);
+			const bool bStrut = (N.StartsWith(TEXT("F1.R")) || N.StartsWith(TEXT("F3.R")) || N.StartsWith(TEXT("F5.R")) || N.StartsWith(TEXT("F7.R")) || N.StartsWith(TEXT("F9.R")))
+				&& !N.StartsWith(TEXT("F1.R.001"));
+			if (!bStrut) continue;
+			const FVector D = R.RestTail(i) - R.RestHead(i);
+			FS X; X.Bone = i; X.Side = R.RestHead(i).X > 0.0 ? 0 : 1; X.Ang = FanAng(D); X.Parent = R.Parent(i);
+			Ful.Add(X);
+		}
+		for (const FS& F : Ful)
+		{
+			const FS* Best = nullptr;
+			for (const FS& W : Web) if (W.Side == F.Side && (!Best || FMath::Abs(W.Ang - F.Ang) < FMath::Abs(Best->Ang - F.Ang))) Best = &W;
+			if (!Best) continue;
+			FFuloRel Rl; Rl.Bone = F.Bone; Rl.Web = Best->Bone; Rl.WebParent = Best->Parent;
+			FuloRels.Add(Rl);
+		}
+		for (int32 s = 0; s < 2; ++s)
+		{
+			const TCHAR* S = s == 0 ? TEXT("L") : TEXT("R");
+			auto Ear = [&](const TCHAR* F, const TCHAR* W)
+			{
+				FFuloRel Rl; Rl.Bone = R.Find(FString::Printf(TEXT("%s.%s"), F, S)); Rl.Web = Find(FString::Printf(TEXT("%s.%s"), W, S));
+				Rl.WebParent = Rl.Web >= 0 ? B[Rl.Web].Parent : INDEX_NONE;
+				if (Rl.Bone >= 0 && Rl.Web >= 0 && Rl.WebParent >= 0) FuloRels.Add(Rl);
+			};
+			Ear(TEXT("TopEarStart"), TEXT("Ear_A.001"));
+			Ear(TEXT("BigEar2"), TEXT("Ear_B.001"));
+			Ear(TEXT("SideEar2"), TEXT("Ear_C"));
+			Ear(TEXT("SmallEar1"), TEXT("Ear_C"));
+		}
+	}
+
 	// --- the fin's material slot
 	FinMaterial = INDEX_NONE;
 	if (const USkinnedAsset* Asset = Mesh ? Mesh->GetSkinnedAsset() : nullptr)
@@ -383,12 +434,12 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 			}
 		}
 	}
-	UE_LOG(LogDragon, Log, TEXT("FuloRig: bound: %d follows, %d aimed bones, %d membrane ribs"), FuloFollows.Num(), FuloDirs.Num(), FuloRibs.Num());
+	UE_LOG(LogDragon, Log, TEXT("FuloRig: bound: %d follows, %d aimed bones, %d membrane ribs, %d relative"), FuloFollows.Num(), FuloDirs.Num(), FuloRibs.Num(), FuloRels.Num());
 	FString Unmatched;
 	for (int32 i = 0; i < NF; ++i) if (FuloToUE[i] < 0) Unmatched += R.Name(i) + TEXT(" ");
 	// (Shipping writes no log: leave a note of the bind for tests)
-	FFileHelper::SaveStringToFile(FString::Printf(TEXT("matched %d/%d (unmatched: %s), follows %d, aimed %d, ribs %d, fin slot %d\nmesh relative %s\nC col0 %s col1 %s col2 %s off %s\n"),
-		Matched, NF, *Unmatched, FuloFollows.Num(), FuloDirs.Num(), FuloRibs.Num(), FinMaterial, *MeshRelative.ToString(),
+	FFileHelper::SaveStringToFile(FString::Printf(TEXT("matched %d/%d (unmatched: %s), follows %d, aimed %d, ribs %d, rel %d, fin slot %d\nmesh relative %s\nC col0 %s col1 %s col2 %s off %s\n"),
+		Matched, NF, *Unmatched, FuloFollows.Num(), FuloDirs.Num(), FuloRibs.Num(), FuloRels.Num(), FinMaterial, *MeshRelative.ToString(),
 		*FuloC.Col(0).ToString(), *FuloC.Col(1).ToString(), *FuloC.Col(2).ToString(), *FuloC.Col(3).ToString()),
 		*(FPaths::ProjectSavedDir() / TEXT("FuloBind.txt")));
 	return true;
@@ -415,6 +466,20 @@ void UDragonWebRigComponent::WriteFulo()
 	};
 	auto WebDir = [&](int32 G) { return FW(ModelCache[G].GetRotation().RotateVector(FVector(0, 1, 0))); };
 
+	// blinks: the model's own eyelids (Blink.1's scale drives the Blink actions), a quick close
+	// every few seconds, now and then a double
+	{
+		static const int32 BlinkC = R.Find(TEXT("Blink.1"));
+		static const float Force = [] { float V = -1.f; FParse::Value(FCommandLine::Get(), TEXT("FuloBlink="), V); return V; }();
+		if (BlinkC >= 0)
+		{
+			auto Bump = [](float T, float Dur) { return T >= 0.f && T <= Dur ? FMath::Sin(PI * T / Dur) : 0.f; };
+			const float P = FMath::Fmod(TimeS, 4.7f), P2 = FMath::Fmod(TimeS + 1.3f, 11.3f);
+			float Closed = FMath::Max(Bump(P, 0.2f), Bump(P2, 0.18f));
+			if (Force >= 0.f) Closed = Force;
+			R.Scale[BlinkC] = FVector(1.f, 1.f, 1.f + 0.5f * FMath::Clamp(Closed, 0.f, 1.f));
+		}
+	}
 	const float FoldK = FMath::Clamp(Fold, 0.f, 1.f);
 	if (FuloWingFold[0] >= 0) R.Loc[FuloWingFold[0]] = FVector(-FoldK, 0, 0);
 	if (FuloWingFold[1] >= 0) R.Loc[FuloWingFold[1]] = FVector(FoldK, 0, 0);
@@ -466,6 +531,13 @@ void UDragonWebRigComponent::WriteFulo()
 		SwingW[d] = FQuat::FindBetweenNormals(R.RestMat(X.Bone).Rot().RotateVector(FVector(0, 1, 0)), DirWant[d]);
 		DirOf.Add(X.Bone, d);
 	}
+	TMap<int32, FQuat> RelOf;
+	for (const FFuloRel& Rl : FuloRels)
+	{
+		const FQuat DW = ModelCache[Rl.Web].GetRotation() * RestModel[Rl.Web].GetRotation().Inverse();
+		const FQuat DP = ModelCache[Rl.WebParent].GetRotation() * RestModel[Rl.WebParent].GetRotation().Inverse();
+		RelOf.Add(Rl.Bone, FWQ(DW * DP.Inverse()).GetNormalized());
+	}
 	TMap<int32, int32> RibOf;
 	for (int32 r = 0; r < FuloRibs.Num(); ++r) RibOf.Add(FuloRibs[r].Bone, r);
 	const float WingOpen = 1.f - FoldK;
@@ -479,6 +551,12 @@ void UDragonWebRigComponent::WriteFulo()
 			// basis that puts the bone at W: (Pre * A)^-1 * W
 			const FFuloM4 Bm = P0.Inverse() * *W;
 			R.Loc[i] = Bm.Loc(); R.Rot[i] = Bm.Rot(); R.Scale[i] = FVector::OneVector;
+			return;
+		}
+		if (const FQuat* Rel = RelOf.Find(i))
+		{
+			// turned against its parent as the web bone turns against its own
+			R.Rot[i] = (Q0.Inverse() * *Rel * Q0).GetNormalized();
 			return;
 		}
 		FVector Want3 = FVector::ZeroVector;

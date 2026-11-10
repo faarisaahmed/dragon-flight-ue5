@@ -92,7 +92,10 @@ def main():
     acur = open(astamp).read().strip() if os.path.exists(astamp) else ""
     ok = True
     for zname, probe in (("DragonWeb.zip", os.path.join(DATA, "Dragon", "SK_Dragon.glb")),
-                         ("Village.zip", os.path.join(DATA, "Village", "longhouse_a.glb"))):
+                         ("Village.zip", os.path.join(DATA, "Village", "longhouse_a.glb")),
+                         # the Night Fury by Fulonimation Studios (exported by Tools/DragonModel/export_fulo.py);
+                         # optional: without it the game uses the web dragon
+                         ("DragonFulo.zip", os.path.join(DATA, "Dragon", "Fulo", "SK_DragonFulo.glb"))):
         if os.path.exists(probe) and (acur == ASSETS_TAG or (acur == "" and ASSETS_TAG == "game-assets-v1")):
             continue
         z = os.path.join(DATA, zname)
@@ -102,6 +105,8 @@ def main():
                     f.extractall(DATA)
                 os.remove(z)
                 print(f"unpacked {zname}")
+        elif zname == "DragonFulo.zip":
+            print("No DragonFulo.zip in this release: the game will use the web dragon.")
         else:
             ok = False
             print(f"Get {zname} from https://github.com/{REPO}/releases/tag/{ASSETS_TAG} and unzip it into {DATA}")

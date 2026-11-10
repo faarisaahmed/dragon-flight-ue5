@@ -2177,7 +2177,7 @@ bool FDragonArchipelagoBuilder::Build(const FDragonBuildOptions& Options)
 		CreateMasterMaterials();
 	}
 	TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>> Meshes;
-	if (Options.bModels) { Meshes = ImportModels(); ImportDragon(); ImportVillage(); }
+	if (Options.bModels) { Meshes = ImportModels(); ImportDragon(); ImportDragonFulo(); ImportVillage(); }
 	else
 	{
 		// Reuse what's already imported.
