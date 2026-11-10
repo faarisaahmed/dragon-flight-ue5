@@ -220,6 +220,10 @@ private:
 
 	// --- the Fulonimation Studios rig (DragonWebRigFulo.cpp) ---
 	bool bFulo = false;
+	int32 FuloWingRoot[2] = { INDEX_NONE, INDEX_NONE };
+	float FuloDroop[2] = { 48.f, 0.f };   // folded wings: roll down over the flanks, pitch (deg) (-FuloDroop=)
+	float FuloAirK = 0.f;   // 0 on the ground or slow in the air, 1 cruising: the Night Fury's own flight tuck
+	float FuloTuck[6] = { 0.16f, -0.44f, 95.f, 0.55f, -0.42f, 140.f };   // fore foot back/down from the shoulder, paw pitch; hind foot from the hip, pitch (-FuloTuck=)
 	TSharedPtr<FDragonFuloRig> Fulo;
 	bool BindFulo(const struct FReferenceSkeleton& Ref);
 	FString WebBoneName(int32 G) const;

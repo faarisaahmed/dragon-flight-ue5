@@ -170,6 +170,15 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 	// --- where the model stands in the web frame: same size as the web dragon, hips over its
 	// hips, claws on its ground
 	{
+		{
+			// -FuloTuck=a,b,c,d,e,f : the flight tuck (see FuloTuck), for tuning
+			FString T;
+			if (FParse::Value(FCommandLine::Get(), TEXT("FuloTuck="), T, false))
+			{
+				TArray<FString> P; T.ParseIntoArray(P, TEXT(","));
+				for (int32 i = 0; i < P.Num() && i < 6; ++i) FuloTuck[i] = FCString::Atof(*P[i]);
+			}
+		}
 		static const float Size = [] { float V = 1.15f; FParse::Value(FCommandLine::Get(), TEXT("FuloSize="), V); return V; }();
 		FuloSW = FDragonFuloRig::ObjectScale() * Size;
 		const int32 Hc = R.Find(TEXT("HipsControl.1"));
@@ -230,6 +239,16 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 	FuloNeckStart = R.Find(TEXT("NeckStart.1"));
 	FuloWingFold[0] = R.Find(TEXT("WingFold.L"));
 	FuloWingFold[1] = R.Find(TEXT("WingFold.R"));
+	FuloWingRoot[0] = R.Find(TEXT("WingShoulder.L"));
+	FuloWingRoot[1] = R.Find(TEXT("WingShoulder.R"));
+	{
+		FString T;
+		if (FParse::Value(FCommandLine::Get(), TEXT("FuloDroop="), T, false))
+		{
+			TArray<FString> P; T.ParseIntoArray(P, TEXT(","));
+			for (int32 i = 0; i < P.Num() && i < 2; ++i) FuloDroop[i] = FCString::Atof(*P[i]);
+		}
+	}
 
 	// wings: arm segments, then the six fingers paired by sweep (0 deg straight out, 90 deg back to the tail)
 	for (int32 s = 0; s < 2; ++s)
@@ -475,7 +494,7 @@ void UDragonWebRigComponent::WriteFulo()
 		{
 			auto Bump = [](float T, float Dur) { return T >= 0.f && T <= Dur ? FMath::Sin(PI * T / Dur) : 0.f; };
 			const float P = FMath::Fmod(TimeS, 4.7f), P2 = FMath::Fmod(TimeS + 1.3f, 11.3f);
-			float Closed = FMath::Max(Bump(P, 0.2f), Bump(P2, 0.18f));
+			float Closed = FMath::Max(0.14f, FMath::Max(Bump(P, 0.2f), Bump(P2, 0.18f)));   // relaxed lids rest a little lowered
 			if (Force >= 0.f) Closed = Force;
 			R.Scale[BlinkC] = FVector(1.f, 1.f, 1.f + 0.5f * FMath::Clamp(Closed, 0.f, 1.f));
 		}
@@ -483,6 +502,12 @@ void UDragonWebRigComponent::WriteFulo()
 	const float FoldK = FMath::Clamp(Fold, 0.f, 1.f);
 	if (FuloWingFold[0] >= 0) R.Loc[FuloWingFold[0]] = FVector(-FoldK, 0, 0);
 	if (FuloWingFold[1] >= 0) R.Loc[FuloWingFold[1]] = FVector(FoldK, 0, 0);
+	{
+		// the small hind wings fold with the main ones (the creator's MidFinsFold: x 0 -> -/+0.5)
+		static const int32 MF[2] = { R.Find(TEXT("MidFinFold.L")), R.Find(TEXT("MidFinFold.R")) };
+		if (MF[0] >= 0) R.Loc[MF[0]] = FVector(-0.5f * FoldK, 0, 0);
+		if (MF[1] >= 0) R.Loc[MF[1]] = FVector(0.5f * FoldK, 0, 0);
+	}
 
 	// desired armature poses for followers, and desired world directions for aimed bones
 	TMap<int32, FFuloM4> Want;
@@ -491,6 +516,39 @@ void UDragonWebRigComponent::WriteFulo()
 		const FVector P = WebMove(F.WebPos, R.RestHead(F.Bone));
 		const FQuat Q = (WebDelta(F.WebRot) * R.RestMat(F.Bone).Rot()).GetNormalized();
 		Want.Add(F.Bone, FFuloM4::FromLRS(P, Q, FVector::OneVector));
+	}
+	// In flight the legs tuck the Night Fury's own way, set in his chest and hips frames: forelegs
+	// folded close under the chest with the paws hanging relaxed, hind legs trailing back toward the
+	// tail. (Following the web dragon's curled-up flight paws lifted these longer legs over his back.)
+	// Slow, hovering or landing, AirK falls and the legs reach down with the web pose again.
+	if (FuloAirK > 0.001f)
+	{
+		static const int32 FChest = R.Find(TEXT("ChestControl.1")), FHips = R.Find(TEXT("HipsControl.1"));
+		const FFuloM4* WC = Want.Find(FChest);
+		const FFuloM4* WH = Want.Find(FHips);
+		if (WC && WH)
+		{
+			const FFuloM4 MC = *WC * R.RestMat(FChest).Inverse(), MH = *WH * R.RestMat(FHips).Inverse();
+			const FQuat QC = MC.Rot(), QH = MH.Rot();
+			auto Tuck = [&](int32 Bone, const FFuloM4& M, const FQuat& Qm, const FVector& RestTarget, float PitchDeg)
+			{
+				FFuloM4* W = Want.Find(Bone);
+				if (Bone < 0 || !W) return;
+				const FVector P = FMath::Lerp(W->Loc(), M.TransformPosition(RestTarget), (double)FuloAirK);
+				const FQuat Qt = (Qm * FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(PitchDeg)) * R.RestMat(Bone).Rot()).GetNormalized();
+				*W = FFuloM4::FromLRS(P, FQuat::Slerp(W->Rot(), Qt, FuloAirK).GetNormalized(), FVector::OneVector);
+			};
+			for (int32 s = 0; s < 2; ++s)
+			{
+				const TCHAR* Sd = s == 0 ? TEXT("L") : TEXT("R");
+				const int32 Sh = R.Find(FString::Printf(TEXT("Shoulder.%s"), Sd)), Th = R.Find(FString::Printf(TEXT("Thigh.%s"), Sd));
+				if (Sh < 0 || Th < 0) continue;
+				const FVector S0 = R.RestHead(Sh), T0 = R.RestHead(Th);
+				Tuck(R.Find(FString::Printf(TEXT("FFootIK.%s"), Sd)), MC, QC, S0 + FVector(0, FuloTuck[0], FuloTuck[1]), FuloTuck[2]);
+				Tuck(R.Find(FString::Printf(TEXT("ShoulderPoint.%s"), Sd)), MC, QC, S0 + FVector(0, 0.6, -0.25), 0.f);
+				Tuck(R.Find(FString::Printf(TEXT("BFootIK.%s"), Sd)), MH, QH, T0 + FVector(0, FuloTuck[3], FuloTuck[4]), FuloTuck[5]);
+			}
+		}
 	}
 	// head: carried by the chest, its neck swung as the web neck swings, its own turn the web head's
 	if (FuloHead >= 0 && FuloNeckStart >= 0)
@@ -571,15 +629,32 @@ void UDragonWebRigComponent::WriteFulo()
 			K = WingOpen;
 		}
 		else return;
-		if (Want3.IsNearlyZero() || K <= 0.f) return;
-		const FVector Y = Q0.RotateVector(FVector(0, 1, 0));
-		const FQuat Sw = FQuat::Slerp(FQuat::Identity, FQuat::FindBetweenNormals(Y, Want3.GetSafeNormal()), K);
-		R.Rot[i] = (Q0.Inverse() * Sw * Q0).GetNormalized();
+		// Folded, the creator's fold lays each wing out flat behind the shoulder like a shelf; a
+		// resting Night Fury lets them drape down over his flanks. Roll the folded wing down about
+		// the body's long axis at the wing root.
+		FQuat Droop = FQuat::Identity;
+		if (FoldK > 0.f && (i == FuloWingRoot[0] || i == FuloWingRoot[1]))
+		{
+			const int32 Par = R.Parent(i);
+			const FQuat QCh = Par >= 0 ? (R.PoseMat(Par).Rot() * R.RestMat(Par).Rot().Inverse()).GetNormalized() : FQuat::Identity;
+			const float Side = i == FuloWingRoot[0] ? 1.f : -1.f;   // .L is on +X
+			const FQuat Local = FQuat(FVector(0, 1, 0), Side * FMath::DegreesToRadians(FuloDroop[0]) * FoldK)
+				* FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(FuloDroop[1]) * FoldK);
+			Droop = QCh * Local * QCh.Inverse();
+		}
+		FQuat Sw = FQuat::Identity;
+		if (!Want3.IsNearlyZero() && K > 0.f)
+		{
+			const FVector Y = Q0.RotateVector(FVector(0, 1, 0));
+			Sw = FQuat::Slerp(FQuat::Identity, FQuat::FindBetweenNormals(Y, Want3.GetSafeNormal()), K);
+		}
+		if (Sw.Equals(FQuat::Identity) && Droop.Equals(FQuat::Identity)) return;
+		R.Rot[i] = (Q0.Inverse() * Droop * Sw * Q0).GetNormalized();
 	};
 	// the jaw: the model rests with the mouth a little open; closed, plus whatever the web jaw does
 	{
 		static const int32 FJaw = R.Find(TEXT("Jaw.1"));
-		static const float Close = [] { float V = 0.f; FParse::Value(FCommandLine::Get(), TEXT("FuloJawClose="), V); return V; }();
+		static const float Close = [] { float V = -13.f; FParse::Value(FCommandLine::Get(), TEXT("FuloJawClose="), V); return V; }();   // the model rests mouth open: about -13 deg shuts it (positive opens)
 		const int32 WJ = Find(TEXT("Jaw"));
 		if (FJaw >= 0)
 		{
@@ -592,7 +667,7 @@ void UDragonWebRigComponent::WriteFulo()
 				const FQuat HeadRel = WH >= 0 ? ModelCache[WH].GetRotation() * RestModel[WH].GetRotation().Inverse() : FQuat::Identity;
 				const FQuat Open = HeadRel.Inverse() * Rel;
 				FVector Ax; float Ang; Open.ToAxisAndAngle(Ax, Ang);
-				Q = FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(Close) - FMath::Abs(Ang)) ;
+				Q = FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(Close) + FMath::Abs(Ang));
 			}
 			R.Rot[FJaw] = Q;
 		}
@@ -602,10 +677,10 @@ void UDragonWebRigComponent::WriteFulo()
 	if (FParse::Param(FCommandLine::Get(), TEXT("FuloDebug")))
 	{
 		static int32 Frames = 0;
-		if (++Frames == 5 || Frames == 60)
+		if (++Frames == 5 || Frames == 60 || Frames == 200)
 		{
 			FString Out;
-			for (const TCHAR* N : { TEXT("Jaw.1"), TEXT("Jaw.2"), TEXT("Head.1"), TEXT("HeadControl.1"), TEXT("WArm.L"), TEXT("WingFold.L") })
+			for (const TCHAR* N : { TEXT("Jaw.1"), TEXT("Jaw.2"), TEXT("Head.1"), TEXT("HeadControl.1"), TEXT("WArm.L"), TEXT("WingFold.L"), TEXT("ChestControl.1"), TEXT("HipsControl.1"), TEXT("Shoulder.L"), TEXT("Elbow.L"), TEXT("LowerLeg.L"), TEXT("FFootIK.L"), TEXT("Wrist.L"), TEXT("ShoulderPoint.L"), TEXT("Thigh.L"), TEXT("Knee.L"), TEXT("Shin.L"), TEXT("BFootIK.L"), TEXT("KneePoint.L") })
 			{
 				const int32 I = R.Find(N);
 				if (I < 0) continue;

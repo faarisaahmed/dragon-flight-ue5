@@ -1489,6 +1489,7 @@ float UDragonWebRigComponent::Animate(float Dt, const FDragonWebRigInput& In)
 			SFlightReady += (WantReady - SFlightReady) * Damp(2.5f, Dt);
 			FlightLegs(1.f, SFlightReady * 0.85f, Dt);
 		}
+		FuloAirK += ((1.f - SFlightReady) - FuloAirK) * Damp(3.f, Dt);
 		if (bOpeningWings)
 		{
 			if (ApplyFold(Dt) <= 0.001f) bOpeningWings = false;
@@ -1497,6 +1498,7 @@ float UDragonWebRigComponent::Animate(float Dt, const FDragonWebRigInput& In)
 	}
 	else
 	{
+		FuloAirK += (0.f - FuloAirK) * Damp(4.f, Dt);
 		WHeave = 0.f;
 		if (In.bFlaring)
 		{

@@ -574,21 +574,21 @@ void ADragonHUD::DrawControls(float X, float Y, float W)
 	static const FRow Fly[] = {
 		{ TEXT("W  S"), TEXT("Faster / slower") },
 		{ TEXT("A  D"), TEXT("Turn") },
-		{ TEXT("Space  K"), TEXT("Climb / sink") },
-		{ TEXT("Space×2  K×2"), TEXT("Zoom climb / dive (hold)") },
+		{ TEXT("Space  Ctrl"), TEXT("Climb / sink") },
+		{ TEXT("Space×2  Ctrl×2"), TEXT("Zoom climb / dive (hold)") },
 		{ TEXT("Shift"), TEXT("Sprint") },
-		{ TEXT("J"), TEXT("Flat out  (×2 turbo)") },
-		{ TEXT("L  ;"), TEXT("Knife edge left / right") },
-		{ TEXT("L×2  ;×2"), TEXT("Barrel roll") },
-		{ TEXT("O  P"), TEXT("Sideslip") },
+		{ TEXT("F"), TEXT("Flat out  (×2 turbo)") },
+		{ TEXT("Q  E"), TEXT("Knife edge left / right") },
+		{ TEXT("Q×2  E×2"), TEXT("Barrel roll") },
+		{ TEXT("Z  X"), TEXT("Sideslip left / right") },
 	};
 	static const FRow Other[] = {
-		{ TEXT("Mouse"), TEXT("Look") },
-		{ TEXT("LMB  U"), TEXT("Plasma blast") },
-		{ TEXT("RMB  E"), TEXT("Aim") },
-		{ TEXT("Hold I"), TEXT("Land  (on water: swim)") },
+		{ TEXT("Mouse"), TEXT("Look  (wheel: zoom)") },
+		{ TEXT("Left click"), TEXT("Plasma blast") },
+		{ TEXT("Right click"), TEXT("Aim") },
+		{ TEXT("Hold R"), TEXT("Land  (on water: swim)") },
 		{ TEXT("Space"), TEXT("Take off") },
-		{ TEXT("Q  H"), TEXT("Recentre / face camera") },
+		{ TEXT("V  G"), TEXT("Recentre view / face camera") },
 		{ TEXT("Tab  T"), TEXT("Chart / weather") },
 		{ TEXT("F6  F8"), TEXT("Hide display / screenshot") },
 	};
@@ -612,7 +612,7 @@ void ADragonHUD::DrawControls(float X, float Y, float W)
 				Txt(K, KX + BW * 0.5f, RY + 2.f * U, EFace::CondBold, 14.f, Frost, 0.5f, false);
 				KX += BW + 5.f * U;
 			}
-			Txt(Rows[i].What, CX + 132.f * U, RY + 2.f * U, EFace::Body, 15.f, Mist);
+			Txt(Rows[i].What, FMath::Max(CX + 132.f * U, KX + 6.f * U), RY + 2.f * U, EFace::Body, 15.f, Mist);
 			RY += 33.f * U;
 		}
 	};

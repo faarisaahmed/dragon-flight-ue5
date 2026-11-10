@@ -236,26 +236,28 @@ ADragonPawn::FFrameInput ADragonPawn::GatherInput(float Dt)
 	APlayerController* PC = Cast<APlayerController>(GetController());
 	if (!PC) return In;
 
-	// Keyboard — the web game's default "wasd" scheme (keymap.js).
+	// Keyboard: everything under the left hand around WASD, so the right hand stays on the mouse
+	// (look, LMB fire, RMB aim, wheel zoom, middle button recentre). The web game's right-hand
+	// keys (J K L ; O P I U) still work as alternates.
 	const bool W = AnyDown({ EKeys::W }), S = AnyDown({ EKeys::S }), A = AnyDown({ EKeys::A }), D = AnyDown({ EKeys::D });
 	In.Move = (W ? 1.f : 0.f) - (S ? 1.f : 0.f);
 	In.Turn = (A ? 1.f : 0.f) - (D ? 1.f : 0.f); // + left
 	In.WalkFwd = In.Move;
 	In.WalkSide = (D ? 1.f : 0.f) - (A ? 1.f : 0.f);
-	In.Vertical = (AnyDown({ EKeys::SpaceBar }) ? 1.f : 0.f) - (AnyDown({ EKeys::K, EKeys::C }) ? 1.f : 0.f);
+	In.Vertical = (AnyDown({ EKeys::SpaceBar }) ? 1.f : 0.f) - (AnyDown({ EKeys::LeftControl, EKeys::C, EKeys::K }) ? 1.f : 0.f);
 	In.bUpPressed = AnyPressed({ EKeys::SpaceBar });
 	In.bSprint = AnyDown({ EKeys::LeftShift, EKeys::RightShift });
-	In.bBurst = AnyDown({ EKeys::J, EKeys::B, EKeys::Gamepad_FaceButton_Bottom });
-	In.Strafe = (AnyDown({ EKeys::P, EKeys::Gamepad_FaceButton_Right }) ? 1.f : 0.f) - (AnyDown({ EKeys::O, EKeys::Gamepad_FaceButton_Left }) ? 1.f : 0.f);
-	const bool KL = AnyDown({ EKeys::L, EKeys::Gamepad_LeftShoulder });
-	const bool KR = AnyDown({ EKeys::Semicolon, EKeys::Gamepad_RightShoulder });
+	In.bBurst = AnyDown({ EKeys::F, EKeys::J, EKeys::B, EKeys::Gamepad_FaceButton_Bottom });
+	In.Strafe = (AnyDown({ EKeys::X, EKeys::P, EKeys::Gamepad_FaceButton_Right }) ? 1.f : 0.f) - (AnyDown({ EKeys::Z, EKeys::O, EKeys::Gamepad_FaceButton_Left }) ? 1.f : 0.f);
+	const bool KL = AnyDown({ EKeys::Q, EKeys::L, EKeys::Gamepad_LeftShoulder });
+	const bool KR = AnyDown({ EKeys::E, EKeys::Semicolon, EKeys::Gamepad_RightShoulder });
 	In.Knife = KR ? -1 : KL ? 1 : 0;
 	In.bLand = AnyDown({ EKeys::I, EKeys::R });
-	In.bFire = AnyDown({ EKeys::U, EKeys::LeftMouseButton, EKeys::Gamepad_RightTrigger });
-	In.bFirePressed = AnyPressed({ EKeys::U, EKeys::LeftMouseButton });
-	In.bAim = AnyDown({ EKeys::E, EKeys::RightMouseButton });
-	In.bAlignDragon = AnyPressed({ EKeys::H, EKeys::Gamepad_DPad_Up });
-	In.bRecenter = AnyPressed({ EKeys::Q, EKeys::Gamepad_DPad_Down, EKeys::Gamepad_RightThumbstick });
+	In.bFire = AnyDown({ EKeys::One, EKeys::U, EKeys::LeftMouseButton, EKeys::Gamepad_RightTrigger });
+	In.bFirePressed = AnyPressed({ EKeys::One, EKeys::U, EKeys::LeftMouseButton });
+	In.bAim = AnyDown({ EKeys::RightMouseButton, EKeys::Two });
+	In.bAlignDragon = AnyPressed({ EKeys::G, EKeys::H, EKeys::Gamepad_DPad_Up });
+	In.bRecenter = AnyPressed({ EKeys::V, EKeys::MiddleMouseButton, EKeys::Gamepad_DPad_Down, EKeys::Gamepad_RightThumbstick });
 
 	// Gamepad sticks and triggers.
 	const FVector2D LS = ShapeStick(FVector2D(PC->GetInputAnalogKeyState(EKeys::Gamepad_LeftX), PC->GetInputAnalogKeyState(EKeys::Gamepad_LeftY)));
@@ -268,7 +270,7 @@ ADragonPawn::FFrameInput ADragonPawn::GatherInput(float Dt)
 	In.Vertical = FMath::Clamp(In.Vertical + PadV, -1.f, 1.f);
 	In.bPadUpTakeoff = (bPadClimbInvert ? R2 : L2) > 0.6f;
 	// The fire trigger is R2 on pad only when climb is not on R2; by default fire = mouse/U.
-	if (bPadClimbInvert) In.bFire = AnyDown({ EKeys::U, EKeys::LeftMouseButton });
+	if (bPadClimbInvert) In.bFire = AnyDown({ EKeys::One, EKeys::U, EKeys::LeftMouseButton });
 	{
 		// On foot the pad gets an extra 0.12 per-axis deadzone and runs past 0.92.
 		auto DZ = [](float V) { return FMath::Abs(V) < 0.12f ? 0.f : V; };
@@ -286,9 +288,9 @@ ADragonPawn::FFrameInput ADragonPawn::GatherInput(float Dt)
 	if (DPC && DPC->bPanelOpen)
 	{
 		MX = MY = 0.f;
-		In.bFire = AnyDown({ EKeys::U, EKeys::Gamepad_RightTrigger });
-		In.bFirePressed = AnyPressed({ EKeys::U });
-		In.bAim = AnyDown({ EKeys::E });
+		In.bFire = AnyDown({ EKeys::One, EKeys::U, EKeys::Gamepad_RightTrigger });
+		In.bFirePressed = AnyPressed({ EKeys::One, EKeys::U });
+		In.bAim = AnyDown({ EKeys::Two });
 	}
 	PendingYaw -= MX * MouseSensitivity * (bInvertX ? -1.f : 1.f);
 	// UE mouse Y is up-positive. Web: mouse up raises the camera over him (camPitch increases).
@@ -671,12 +673,12 @@ void ADragonPawn::CheckLanding(float Dt, const FFrameInput& In)
 	}
 
 	// Prompts name the failing condition and the key that fixes it.
-	if (bCanLand) Prompt = bOverLand ? TEXT("Hold I or K to land") : TEXT("Hold I to come down on the water");
+	if (bCanLand) Prompt = bOverLand ? TEXT("Hold R or Ctrl to land") : TEXT("Hold R to come down on the water");
 	else if (In.bLand || In.Vertical < -0.5f)
 	{
 		if (bOverLand && !bSlow && AglLand < LAND_AGL) Prompt = TEXT("Too fast to land — let go of W");
 		else if (bTooSteep) Prompt = TEXT("Too steep to stand");
-		else if (bOverLand && AglLand < 260.f) Prompt = TEXT("Too high to land — hold K to drop");
+		else if (bOverLand && AglLand < 260.f) Prompt = TEXT("Too high to land — hold Ctrl to drop");
 		else if (!bOverLand && AglSea < 140.f && !bSlow) Prompt = TEXT("Too fast to come down — let go of W");
 	}
 	if (Flight.EdgeT > 0.45f) Prompt = TEXT("He will not go further. The chart ends here.");

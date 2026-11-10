@@ -469,6 +469,12 @@ void ADragonPhotoDirector::PlanShots()
 						FShot Gl = Sd; Gl.Name = FString::Printf(TEXT("51c_side_gallop_%s"), Ph[i]); Gl.Script.WalkFwd = 1.f; Gl.Script.bSprint = true; Gl.SettleS = 5.f + 0.15f * i;
 						Gl.SideOffset = FVector(0.0, 2200.0, 150.0); Shots.Add(Gl);
 					}
+					// The face up close, standing: three-quarter and straight on.
+					{
+						FShot Fc = Sd; Fc.Name = TEXT("51g_face_3q"); Fc.SettleS = 4.5f; Fc.SideOffset = FVector(760.0, 330.0, 120.0); Fc.SideAim = FVector(270.0, 0.0, 95.0); Fc.SideFov = 20.f; Shots.Add(Fc);
+						FShot Ff = Fc; Ff.Name = TEXT("51g_face_front"); Ff.SideOffset = FVector(800.0, 0.0, 110.0); Shots.Add(Ff);
+						FShot Rr = Fc; Rr.Name = TEXT("51h_rear_stand"); Rr.SideOffset = FVector(-1100.0, 450.0, 380.0); Rr.SideAim = FVector(0.0, 0.0, 60.0); Rr.SideFov = 34.f; Shots.Add(Rr);
+					}
 					FShot Fr = Sd; Fr.Name = TEXT("51d_front_walk"); Fr.Script.WalkFwd = 1.f; Fr.SettleS = 5.f; Fr.SideOffset = FVector(1300.0, 700.0, 120.0); Shots.Add(Fr);
 					// Close on the legs: six moments of one walk cycle.
 					for (int32 i = 0; i < 6; ++i)
@@ -494,6 +500,9 @@ void ADragonPhotoDirector::PlanShots()
 					FShot Sl = Fs; Sl.Name = TEXT("50b_side_slow"); Sl.PoseSpeed = 12.f; Sl.Script.Move = 0.f; Sl.SettleS = 1.2f; Shots.Add(Sl);
 					FShot Hv2 = Fs; Hv2.Name = TEXT("50c_side_hover"); Hv2.PoseSpeed = 0.f; Hv2.Script.Move = 0.f; Shots.Add(Hv2);
 					// The tail fins from above-behind and straight behind, cruising and slow; one wingbeat in eight frames.
+					// Where the legs go in flight: from below-side and from above-behind.
+					FShot Lb2 = Fs; Lb2.Name = TEXT("50h_legs_below"); Lb2.SideOffset = FVector(100.0, 900.0, -600.0); Lb2.SideAim = FVector(50.0, 0.0, 0.0); Lb2.SideFov = 40.f; Shots.Add(Lb2);
+					FShot Lt = Fs; Lt.Name = TEXT("50i_legs_above"); Lt.SideOffset = FVector(-700.0, 250.0, 800.0); Lt.SideAim = FVector(80.0, 0.0, 0.0); Lt.SideFov = 36.f; Shots.Add(Lt);
 					FShot Ft = Fs; Ft.Name = TEXT("50e_fins_top"); Ft.SideOffset = FVector(-1300.0, 250.0, 700.0); Ft.SideAim = FVector(-350.0, 0.0, 0.0); Ft.SideFov = 32.f; Shots.Add(Ft);
 					FShot Fb2 = Ft; Fb2.Name = TEXT("50f_fins_rear"); Fb2.SideOffset = FVector(-1500.0, 0.0, 120.0); Fb2.SideAim = FVector(0.0, 0.0, 0.0); Fb2.SideFov = 40.f; Shots.Add(Fb2);
 					FShot Fs2 = Ft; Fs2.Name = TEXT("50g_fins_top_slow"); Fs2.PoseSpeed = 12.f; Fs2.Script.Move = 0.f; Fs2.SettleS = 1.2f; Shots.Add(Fs2);
