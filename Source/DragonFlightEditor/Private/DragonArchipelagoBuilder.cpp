@@ -976,9 +976,11 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		auto* CT = TexO(TEXT("Coast"), TEXT("/Game/World/Data/T_Coast.T_Coast"), SAMPLERTYPE_LinearGrayscale, 420);
 		if (!CT->Texture) CT->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture"));
 		// North Atlantic shallows are a cold bottle green, not a tropical turquoise.
-		auto* ShallowS = Vec(TEXT("ScatterShallow"), bSea ? FLinearColor(0.0024f, 0.0068f, 0.0066f) : FLinearColor(0.012f, 0.014f, 0.008f), 470);
-		auto* DeepS = Vec(TEXT("ScatterDeep"), bSea ? FLinearColor(0.0015f, 0.0050f, 0.0072f) : FLinearColor(0.006f, 0.008f, 0.006f), 550);
-		auto* Ab = Vec(TEXT("Absorption"), bSea ? FLinearColor(0.36f, 0.070f, 0.042f) : FLinearColor(0.50f, 0.22f, 0.20f), 630);
+		auto* ShallowS = Vec(TEXT("ScatterShallow"), bSea ? FLinearColor(0.0020f, 0.0052f, 0.0042f) : FLinearColor(0.012f, 0.014f, 0.008f), 470);
+		auto* DeepS = Vec(TEXT("ScatterDeep"), bSea ? FLinearColor(0.0013f, 0.0040f, 0.0056f) : FLinearColor(0.006f, 0.008f, 0.006f), 550);
+		// (North Atlantic coastal water: plankton absorbs more blue and green than a tropical sea -
+		// the old values glowed turquoise in every sunlit cove)
+		auto* Ab = Vec(TEXT("Absorption"), bSea ? FLinearColor(0.40f, 0.105f, 0.085f) : FLinearColor(0.50f, 0.22f, 0.20f), 630);
 
 		auto In = [](UMaterialExpressionCustom* C, std::initializer_list<const TCHAR*> Names) { C->Inputs.Reset(); for (const TCHAR* N : Names) { FCustomInput I; I.InputName = N; C->Inputs.Add(I); } };
 
