@@ -20,7 +20,7 @@ OUT = os.path.join(ROOT, "Data", "World")
 
 
 DRAGON_TAG = "dragon-v1"
-ASSETS_TAG = "game-assets-v1"   # village kit + the web dragon (SK_Dragon.glb)
+ASSETS_TAG = "game-assets-v2"   # village kit + the web dragon (SK_Dragon.glb); v2: muted turf roofs and grass
 DATA = os.path.join(ROOT, "Data")
 
 
@@ -87,9 +87,13 @@ def main():
         else:
             print(f"Get Dragon.zip from https://github.com/{REPO}/releases/tag/{DRAGON_TAG} and unzip it into {DATA}")
     # The web game's dragon (SK_Dragon.glb, preferred by the builder) and the village kit.
+    # A newer release replaces what an older one unpacked (the stamp records which one that was).
+    astamp = os.path.join(DATA, "Assets.release")
+    acur = open(astamp).read().strip() if os.path.exists(astamp) else ""
+    ok = True
     for zname, probe in (("DragonWeb.zip", os.path.join(DATA, "Dragon", "SK_Dragon.glb")),
                          ("Village.zip", os.path.join(DATA, "Village", "longhouse_a.glb"))):
-        if os.path.exists(probe):
+        if os.path.exists(probe) and (acur == ASSETS_TAG or (acur == "" and ASSETS_TAG == "game-assets-v1")):
             continue
         z = os.path.join(DATA, zname)
         if via_gh([zname], ASSETS_TAG, DATA) or via_token([zname], ASSETS_TAG, DATA):
@@ -99,7 +103,11 @@ def main():
                 os.remove(z)
                 print(f"unpacked {zname}")
         else:
+            ok = False
             print(f"Get {zname} from https://github.com/{REPO}/releases/tag/{ASSETS_TAG} and unzip it into {DATA}")
+    if ok:
+        with open(astamp, "w") as f:
+            f.write(ASSETS_TAG)
     return 0
 
 

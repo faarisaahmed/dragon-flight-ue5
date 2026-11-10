@@ -103,7 +103,8 @@ def derive_textures():
     save_px(out, os.path.join(TEXOUT, 'T_Village_WoodGrey_D.jpg'), 'wg')
     bpy.data.images.remove(im)
     turf, im = load_px(fetch_textures.tex_path('turf', 'diff'))
-    turf[..., :3] = np.clip(np.power(turf[..., :3], 1.2) * np.array([0.62, 0.74, 0.42]), 0, 1)
+    # (darker and less yellow than it was: the roofs glowed lime among the muted island turf)
+    turf[..., :3] = np.clip(np.power(turf[..., :3], 1.35) * np.array([0.36, 0.44, 0.25]), 0, 1)
     save_px(turf, os.path.join(TEXOUT, 'T_Village_Turf_D.jpg'), 'tf')
     bpy.data.images.remove(im)
     # Grass blades: columns = blade colour (deep green .. fresh .. olive .. straw), rows = base -> tip.
@@ -111,7 +112,7 @@ def derive_textures():
     rs = np.random.RandomState(3)
     u = np.linspace(0, 1, W)
     stops = np.array([0.0, 0.4, 0.76, 0.91, 1.0])
-    cols = np.array([[0.15, 0.25, 0.07], [0.26, 0.38, 0.10], [0.36, 0.41, 0.15], [0.48, 0.46, 0.25], [0.6, 0.53, 0.32]])
+    cols = np.array([[0.11, 0.19, 0.06], [0.18, 0.27, 0.08], [0.26, 0.30, 0.12], [0.38, 0.36, 0.21], [0.50, 0.44, 0.29]])
     base = np.stack([np.interp(u, stops, cols[:, c]) for c in range(3)], -1)
     base *= (0.85 + 0.3 * rs.rand(W, 1))
     v = np.linspace(0, 1, H)[:, None, None]
