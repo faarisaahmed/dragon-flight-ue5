@@ -39,3 +39,6 @@ __pycache__/
 
 # Tester reports pulled by Tools/fetch_reports.py
 Reports/
+
+# The Fulonimation Studios dragon (source .blend, export and textures) ships as a release
+Data/Dragon/Fulo/

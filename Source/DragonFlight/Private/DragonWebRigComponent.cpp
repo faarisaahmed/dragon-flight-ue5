@@ -173,9 +173,15 @@ bool UDragonWebRigComponent::IsWebSkeleton(const USkinnedAsset* Asset)
 	const FReferenceSkeleton& Ref = Asset->GetRefSkeleton();
 	for (int32 i = 0; i < Ref.GetNum(); ++i)
 	{
-		if (Norm(Ref.GetBoneName(i).ToString()) == TEXT("wingfinger001l")) return true;
+		const FString N = Norm(Ref.GetBoneName(i).ToString());
+		if (N == TEXT("wingfinger001l") || N == TEXT("wingshoulderl")) return true;   // the web dragon, or the Fulonimation one
 	}
 	return false;
+}
+
+FString UDragonWebRigComponent::WebBoneName(int32 G) const
+{
+	return G >= 0 && G < int32(UE_ARRAY_COUNT(GDragonWebBones)) ? FString(UTF8_TO_TCHAR(GDragonWebBones[G].Name)) : FString();
 }
 
 int32 UDragonWebRigComponent::Find(const FString& GltfName) const
@@ -222,6 +228,11 @@ bool UDragonWebRigComponent::Bind(UPoseableMeshComponent* InMesh)
 	RecomputeModel();
 	RestModel = ModelCache;
 
+	// --- the Fulonimation Studios dragon: this skeleton runs headless and drives that rig ---
+	bFulo = false;
+	for (int32 u = 0; u < NU && !bFulo; ++u) bFulo = Norm(Ref.GetBoneName(u).ToString()) == TEXT("wingshoulderl");
+	if (bFulo && !BindFulo(Ref)) return false;
+	if (!bFulo) {
 	// --- match UE bones by name (dots/underscores/case ignored) -------------
 	UEParent.SetNum(NU);
 	UEToGl.Init(INDEX_NONE, NU);
@@ -369,6 +380,8 @@ bool UDragonWebRigComponent::Bind(UPoseableMeshComponent* InMesh)
 		SetMembraneShown(true);
 	}
 
+	}   // !bFulo
+
 	// --- bone indices ---------------------------------------------------------
 	for (int32 s = 0; s < 2; ++s)
 	{
@@ -440,6 +453,8 @@ bool UDragonWebRigComponent::Bind(UPoseableMeshComponent* InMesh)
 	bGaitTried = bGaitOK = false;
 	SnapFold(0.f);
 	bBound = true;
+	// the Fulonimation rig's bind pose is not a flying pose (the web dragon's was): pose it now
+	if (bFulo) { RecomputeModel(); WriteFulo(); }
 	return true;
 }
 
@@ -1503,6 +1518,7 @@ float UDragonWebRigComponent::Animate(float Dt, const FDragonWebRigInput& In)
 
 void UDragonWebRigComponent::WriteToMesh()
 {
+	if (bFulo) { WriteFulo(); return; }
 	if (bModelDirty) RecomputeModel();
 	const int32 NU = UEParent.Num();
 	if (Mesh->BoneSpaceTransforms.Num() != NU) return;

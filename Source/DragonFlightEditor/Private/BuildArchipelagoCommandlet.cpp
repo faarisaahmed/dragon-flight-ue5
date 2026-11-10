@@ -18,6 +18,7 @@ int32 UBuildArchipelagoCommandlet::Main(const FString& Params)
 	O.bTextures = !FParse::Param(*Params, TEXT("NoTextures"));
 	O.bWater = !FParse::Param(*Params, TEXT("NoWater"));
 	O.bDragonOnly = FParse::Param(*Params, TEXT("DragonOnly"));
+	O.bDragonFulo = FParse::Param(*Params, TEXT("DragonFulo"));
 	O.bLandscapeNanite = FParse::Param(*Params, TEXT("LandscapeNanite"));
 	O.bVillageOnly = FParse::Param(*Params, TEXT("VillageOnly"));
 	O.bMaterialsOnly = FParse::Param(*Params, TEXT("MaterialsOnly"));

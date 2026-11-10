@@ -21,6 +21,8 @@ struct FDragonBuildOptions
 	bool bSave = true;
 	/** Only (re)import the dragon; leave textures, models and the map alone. */
 	bool bDragonOnly = false;
+	/** Only (re)import the Fulonimation Studios dragon (Data/Dragon/Fulo, Tools/DragonModel/export_fulo.py). */
+	bool bDragonFulo = false;
 	/** Build a Nanite representation of the landscape. At 8129^2 this needs ~16 GB in one go: off by default (24 GB machines thrash). */
 	bool bLandscapeNanite = false;
 	/** Only (re)import the village kit. */
@@ -55,6 +57,7 @@ public:
 	static TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>> ImportModels();
 	/** Data/Dragon/SK_Dragon.fbx (+ Textures/) -> /Game/Dragon. */
 	static bool ImportDragon();
+	static bool ImportDragonFulo();
 	/** The Norse building kit: Data/Village/<kind>_<variant>.glb -> /Game/World/Village/<name>/ (Nanite). */
 	static int32 ImportVillage();
 	static bool BuildLevel(const FDragonBuildOptions& Options, const TMap<FName, TArray<TSoftObjectPtr<UStaticMesh>>>& Meshes);

@@ -147,6 +147,9 @@ void ADragonPawn::BeginPlay()
 			else UE_LOG(LogDragon, Warning, TEXT("Dragon mesh %s (%s) has no skeleton; skipping it."), *A->GetPathName(), What);
 		};
 		Try(DragonAsset.IsNull() ? nullptr : DragonAsset.LoadSynchronous(), TEXT("DragonAsset"));
+		// The Night Fury by Fulonimation Studios (https://ko-fi.com/fulonimationstudios) first; -OldDragon for the web model.
+		if (!FParse::Param(FCommandLine::Get(), TEXT("OldDragon")))
+			Try(LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/DragonFulo/SK_DragonFulo/SkeletalMeshes/SK_DragonFulo.SK_DragonFulo")), TEXT("Fulonimation Studios Night Fury"));
 		Try(LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Dragon/SK_Dragon/SkeletalMeshes/SK_Dragon.SK_Dragon")), TEXT("Interchange import"));
 		Try(LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Dragon/SK_Dragon.SK_Dragon")), TEXT("legacy path"));
 		if (Asset) DragonMesh->SetSkinnedAssetAndUpdate(Asset);
@@ -167,6 +170,7 @@ void ADragonPawn::BeginPlay()
 			DragonMesh->SetRelativeTransform(WebRig->GetMeshRelativeTransform() * FTransform(FRotator(0.f, DragonMeshYaw, 0.f)));
 			// Wing tips beat well outside the bind-pose bounds.
 			DragonMesh->SetBoundsScale(2.f);
+			if (WebRig->IsFulo()) WebRig->SetFinStyle(UDragonWebRigComponent::SavedFinStyle());
 		}
 		else
 		{

@@ -27,6 +27,8 @@
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionVertexNormalWS.h"
 #include "Materials/MaterialExpressionLocalPosition.h"
+#include "Materials/MaterialExpressionCustom.h"
+#include "PhysicsEngine/PhysicsAsset.h"
 #include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionLandscapeGrassOutput.h"
 #include "LandscapeGrassType.h"
@@ -2155,6 +2157,12 @@ bool FDragonArchipelagoBuilder::Build(const FDragonBuildOptions& Options)
 		Log(FString::Printf(TEXT("materials-only done in %.0f s"), FPlatformTime::Seconds() - T0));
 		return true;
 	}
+	if (Options.bDragonFulo)
+	{
+		const bool bOk = ImportDragonFulo();
+		Log(FString::Printf(TEXT("dragon-fulo done in %.0f s"), FPlatformTime::Seconds() - T0));
+		return bOk;
+	}
 	if (Options.bDragonOnly)
 	{
 		CreateMasterMaterials(); // the skin and membrane parents the instances hang off
@@ -2192,4 +2200,211 @@ bool FDragonArchipelagoBuilder::Build(const FDragonBuildOptions& Options)
 	CopyRuntimeData();
 	Log(FString::Printf(TEXT("done in %.0f s"), FPlatformTime::Seconds() - T0));
 	return bOk;
+}
+
+
+// ===========================================================================
+// The Fulonimation Studios Night Fury (https://ko-fi.com/fulonimationstudios)
+// Data/Dragon/Fulo: SK_DragonFulo.glb + Textures/, from Tools/DragonModel/export_fulo.py.
+// One master surface (M_FuloSurface) set per material slot as the model's Blender
+// materials are; the fin's colour map is the player's choice of fin (UDragonFuloRigComponent).
+// ===========================================================================
+bool FDragonArchipelagoBuilder::ImportDragonFulo()
+{
+	const FString Dir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data/Dragon/Fulo"));
+	const FString Glb = Dir / TEXT("SK_DragonFulo.glb");
+	if (!FPaths::FileExists(Glb)) { Log(TEXT("! no Data/Dragon/Fulo/SK_DragonFulo.glb (run Tools/DragonModel/export_fulo.py)")); return false; }
+	const FString Dest = TEXT("/Game/DragonFulo");
+	const FString TexDir = Dir / TEXT("Textures");
+	const FString TexPkg = Dest / TEXT("Textures");
+
+	// --- textures
+	auto Tex = [&](const TCHAR* Name, bool bNormal, bool bLinear) -> UTexture2D*
+	{
+		UTexture2D* T = ImportTexture(TexDir / (FString(Name) + TEXT(".png")), TexPkg, Name, bNormal, bLinear);
+		if (!T) Log(FString::Printf(TEXT("! missing texture %s"), Name));
+		return T;
+	};
+	UTexture2D* BodyD = Tex(TEXT("T_Fulo_Body_D"), false, false);
+	UTexture2D* BodyN = Tex(TEXT("T_Fulo_Body_N"), true, false);
+	UTexture2D* BodyC = Tex(TEXT("T_Fulo_Body_Cavity"), false, true);
+	UTexture2D* BodyG = Tex(TEXT("T_Fulo_Body_Glow"), false, false);
+	UTexture2D* EyeD = Tex(TEXT("T_Fulo_Eye_D"), false, false);
+	UTexture2D* MouthD = Tex(TEXT("T_Fulo_Mouth_D"), false, false);
+	UTexture2D* MouthN = Tex(TEXT("T_Fulo_Mouth_N"), true, false);
+	UTexture2D* MouthC = Tex(TEXT("T_Fulo_Mouth_Cavity"), false, true);
+	UTexture2D* TeethD = Tex(TEXT("T_Fulo_Teeth_D"), false, false);
+	UTexture2D* TongueN = Tex(TEXT("T_Fulo_Tongue_N"), true, false);
+	UTexture2D* TongueC = Tex(TEXT("T_Fulo_Tongue_Cavity"), false, true);
+	UTexture2D* LeatherN = Tex(TEXT("T_Fulo_Leather_N"), true, false);
+	UTexture2D* LeatherR = Tex(TEXT("T_Fulo_Leather_R"), false, true);
+	UTexture2D* MetalN = Tex(TEXT("T_Fulo_Metal_N"), true, false);
+	UTexture2D* MetalR = Tex(TEXT("T_Fulo_Metal_R"), false, true);
+	for (const TCHAR* Fin : { TEXT("Black"), TEXT("Red"), TEXT("Brown"), TEXT("Blue"), TEXT("Purple"), TEXT("GreenFlames"), TEXT("StrikeClass") })
+		Tex(*FString::Printf(TEXT("T_Fulo_Fin_%s"), Fin), false, false);
+	UTexture2D* FinRed = LoadObject<UTexture2D>(nullptr, *(TexPkg / TEXT("T_Fulo_Fin_Red.T_Fulo_Fin_Red")));
+
+	// --- master surface
+	UMaterial* Surf = NewMaterial(TEXT("M_FuloSurface"));
+	if (!Surf) return false;
+	{
+		UMaterial* M = Surf;
+		M->SetUsageByFlag(MATUSAGE_SkeletalMesh, true);
+		M->SetShadingModel(MSM_Subsurface);
+		M->TwoSided = true;   // the wing and fin membranes are single sheets
+		auto Sc = [&](const TCHAR* N, float V, int32 Y) { auto* E = Expr<UMaterialExpressionScalarParameter>(M, -900, Y); E->ParameterName = N; E->DefaultValue = V; return E; };
+		auto Ve = [&](const TCHAR* N, FLinearColor V, int32 Y) { auto* E = Expr<UMaterialExpressionVectorParameter>(M, -900, Y); E->ParameterName = N; E->DefaultValue = V; return E; };
+		UMaterialExpressionTextureCoordinate* UV = Expr<UMaterialExpressionTextureCoordinate>(M, -1300, 0);
+		auto* UVS = Sc(TEXT("UVScale"), 1.f, 60);
+		UMaterialExpressionMultiply* UVm = Expr<UMaterialExpressionMultiply>(M, -1100, 0);
+		UMaterialEditingLibrary::ConnectMaterialExpressions(UV, TEXT(""), UVm, TEXT("A"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(UVS, TEXT(""), UVm, TEXT("B"));
+		auto* D = TexParam(M, TEXT("BaseColorTex"), BodyD, SAMPLERTYPE_Color, -700, -300);
+		auto* N = TexParam(M, TEXT("NormalTex"), BodyN, SAMPLERTYPE_Normal, -700, 0);
+		auto* R = TexParam(M, TEXT("RoughTex"), BodyC, SAMPLERTYPE_Masks, -700, 300);   // linear maps import as masks
+		auto* G = TexParam(M, TEXT("GlowTex"), BodyG, SAMPLERTYPE_Color, -700, 600);
+		// detail maps (normal, roughness) tile; the colour, cavity-free parts don't
+		UMaterialEditingLibrary::ConnectMaterialExpressions(UVm, TEXT(""), N, TEXT("UVs"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(UVm, TEXT(""), R, TEXT("UVs"));
+		UMaterialExpressionCustom* C = Expr<UMaterialExpressionCustom>(M, -300, 0);
+		C->Description = TEXT("Fulo surface");
+		C->OutputType = CMOT_Float3;
+		C->Inputs.Reset();
+		const TCHAR* Ins[] = { TEXT("Dt"), TEXT("Nt"), TEXT("Rt"), TEXT("Gt"), TEXT("UseTex"), TEXT("Tint"), TEXT("NStr"), TEXT("RA"), TEXT("RB"), TEXT("RLo"), TEXT("RHi"), TEXT("RMin"), TEXT("SssCol"), TEXT("Sheen"), TEXT("GlowAmt"), TEXT("GlowCol"), TEXT("Sat") };
+		for (const TCHAR* In : Ins) { FCustomInput I; I.InputName = In; C->Inputs.Add(I); }
+		C->AdditionalOutputs.Reset();
+		for (const TCHAR* O : { TEXT("NormalOut"), TEXT("SssOut"), TEXT("EmisOut") }) { FCustomOutput Ou; Ou.OutputName = O; Ou.OutputType = CMOT_Float3; C->AdditionalOutputs.Add(Ou); }
+		{ FCustomOutput Ou; Ou.OutputName = TEXT("RoughOut"); Ou.OutputType = CMOT_Float1; C->AdditionalOutputs.Add(Ou); }
+		C->Code = TEXT(
+			"float3 col = lerp(Tint, Dt.rgb * Tint, UseTex);\n"
+			"float l = dot(col, float3(0.3, 0.59, 0.11)); col = lerp(float3(l, l, l), col, Sat);\n"
+			// Blender ColorRamp: value RLo at RA, RHi at RB, linear between
+			"float r = lerp(RLo, RHi, saturate((Rt.r - RA) / max(RB - RA, 1e-4)));\n"
+			"RoughOut = clamp(r, RMin, 1.0);\n"
+			"float3 n = Nt.xyz; n.xy *= NStr; NormalOut = normalize(n);\n"
+			"float3 V = normalize(Parameters.CameraVector);\n"
+			"float f = pow(1.0 - saturate(dot(Parameters.WorldNormal, V)), 4.0) * Sheen;\n"
+			"col = lerp(col, col * 0.7 + float3(0.06, 0.07, 0.14), f);\n"   // the cool, violet-blue sheen of the scales at grazing angles
+			"SssOut = col * SssCol;\n"
+			"EmisOut = Gt.rgb * GlowCol * GlowAmt;\n"
+			"return col;\n");
+		C->RebuildOutputs();
+		C->PostEditChange();
+		UMaterialEditingLibrary::ConnectMaterialExpressions(D, TEXT(""), C, TEXT("Dt"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(N, TEXT(""), C, TEXT("Nt"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(R, TEXT(""), C, TEXT("Rt"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(G, TEXT(""), C, TEXT("Gt"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("UseBaseTex"), 1.f, 900), TEXT(""), C, TEXT("UseTex"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Ve(TEXT("Tint"), FLinearColor::White, 960), TEXT(""), C, TEXT("Tint"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("NormalStrength"), 1.f, 1020), TEXT(""), C, TEXT("NStr"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("RoughA"), 0.207f, 1080), TEXT(""), C, TEXT("RA"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("RoughB"), 0.44f, 1140), TEXT(""), C, TEXT("RB"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("RoughAtA"), 1.f, 1200), TEXT(""), C, TEXT("RLo"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("RoughAtB"), 0.f, 1260), TEXT(""), C, TEXT("RHi"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("RoughMin"), 0.3f, 1320), TEXT(""), C, TEXT("RMin"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Ve(TEXT("SubsurfaceTint"), FLinearColor(0.6f, 0.25f, 0.2f), 1380), TEXT(""), C, TEXT("SssCol"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("Sheen"), 0.2f, 1440), TEXT(""), C, TEXT("Sheen"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("GlowAmount"), 0.f, 1500), TEXT(""), C, TEXT("GlowAmt"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Ve(TEXT("GlowColor"), FLinearColor(0.2f, 0.6f, 4.f), 1560), TEXT(""), C, TEXT("GlowCol"));
+		UMaterialEditingLibrary::ConnectMaterialExpressions(Sc(TEXT("Saturation"), 1.f, 1620), TEXT(""), C, TEXT("Sat"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(C, TEXT(""), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(C, TEXT("NormalOut"), MP_Normal);
+		UMaterialEditingLibrary::ConnectMaterialProperty(C, TEXT("RoughOut"), MP_Roughness);
+		UMaterialEditingLibrary::ConnectMaterialProperty(C, TEXT("SssOut"), MP_SubsurfaceColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(C, TEXT("EmisOut"), MP_EmissiveColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sc(TEXT("Metallic"), 0.f, 1700), TEXT(""), MP_Metallic);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sc(TEXT("Specular"), 0.5f, 1760), TEXT(""), MP_Specular);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sc(TEXT("SubsurfaceAmount"), 0.f, 1820), TEXT(""), MP_Opacity);
+		Finish(M);
+	}
+
+	// --- the mesh
+	// (Interchange files it under SK_DragonFulo/SkeletalMeshes/)
+	const FString MeshPath = Dest / TEXT("SK_DragonFulo/SkeletalMeshes/SK_DragonFulo.SK_DragonFulo");
+	USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *MeshPath);
+	if (FParse::Param(FCommandLine::Get(), TEXT("ReimportFulo")) && Mesh)
+	{
+		UEditorAssetLibrary::DeleteDirectory(Dest / TEXT("SK_DragonFulo"));
+		UEditorAssetLibrary::DeleteAsset(Dest / TEXT("SK_DragonFulo"));
+		Mesh = nullptr;
+	}
+	if (!Mesh)
+	{
+		IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools")).Get();
+		UAutomatedAssetImportData* Data = NewObject<UAutomatedAssetImportData>();
+		Data->Filenames.Add(Glb);
+		Data->DestinationPath = Dest;
+		Data->bReplaceExisting = true;
+		for (UObject* O : AssetTools.ImportAssetsAutomated(Data))
+		{
+			if (!O) continue;
+			Log(FString::Printf(TEXT("  imported %s (%s)"), *O->GetPathName(), *O->GetClass()->GetName()));
+			if (USkeletalMesh* SKM = Cast<USkeletalMesh>(O)) Mesh = SKM;
+		}
+		UEditorAssetLibrary::SaveDirectory(Dest, false, true);
+	}
+	if (!Mesh || !Mesh->GetSkeleton()) { Log(TEXT("! Fulo dragon import produced no skinned mesh")); return false; }
+	Log(FString::Printf(TEXT("dragon-fulo: %d bones, %d material slots"), Mesh->GetRefSkeleton().GetNum(), Mesh->GetMaterials().Num()));
+	// The rig is evaluated in code; a 700-body physics asset only costs time.
+	Mesh->SetPhysicsAsset(nullptr);
+
+	// --- one instance per Blender material, set as the model's own were
+	struct FSlotDef { const TCHAR* Slot; UTexture2D* D; UTexture2D* N; UTexture2D* R; float UseTex; FLinearColor Tint; float NStr, RA, RB, RLo, RHi, RMin, UV, Metal, Spec, Sss, Sheen; };
+	const FLinearColor W = FLinearColor::White;
+	const FSlotDef Defs[] = {
+		// slot           colour  normal   rough    useTex tint                                 nstr  rA     rB     r@A  r@B  rMin  uv   metal spec  sss   sheen
+		// (the model's Blender look made most of the hide glossy, which out under a real sky turned
+		// the black scales lavender: a matte hide, a little sheen left in the scale caps)
+		{ TEXT("Body"),     BodyD,  BodyN,   BodyC,   1.f, FLinearColor(0.8f, 0.8f, 0.8f),       1.0f, 0.207f, 0.44f, 0.85f, 0.5f, 0.5f, 1.f, 0.08f, 0.35f, 0.25f, 0.12f },
+		{ TEXT("Claws"),    BodyD,  BodyN,   BodyC,   1.f, FLinearColor(1.2f, 1.15f, 1.1f),      1.5f, 0.207f, 0.44f, 0.8f, 0.45f, 0.45f, 1.f, 0.05f, 0.4f, 0.10f, 0.05f },
+		{ TEXT("Fin"),      FinRed, LeatherN, LeatherR, 1.f, W,                                   0.5f, 0.436f, 0.931f, 1.f, 0.f, 0.35f, 3.f, 0.0f, 0.33f, 0.20f, 0.05f },
+		{ TEXT("Main.001"), nullptr, LeatherN, LeatherR, 0.f, FLinearColor(0.005f, 0.002f, 0.001f), 0.65f, 0.236f, 0.662f, 0.f, 1.f, 0.35f, 4.f, 0.f, 0.5f, 0.f, 0.f },
+		{ TEXT("Main.002"), nullptr, LeatherN, LeatherR, 0.f, FLinearColor(0.004f, 0.003f, 0.002f), 1.0f, 0.236f, 0.662f, 0.f, 1.f, 0.35f, 8.f, 0.f, 0.5f, 0.f, 0.f },
+		{ TEXT("Main.005"), nullptr, LeatherN, LeatherR, 0.f, FLinearColor(0.015f, 0.01f, 0.008f), 0.65f, 0.236f, 0.662f, 0.f, 1.f, 0.35f, 1.f, 0.f, 0.5f, 0.f, 0.f },
+		{ TEXT("Lining.002"), nullptr, LeatherN, LeatherR, 0.f, FLinearColor(0.01f, 0.006f, 0.004f), 0.6f, 0.236f, 0.662f, 0.f, 1.f, 0.35f, 3.f, 0.f, 0.5f, 0.f, 0.f },
+		{ TEXT("Metal"),    nullptr, MetalN,  MetalR,  0.f, FLinearColor(0.109f, 0.109f, 0.109f), 0.3f, 0.665f, 0.931f, 1.f, 0.f, 0.25f, 1.f, 0.6f, 0.5f, 0.f, 0.f },
+		{ TEXT("Metal2"),   nullptr, MetalN,  MetalR,  0.f, FLinearColor(0.031f, 0.031f, 0.031f), 1.0f, 0.665f, 0.931f, 1.f, 0.f, 0.25f, 2.f, 0.78f, 0.5f, 0.f, 0.f },
+		{ TEXT("Material.016"), nullptr, MetalN, MetalR, 0.f, FLinearColor(0.179f, 0.179f, 0.179f), 0.3f, 0.665f, 0.931f, 1.f, 0.f, 0.25f, 1.f, 0.6f, 0.5f, 0.f, 0.f },
+		{ TEXT("Mouth"),    MouthD, MouthN,  MouthC,  1.f, W,                                     1.0f, 0.2f, 0.6f, 0.9f, 0.25f, 0.2f, 1.f, 0.f, 0.5f, 0.6f, 0.f },
+		{ TEXT("Teeth"),    TeethD, MouthN,  MouthC,  1.f, W,                                     0.2f, 0.2f, 0.6f, 0.5f, 0.5f, 0.35f, 1.f, 0.f, 0.5f, 0.3f, 0.f },
+		{ TEXT("Tongue"),   nullptr, TongueN, TongueC, 0.f, FLinearColor(0.435f, 0.195f, 0.212f), 1.0f, 0.2f, 0.6f, 0.8f, 0.3f, 0.25f, 1.f, 0.f, 0.5f, 0.6f, 0.f },
+		{ TEXT("Eyes"),     EyeD,   nullptr, nullptr, 1.f, FLinearColor(0.7f, 0.7f, 0.7f),       0.0f, 0.f, 1.f, 0.08f, 0.08f, 0.06f, 1.f, 0.f, 0.6f, 0.3f, 0.f },
+		{ TEXT("EarBumps"), BodyD,  BodyN,   BodyC,   0.f, FLinearColor(0.012f, 0.012f, 0.014f), 0.3f, 0.207f, 0.44f, 1.f, 0.f, 0.6f, 1.f, 0.f, 0.4f, 0.1f, 0.1f },
+	};
+	int32 Assigned = 0;
+	for (FSkeletalMaterial& SM : Mesh->GetMaterials())
+	{
+		const FString Slot = SM.MaterialSlotName.ToString();
+		const FSlotDef* Def = nullptr;
+		for (const FSlotDef& Dd : Defs) if (Slot.Equals(FString(Dd.Slot).Replace(TEXT("."), TEXT("_")), ESearchCase::IgnoreCase)) { Def = &Dd; break; }
+		if (!Def) { Log(FString::Printf(TEXT("! no material for slot %s"), *Slot)); continue; }
+		const FString MiName = FString::Printf(TEXT("MI_Fulo_%s"), *FString(Def->Slot).Replace(TEXT("."), TEXT("_")));
+		if (UEditorAssetLibrary::DoesAssetExist(Dest / MiName)) UEditorAssetLibrary::DeleteAsset(Dest / MiName);
+		UMaterialInstanceConstant* MI = CreateOrLoad<UMaterialInstanceConstant, UMaterialInstanceConstantFactoryNew>(Dest, MiName,
+			[Surf](UMaterialInstanceConstantFactoryNew* F) { F->InitialParent = Surf; });
+		if (!MI) continue;
+		MI->SetParentEditorOnly(Surf);
+		auto SetT = [&](const TCHAR* P, UTexture2D* T) { if (T) UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, P, T); };
+		auto SetS = [&](const TCHAR* P, float V) { UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, P, V); };
+		SetT(TEXT("BaseColorTex"), Def->D); SetT(TEXT("NormalTex"), Def->N); SetT(TEXT("RoughTex"), Def->R);
+		if (!Def->N) SetS(TEXT("NormalStrength"), 0.f); else SetS(TEXT("NormalStrength"), Def->NStr);
+		SetS(TEXT("UseBaseTex"), Def->UseTex);
+		UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), Def->Tint);
+		SetS(TEXT("RoughA"), Def->RA); SetS(TEXT("RoughB"), Def->RB); SetS(TEXT("RoughAtA"), Def->RLo); SetS(TEXT("RoughAtB"), Def->RHi);
+		SetS(TEXT("RoughMin"), Def->RMin); SetS(TEXT("UVScale"), Def->UV); SetS(TEXT("Metallic"), Def->Metal); SetS(TEXT("Specular"), Def->Spec);
+		SetS(TEXT("SubsurfaceAmount"), Def->Sss); SetS(TEXT("Sheen"), Def->Sheen);
+		// the colour maps are blue-black; under sun and sky that read purple: mostly neutral
+		if (FString(Def->Slot) == TEXT("Body") || FString(Def->Slot) == TEXT("Claws") || FString(Def->Slot) == TEXT("EarBumps")) SetS(TEXT("Saturation"), 0.45f);
+		if (!Def->R) { SetS(TEXT("RoughA"), 0.f); SetS(TEXT("RoughB"), 1.f); }
+		UMaterialEditingLibrary::UpdateMaterialInstance(MI);
+		UEditorAssetLibrary::SaveLoadedAsset(MI, false);
+		SM.MaterialInterface = MI;
+		++Assigned;
+		Log(FString::Printf(TEXT("  slot %s -> %s"), *Slot, *MiName));
+	}
+	Mesh->PostEditChange();
+	Mesh->MarkPackageDirty();
+	UEditorAssetLibrary::SaveLoadedAsset(Mesh, false);
+	Log(FString::Printf(TEXT("dragon-fulo: %d slots dressed"), Assigned));
+	return Assigned > 0;
 }

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "DragonFlightModel.h"
+#include "DragonFuloRig.h"
 #include "DragonWebRigComponent.generated.h"
 
 class UPoseableMeshComponent;
@@ -77,6 +78,16 @@ public:
 	bool IsBound() const { return bBound; }
 	/** Relative transform for the mesh component under the pivot: faces +X, left wing -Y, feet on the pivot, cm. */
 	const FTransform& GetMeshRelativeTransform() const { return MeshRelative; }
+	/** The Fulonimation Studios Night Fury: this rig's motion retargeted onto its own rig (DragonWebRigFulo.cpp). */
+	bool IsFulo() const { return bFulo; }
+	/** Tail fin: 0 Black, 1 Red (first film), 2 Brown, 3 Blue, 4 Purple, 5 Green flames, 6 Strike class, 7 bare frame. */
+	void SetFinStyle(int32 Style);
+	static int32 NumFinStyles() { return 8; }
+	static const TCHAR* FinStyleName(int32 Style);
+	/** The player's fin, saved with the settings (GameUserSettings, [/Script/DragonFlight.DragonControls] FinStyle). */
+	static int32 SavedFinStyle();
+	static void SaveFinStyle(int32 Style);
+	int32 GetFinStyle() const { return FinStyle; }
 
 	/** Poses the mesh. Returns the wingbeat heave in metres (wings.js getHeave), 0 on the ground. */
 	float Animate(float Dt, const FDragonWebRigInput& In);
@@ -206,6 +217,28 @@ private:
 
 	int32 MembraneMaterial = INDEX_NONE;
 	bool bMembraneShown = true;
+
+	// --- the Fulonimation Studios rig (DragonWebRigFulo.cpp) ---
+	bool bFulo = false;
+	TSharedPtr<FDragonFuloRig> Fulo;
+	bool BindFulo(const struct FReferenceSkeleton& Ref);
+	FString WebBoneName(int32 G) const;
+	void WriteFulo();
+	TArray<int32> FuloToUE, UEToFulo;
+	TArray<FFuloM4> FuloK;             // per Fulo bone: (C * Rest)^-1 * UE ref (component space)
+	FFuloM4 FuloC;                     // Fulo armature -> UE component
+	double FuloSW = 0.8;               // web metres per Fulo armature unit
+	FVector FuloOffW = FVector::ZeroVector;
+	struct FFuloDir { int32 Bone = INDEX_NONE; int32 Web = INDEX_NONE; int32 Side = 0; bool bWing = false; float Arc = -1.f; };
+	TArray<FFuloDir> FuloDirs;         // bones aimed along a web bone (wing segments, fingers) or the web tail at an arc
+	struct FFuloRib { int32 Bone = INDEX_NONE; int32 Side = 0; int32 A = INDEX_NONE, B = INDEX_NONE; float W = 0.f; FVector RestDir = FVector::ZeroVector; };
+	TArray<FFuloRib> FuloRibs;         // membrane ribs between two fingers (indices into FuloDirs)
+	struct FFuloFollow { int32 Bone = INDEX_NONE; int32 WebPos = INDEX_NONE; int32 WebRot = INDEX_NONE; };
+	TArray<FFuloFollow> FuloFollows;   // controls that follow a web bone rigidly
+	TArray<float> FuloTailArc; TArray<int32> FuloTailWeb;   // web tail bones by arc
+	int32 FuloHead = INDEX_NONE, FuloNeckStart = INDEX_NONE, FuloWingFold[2] = { -1, -1 };
+	int32 FinMaterial = INDEX_NONE;
+	int32 FinStyle = 1;
 
 	// --- bone indices (glTF table), [0] = .L, [1] = .R ---
 	int32 Clav[2] = { -1, -1 }, WShoulder[2] = { -1, -1 }, WUpper[2] = { -1, -1 }, WFore[2] = { -1, -1 };
