@@ -607,11 +607,14 @@ void UDragonWebRigComponent::FoldIK(float K)
 		// forearm: forward and a little up; the wrist ends at the shoulder's peak
 		const int32 Hand0 = Finger[s][0];
 		Aim(WFore[s], Hand0, FVector(X * 0.04, 0.10, -1.0));
-		// fingers: back along the flank, the long leading finger on top, each lower one a few
-		// degrees further down, so the membrane between them lies in narrow pleats
+		// fingers: back along the flank, the long leading finger on top, each lower one a shade
+		// further down, so the membrane between them lies in tight pleats (spread wider, the
+		// pleats hung below his flank as a row of jagged triangles)
 		for (int32 d = 0; d < 6; ++d)
 		{
-			const double Drop = 0.08 + 0.03 * (5 - d);
+			static const float DropA = [] { float V = 0.01f; FParse::Value(FCommandLine::Get(), TEXT("-FoldDropA="), V); return V; }();
+			static const float DropB = [] { float V = 0.007f; FParse::Value(FCommandLine::Get(), TEXT("-FoldDropB="), V); return V; }();
+			const double Drop = DropA + DropB * (5 - d);
 			for (int32 g = 0; g < 2; ++g)
 			{
 				const int32 Bn = Finger[s][d * 3 + g], Ch = Finger[s][d * 3 + g + 1];
