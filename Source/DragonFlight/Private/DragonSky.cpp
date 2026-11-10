@@ -515,7 +515,8 @@ void ADragonSky::Apply(float DeltaSeconds)
 			Post->Settings.AutoExposureMinBrightness = FMath::Lerp(-2.5f, 11.5f, Clear * Clear);
 		}
 		Post->Settings.bOverride_WhiteTemp = true;
-		Post->Settings.WhiteTemp = FMath::Lerp(6900.f, 5600.f, Dusk);
+		static float DayWB = [] { float V = 6900.f; FParse::Value(FCommandLine::Get(), TEXT("WhiteTemp="), V); return V; }();   // test switch
+		Post->Settings.WhiteTemp = FMath::Lerp(DayWB, 5600.f, Dusk);
 		Post->Settings.bOverride_ColorSaturation = true;
 		Post->Settings.ColorSaturation = FVector4(1.f, 1.f, 1.f, (1.f - 0.35f * Gloom) * (1.f - 0.18f * Dusk));
 		Post->Settings.bOverride_ColorGain = true;

@@ -1845,13 +1845,26 @@ bool FDragonArchipelagoBuilder::ImportDragon()
 			if (!MI) continue;
 			MI->SetParentEditorOnly(Parent);
 			if (BaseTex) UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MI, TEXT("BaseColor"), BaseTex);
-			if (bWing) UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("SubsurfaceAmount"), 0.08f);
+			if (bWing)
+			{
+				UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("SubsurfaceAmount"), 0.04f);
+				// Looking toward the sun, what showed on the wings was not their colour but a broad
+				// grazing sheen of warm sunlight (it stayed when the tint went near black): halved.
+				UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("Specular"), 0.03f);
+			}
 			if (bWing || Slot == TEXT("acmat_0"))
 			{
 				// (the membrane is most of what the chase camera sees from above, in full sun: darker still)
-				const float K = bWing ? 0.30f : 0.40f;
+				const float K = bWing ? 0.22f : 0.30f;   // a black hide reflects ~4-6% (the scans are ~15-30%)
 				UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), FLinearColor(K, K, K * 1.08f));
 				UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("Saturation"), 0.2f);
+			}
+			if (FParse::Param(FCommandLine::Get(), TEXT("DragonSlotColours")))   // debug: one flat colour per slot
+			{
+				static const FLinearColor Dbg[] = { FLinearColor(1, 0, 0), FLinearColor(0, 1, 0), FLinearColor(0, 0, 1), FLinearColor(1, 1, 0), FLinearColor(1, 0, 1), FLinearColor(0, 1, 1), FLinearColor(1, 1, 1) };
+				const int32 Ix = bWing ? 6 : FCString::Atoi(*Slot.RightChop(6)) % 6;
+				UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MI, TEXT("Tint"), Dbg[Ix] * 20.f);
+				UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MI, TEXT("Saturation"), 1.f);
 			}
 			UMaterialEditingLibrary::UpdateMaterialInstance(MI);
 			UEditorAssetLibrary::SaveLoadedAsset(MI, false);
