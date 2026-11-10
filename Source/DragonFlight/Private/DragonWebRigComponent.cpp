@@ -597,40 +597,54 @@ void UDragonWebRigComponent::FoldIK(float K)
 		AimModel(Bone, C, P + Dir.GetSafeNormal() * Len);
 		SetQ(Bone, FQuat::Slerp(Was, B[Bone].Q, K));
 	};
+	// How a bat-winged animal folds (and how he walks in the films): the upper arm lies back
+	// along the flank, the forearm folds forward so the wrist rides just above the shoulder,
+	// and the fingers sweep back AND DOWN the sides, each lower one further down, so the
+	// membrane drapes over his flanks like a cloak - from behind a rounded A over the back,
+	// not a flat shelf on top or a crossbar sticking out at the shoulders.
+	auto P = [](const TCHAR* N, float V) { FParse::Value(FCommandLine::Get(), N, V); return V; };
+	static const float ShOut = P(TEXT("-FoldShOut="), 0.05f);    // shoulder: how far out (0.95 made a crossbar at the shoulders)
+	static const float ArmDown = P(TEXT("-FoldArmDown="), 0.12f); // humerus: down the flank
+	static const float FDown0 = P(TEXT("-FoldDown0="), 0.10f);    // top finger: down
+	static const float FDownK = P(TEXT("-FoldDownK="), 0.11f);    // each lower finger: further down
+	static const float FOut0 = P(TEXT("-FoldOut0="), 0.14f);      // top finger: out (clears the back)
+	static const float FOutK = P(TEXT("-FoldOutK="), 0.03f);      // each lower finger: further out (clears the flank)
+	static const float FCurl = P(TEXT("-FoldCurl="), 0.15f);      // outer phalanx: curls further down, round the side
+	static const float ShUp = P(TEXT("-FoldShUp="), 0.30f), ShBack = P(TEXT("-FoldShBack="), 0.8f);
+	static const float ArmOut = P(TEXT("-FoldArmOut="), 0.06f);
+	static const float ForeOut = P(TEXT("-FoldForeOut="), -0.02f), ForeUp = P(TEXT("-FoldForeUp="), 0.12f);
 	for (int32 s = 0; s < 2; ++s)
 	{
 		const double X = s == 0 ? -1.0 : 1.0;   // outward
-		// shoulder: up and a little out, so the arm clears the back
-		Aim(WShoulder[s], WUpper[s], FVector(X * 0.95, 0.12, 0.20));
-		// humerus: back and up, close to the flank
-		Aim(WUpper[s], WFore[s], FVector(X * 0.14, -0.16, 1.0));
-		// forearm: forward and a little up; the wrist ends at the shoulder's peak
+		// shoulder: up, a little out and back, so the arm clears the back without sticking out
+		Aim(WShoulder[s], WUpper[s], FVector(X * ShOut, ShUp, ShBack));
+		// humerus: back and down along the flank
+		Aim(WUpper[s], WFore[s], FVector(X * ArmOut, -ArmDown, 1.0));
+		// forearm: forward and up; the wrist ends just above the shoulder
 		const int32 Hand0 = Finger[s][0];
-		Aim(WFore[s], Hand0, FVector(X * 0.04, 0.10, -1.0));
-		// fingers: back along the flank, the long leading finger on top, each lower one a shade
-		// further down, so the membrane between them lies in tight pleats (spread wider, the
-		// pleats hung below his flank as a row of jagged triangles)
+		Aim(WFore[s], Hand0, FVector(X * ForeOut, ForeUp, -1.0));
+		// fingers: back and down the side, fanned (d = 5 is the leading finger, on top)
 		for (int32 d = 0; d < 6; ++d)
 		{
-			static const float DropA = [] { float V = 0.01f; FParse::Value(FCommandLine::Get(), TEXT("-FoldDropA="), V); return V; }();
-			static const float DropB = [] { float V = 0.007f; FParse::Value(FCommandLine::Get(), TEXT("-FoldDropB="), V); return V; }();
-			const double Drop = DropA + DropB * (5 - d);
+			const double Rank = 5 - d;   // 0 for the top finger
 			for (int32 g = 0; g < 2; ++g)
 			{
 				const int32 Bn = Finger[s][d * 3 + g], Ch = Finger[s][d * 3 + g + 1];
-				Aim(Bn, Ch, FVector(X * (0.05 - 0.06 * g + 0.012 * (5 - d)), -(Drop + 0.04 * g), 1.0));
+				const double Dn = FDown0 + FDownK * Rank + FCurl * g;
+				const double Ou = FOut0 + FOutK * Rank - 0.08 * g;
+				Aim(Bn, Ch, FVector(X * Ou, -Dn, 1.0));
 			}
 			// the last joint has no child to aim at: bend it off its parent's line (+ lays it down; sign found by test shots), so the
 			// tips lie over the hips instead of standing out behind him like a shelf
 			const int32 Tip = Finger[s][d * 3 + 2];
 			if (Tip >= 0 && B[Tip].Parent >= 0)
 			{
-				const FVector P = Model(Tip).GetLocation();
-				const FVector Along = (P - Model(B[Tip].Parent).GetLocation()).GetSafeNormal();
+				const FVector Pt = Model(Tip).GetLocation();
+				const FVector Along = (Pt - Model(B[Tip].Parent).GetLocation()).GetSafeNormal();
 				static const float TipBend = [] { float V = 0.55f; FParse::Value(FCommandLine::Get(), TEXT("-FoldTip="), V); return V; }();
 				const FVector Want = (Along + FVector(X * 0.05, TipBend, 0.0)).GetSafeNormal();
 				const FQuat Was = B[Tip].Q;
-				AimModel(Tip, P + Along, P + Want);
+				AimModel(Tip, Pt + Along, Pt + Want);
 				SetQ(Tip, FQuat::Slerp(Was, B[Tip].Q, K));
 			}
 		}
