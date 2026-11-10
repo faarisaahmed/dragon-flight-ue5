@@ -12,3 +12,7 @@ virtual shadow maps, volumetric clouds, a real day/night cycle and weather.
 - **Flight model:** `Docs/FlightModel_FromWeb.md` (every constant, ported line for line)
 
 Built against **UE 5.8** (developed on an M4 Pro Mac mini).
+
+## Credits
+
+- **Dragon model and rig:** the Night Fury by **Fulonimation Studios** — https://ko-fi.com/fulonimationstudios. Used with credit, as the creator asks; please credit them too if you post images or videos of the game.
