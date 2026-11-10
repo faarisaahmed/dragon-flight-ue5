@@ -506,6 +506,14 @@ void ADragonSky::Apply(float DeltaSeconds)
 		const float Dusk = (1.f - Smooth(SunElevation, 1.f, 16.f)) * Smooth(SunElevation, -8.f, -1.f);
 		Post->Settings.bOverride_AutoExposureBias = true;
 		Post->Settings.AutoExposureBias = 0.25f - 1.6f * Gloom * Gloom - 0.25f * Live.Rain * Day - 0.7f * Dusk;
+		// In clear daylight the eye does not open up to a forest's shade as far as the meter
+		// would: a floor of ~EV 11.5 keeps the woods shaded and the sun flecks on the floor their
+		// own colour (unclamped, they blew out to white). Night, dusk and storms keep the full range.
+		{
+			const float Clear = Day * (1.f - Live.SunDim) * (1.f - Dusk);
+			Post->Settings.bOverride_AutoExposureMinBrightness = true;
+			Post->Settings.AutoExposureMinBrightness = FMath::Lerp(-2.5f, 11.5f, Clear * Clear);
+		}
 		Post->Settings.bOverride_WhiteTemp = true;
 		Post->Settings.WhiteTemp = FMath::Lerp(6900.f, 5600.f, Dusk);
 		Post->Settings.bOverride_ColorSaturation = true;

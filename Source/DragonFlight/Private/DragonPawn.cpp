@@ -915,8 +915,12 @@ void ADragonPawn::StepBody(float h, const FVector& WantV, float Kacc, float AccM
 		GroundPitchVel += (-GroundPitch * 10.f - GroundPitchVel * 4.f) * Submerged * h;
 		GroundRollVel += (-GroundRoll * 14.f - GroundRollVel * 5.f) * Submerged * h;
 	}
-	GroundPitch = FMath::Clamp(GroundPitch + GroundPitchVel * h, -0.9f, 0.9f);
-	GroundRoll = FMath::Clamp(GroundRoll + GroundRollVel * h, -0.9f, 0.9f);
+	// An animal on a steep roof or bank keeps its body far flatter than the surface and takes the
+	// rest up in its legs: at 51 degrees he stood on a longhouse roof like a lizard on a wall.
+	GroundPitch = FMath::Clamp(GroundPitch + GroundPitchVel * h, -0.6f, 0.6f);
+	GroundRoll = FMath::Clamp(GroundRoll + GroundRollVel * h, -0.6f, 0.6f);
+	if (FMath::Abs(GroundPitch) >= 0.6f) GroundPitchVel = 0.f;
+	if (FMath::Abs(GroundRoll) >= 0.6f) GroundRollVel = 0.f;
 	LegContacts = Contacts;
 	LegLoad = Ntot / G;
 }
