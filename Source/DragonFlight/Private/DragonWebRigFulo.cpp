@@ -60,6 +60,7 @@ int32 UDragonWebRigComponent::SavedFinStyle()
 {
 	int32 V = 1;   // the red fin of the first film
 	if (GConfig) GConfig->GetInt(TEXT("/Script/DragonFlight.DragonControls"), TEXT("FinStyle"), V, GGameUserSettingsIni);
+	FParse::Value(FCommandLine::Get(), TEXT("FinStyle="), V);   // test runs
 	return FMath::Clamp(V, 0, 7);
 }
 
@@ -360,6 +361,28 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 		for (int32 m = 0; m < Mats.Num(); ++m) if (Mats[m].MaterialSlotName.ToString().Equals(TEXT("Fin"), ESearchCase::IgnoreCase)) FinMaterial = m;
 	}
 	MembraneMaterial = INDEX_NONE;
+	// test runs: -FuloSkin=Name=Value,Name=Value ... sets the hide's material parameters (Body and Claws)
+	{
+		FString Skin;
+		if (FParse::Value(FCommandLine::Get(), TEXT("FuloSkin="), Skin, false) && Mesh)
+		{
+			TArray<FString> Pairs; Skin.ParseIntoArray(Pairs, TEXT(","));
+			const TArray<FSkeletalMaterial>& Mats = Mesh->GetSkinnedAsset()->GetMaterials();
+			for (int32 m = 0; m < Mats.Num(); ++m)
+			{
+				const FString SN = Mats[m].MaterialSlotName.ToString();
+				if (!SN.Equals(TEXT("Body"), ESearchCase::IgnoreCase)) continue;
+				UMaterialInstanceDynamic* MID = Mesh->CreateDynamicMaterialInstance(m);
+				for (const FString& Pr : Pairs)
+				{
+					FString K, V;
+					if (!Pr.Split(TEXT("="), &K, &V)) continue;
+					if (K == TEXT("Tint")) MID->SetVectorParameterValue(TEXT("Tint"), FLinearColor(FCString::Atof(*V), FCString::Atof(*V), FCString::Atof(*V)));
+					else MID->SetScalarParameterValue(FName(*K), FCString::Atof(*V));
+				}
+			}
+		}
+	}
 	UE_LOG(LogDragon, Log, TEXT("FuloRig: bound: %d follows, %d aimed bones, %d membrane ribs"), FuloFollows.Num(), FuloDirs.Num(), FuloRibs.Num());
 	FString Unmatched;
 	for (int32 i = 0; i < NF; ++i) if (FuloToUE[i] < 0) Unmatched += R.Name(i) + TEXT(" ");

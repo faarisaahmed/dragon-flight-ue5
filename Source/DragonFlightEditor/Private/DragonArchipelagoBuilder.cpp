@@ -2355,7 +2355,8 @@ bool FDragonArchipelagoBuilder::ImportDragonFulo()
 		// slot           colour  normal   rough    useTex tint                                 nstr  rA     rB     r@A  r@B  rMin  uv   metal spec  sss   sheen
 		// (the model's Blender look made most of the hide glossy, which out under a real sky turned
 		// the black scales lavender: a matte hide, a little sheen left in the scale caps)
-		{ TEXT("Body"),     BodyD,  BodyN,   BodyC,   1.f, FLinearColor(0.8f, 0.8f, 0.8f),       1.0f, 0.207f, 0.44f, 0.85f, 0.5f, 0.5f, 1.f, 0.08f, 0.35f, 0.25f, 0.12f },
+		// (A/B test in the game: the lavender cast was specular and metallic sky reflection, not the colour)
+		{ TEXT("Body"),     BodyD,  BodyN,   BodyC,   1.f, FLinearColor(0.65f, 0.65f, 0.65f),    1.0f, 0.207f, 0.44f, 0.85f, 0.55f, 0.55f, 1.f, 0.0f, 0.22f, 0.25f, 0.08f },
 		{ TEXT("Claws"),    BodyD,  BodyN,   BodyC,   1.f, FLinearColor(1.2f, 1.15f, 1.1f),      1.5f, 0.207f, 0.44f, 0.8f, 0.45f, 0.45f, 1.f, 0.05f, 0.4f, 0.10f, 0.05f },
 		{ TEXT("Fin"),      FinRed, LeatherN, LeatherR, 1.f, W,                                   0.5f, 0.436f, 0.931f, 1.f, 0.f, 0.35f, 3.f, 0.0f, 0.33f, 0.20f, 0.05f },
 		{ TEXT("Main.001"), nullptr, LeatherN, LeatherR, 0.f, FLinearColor(0.005f, 0.002f, 0.001f), 0.65f, 0.236f, 0.662f, 0.f, 1.f, 0.35f, 4.f, 0.f, 0.5f, 0.f, 0.f },
@@ -2394,7 +2395,7 @@ bool FDragonArchipelagoBuilder::ImportDragonFulo()
 		SetS(TEXT("RoughMin"), Def->RMin); SetS(TEXT("UVScale"), Def->UV); SetS(TEXT("Metallic"), Def->Metal); SetS(TEXT("Specular"), Def->Spec);
 		SetS(TEXT("SubsurfaceAmount"), Def->Sss); SetS(TEXT("Sheen"), Def->Sheen);
 		// the colour maps are blue-black; under sun and sky that read purple: mostly neutral
-		if (FString(Def->Slot) == TEXT("Body") || FString(Def->Slot) == TEXT("Claws") || FString(Def->Slot) == TEXT("EarBumps")) SetS(TEXT("Saturation"), 0.45f);
+		if (FString(Def->Slot) == TEXT("Body") || FString(Def->Slot) == TEXT("Claws") || FString(Def->Slot) == TEXT("EarBumps")) SetS(TEXT("Saturation"), 0.4f);
 		if (!Def->R) { SetS(TEXT("RoughA"), 0.f); SetS(TEXT("RoughB"), 1.f); }
 		UMaterialEditingLibrary::UpdateMaterialInstance(MI);
 		UEditorAssetLibrary::SaveLoadedAsset(MI, false);

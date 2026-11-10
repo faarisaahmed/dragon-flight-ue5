@@ -1,4 +1,5 @@
 #include "DragonHUD.h"
+#include "DragonWebRigComponent.h"
 #include "DragonPawn.h"
 #include "DragonGameMode.h"
 #include "DragonSky.h"
@@ -407,7 +408,7 @@ void ADragonHUD::DrawMenu(ADragonPlayerController* PC)
 {
 	const float W = Canvas->ClipX, H = Canvas->ClipY;
 	Rect(0, 0, W, H, FLinearColor(0.f, 0.005f, 0.01f, 0.62f));
-	const float PW = 980.f * U, PH = 640.f * U, X0 = (W - PW) * 0.5f, Y0 = (H - PH) * 0.5f;
+	const float PW = 980.f * U, PH = 770.f * U, X0 = (W - PW) * 0.5f, Y0 = (H - PH) * 0.5f;   // (taller for the tail-fin choice)
 	// A click outside the panel is a click back into the game.
 	if (bClick && DragSlider < 0 && !Hover(X0, Y0, PW, PH)) { bClick = false; PC->SetScreen(0); return; }
 	Panel(X0, Y0, PW, PH);
@@ -488,6 +489,28 @@ void ADragonHUD::DrawSettings(ADragonPlayerController* PC, float X, float Y, flo
 			S->ApplySettings(false);
 			S->SaveSettings();
 		}
+	}
+	// The tail fin: the model's seven fin designs, or just the bare frame.
+	ADragonPawn* DP = Cast<ADragonPawn>(PC->GetPawn());
+	if (DP && DP->WebRig && DP->WebRig->IsFulo())
+	{
+		Y += 52.f * U;
+		Label(TEXT("Tail fin"), Y);
+		static const TCHAR* Row1[] = { TEXT("Black"), TEXT("Red"), TEXT("Brown"), TEXT("Blue") };
+		static const TCHAR* Row2[] = { TEXT("Purple"), TEXT("Flames"), TEXT("Strike"), TEXT("Bare frame") };
+		const int32 FinCur = DP->WebRig->GetFinStyle();
+		TArray<FString> A, Bb;
+		for (const TCHAR* N : Row1) A.Add(N);
+		for (const TCHAR* N : Row2) Bb.Add(N);
+		int32 FinHit = Segmented(A, FinCur < 4 ? FinCur : -1, X, Y + 24.f * U, W, 34.f * U);
+		const int32 FinHit2 = Segmented(Bb, FinCur >= 4 ? FinCur - 4 : -1, X, Y + 62.f * U, W, 34.f * U);
+		if (FinHit2 >= 0) FinHit = FinHit2 + 4;
+		if (FinHit >= 0)
+		{
+			DP->WebRig->SetFinStyle(FinHit);
+			UDragonWebRigComponent::SaveFinStyle(FinHit);
+		}
+		Txt(TEXT("Dragon model and rig by Fulonimation Studios  \u00b7  ko-fi.com/fulonimationstudios"), X, Y + 108.f * U, EFace::Body, 13.f, Faint);
 	}
 }
 
