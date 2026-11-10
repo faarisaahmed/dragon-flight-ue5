@@ -271,11 +271,30 @@ void ADragonHUD::DrawFlight(ADragonPawn* P, ADragonPlayerController* PC, float D
 {
 	const float W = Canvas->ClipX, H = Canvas->ClipY;
 	// Soft dark bands at the top and bottom edges so the type reads over a bright sky or sea.
-	for (int32 k = 0; k < 24; ++k)
+	// Each band is a stack of gradient quads that share their edges exactly (per-vertex alpha,
+	// no overlap): overlapping strips doubled up into visible scanlines across the screen.
 	{
-		const float T = k / 24.f, A = 0.30f * FMath::Square(1.f - T);
-		Rect(0, T * 130.f * U, W, 130.f * U / 24.f + 1.f, FLinearColor(0.f, 0.01f, 0.02f, A));
-		Rect(0, H - (T + 1.f / 24.f) * 200.f * U, W, 200.f * U / 24.f + 1.f, FLinearColor(0.f, 0.01f, 0.02f, A * 0.9f));
+		TArray<FCanvasUVTri> Tris;
+		auto Band = [&](float Y0, float Hgt, float AMax, bool bFromTop)
+		{
+			const int32 NS = 12;
+			for (int32 k = 0; k < NS; ++k)
+			{
+				const float T0 = k / (float)NS, T1 = (k + 1) / (float)NS;
+				const float A0 = AMax * FMath::Square(1.f - T0), A1 = AMax * FMath::Square(1.f - T1);
+				const float Ya = bFromTop ? Y0 + T0 * Hgt : Y0 - T0 * Hgt, Yb = bFromTop ? Y0 + T1 * Hgt : Y0 - T1 * Hgt;
+				const FLinearColor Ca(0.f, 0.01f, 0.02f, A0), Cb(0.f, 0.01f, 0.02f, A1);
+				FCanvasUVTri T; T.V0_Pos = FVector2D(0, Ya); T.V1_Pos = FVector2D(W, Ya); T.V2_Pos = FVector2D(W, Yb);
+				T.V0_Color = Ca; T.V1_Color = Ca; T.V2_Color = Cb; Tris.Add(T);
+				FCanvasUVTri T2; T2.V0_Pos = FVector2D(0, Ya); T2.V1_Pos = FVector2D(W, Yb); T2.V2_Pos = FVector2D(0, Yb);
+				T2.V0_Color = Ca; T2.V1_Color = Cb; T2.V2_Color = Cb; Tris.Add(T2);
+			}
+		};
+		Band(0.f, 130.f * U, 0.30f, true);
+		Band(H, 200.f * U, 0.27f, false);
+		FCanvasTriangleItem It(Tris, GWhiteTexture);
+		It.BlendMode = SE_BLEND_Translucent;
+		Canvas->DrawItem(It);
 	}
 
 	// Where: the island you are over (or the nearest), top left.
