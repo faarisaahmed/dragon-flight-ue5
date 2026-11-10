@@ -43,7 +43,10 @@ float alpine = min(300.0, snowL * 0.7);
 // Turf holds on slopes up to ~40 deg (as on the Faroes); bare rock beyond ~48.
 float wCliff  = smoothstep(0.62, 0.92, slope + nz2 * 0.08);
 float wScree  = saturate(smoothstep(0.42, 0.64, slope + nz2 * 0.06) + smoothstep(alpine, alpine + 90.0, h + nz * 40.0)) * (1.0 - wCliff);
-float wSnow   = saturate(smoothstep(snowL - 40.0, snowL + 60.0, h + nz * 70.0) * (1.0 - smoothstep(0.62, 0.9, slope)) + mk.b * 1.2 + mk2.g);
+// (the glacier masks no longer paint steep ice fronts plain white: there the cliff shader takes
+// over and colours its crags as blue-white glacier ice, see "Glacier ice" below)
+float iceM    = saturate(mk.b * 1.2 + mk2.g);
+float wSnow   = saturate(smoothstep(snowL - 40.0, snowL + 60.0, h + nz * 70.0) * (1.0 - smoothstep(0.62, 0.9, slope)) + iceM * (1.0 - 0.9 * smoothstep(0.5, 0.78, slope)));
 // Bedrock breaking through the turf, as all over the Faroes and western Norway: patches of
 // bare rock a few to tens of metres across, most on knolls, edges and slopes over ~15 deg.
 {
@@ -187,9 +190,16 @@ TOPLAYER(Mud,     3.0, wMud,     lerp(DESAT(0.75) * float3(0.24, 0.29, 0.14), DE
 	}
 	c *= lerp(1.0, 0.5, bio.g);                                  // young basalt is near black
 	c *= tone * (1.0 - joint * 0.45) * (1.0 - stain * 0.35);
+	// Glacier ice: on the ice caps' steep fronts the crags become seracs and crevasses in
+	// blue-white ice (deep blue in the shaded clefts), not grey rock.
+	{
+		float cleft = saturate(1.0 - grey * 2.2);
+		float3 iceC = lerp(float3(0.80, 0.88, 0.95), float3(0.35, 0.55, 0.72), cleft) * (0.75 + 0.35 * saturate(nz2 + 0.5));
+		c = lerp(c, iceC, iceM * 0.9);
+	}
 	// Shelves catch light and hold a little moss.
 	wn = normalize(wn) + float3(0, 0, ledge * 0.85);
-	c = lerp(c, c * float3(0.75, 0.95, 0.55) + float3(0.01, 0.02, 0.0), ledge * 0.55 * saturate(h / 20.0));
+	c = lerp(c, c * float3(0.75, 0.95, 0.55) + float3(0.01, 0.02, 0.0), ledge * 0.55 * saturate(h / 20.0) * (1.0 - iceM));
 	float k = wCliff / wSum;
 	C += c * k; Nw += normalize(wn) * k; R += saturate(a.g + joint * 0.1) * k; AO += a.r * (1.0 - joint * 0.35) * k;
 }
