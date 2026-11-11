@@ -499,6 +499,14 @@ void ADragonPhotoDirector::PlanShots()
 					FShot Fb = Fs; Fb.Name = TEXT("50_side_fly_b"); Fb.SettleS = 3.25f; Shots.Add(Fb);
 					FShot Sl = Fs; Sl.Name = TEXT("50b_side_slow"); Sl.PoseSpeed = 12.f; Sl.Script.Move = 0.f; Sl.SettleS = 1.2f; Shots.Add(Sl);
 					FShot Hv2 = Fs; Hv2.Name = TEXT("50c_side_hover"); Hv2.PoseSpeed = 0.f; Hv2.Script.Move = 0.f; Shots.Add(Hv2);
+					// The face while he hovers and bobs, close: six moments a fifth of a second apart; and legs while hovering.
+					for (int32 i = 0; i < 6; ++i)
+					{
+						FShot Hf = Hv2; Hf.Name = FString::Printf(TEXT("50k_hover_face_%d"), i); Hf.SettleS = 3.f + 0.2f * i;
+						Hf.SideOffset = FVector(650.0, 700.0, 180.0); Hf.SideAim = FVector(250.0, 0.0, 100.0); Hf.SideFov = 30.f; Shots.Add(Hf);
+					}
+					FShot Hl = Hv2; Hl.Name = TEXT("50l_hover_legs"); Hl.SideOffset = FVector(200.0, 1100.0, -250.0); Hl.SideAim = FVector(50.0, 0.0, -50.0); Hl.SideFov = 36.f; Shots.Add(Hl);
+					FShot Ha = Hv2; Ha.Name = TEXT("50m_hover_above"); Ha.SideOffset = FVector(-700.0, 250.0, 800.0); Ha.SideAim = FVector(80.0, 0.0, 0.0); Ha.SideFov = 36.f; Shots.Add(Ha);
 					// The tail fins from above-behind and straight behind, cruising and slow; one wingbeat in eight frames.
 					// Where the legs go in flight: from below-side and from above-behind.
 					FShot Lb2 = Fs; Lb2.Name = TEXT("50h_legs_below"); Lb2.SideOffset = FVector(100.0, 900.0, -600.0); Lb2.SideAim = FVector(50.0, 0.0, 0.0); Lb2.SideFov = 40.f; Shots.Add(Lb2);

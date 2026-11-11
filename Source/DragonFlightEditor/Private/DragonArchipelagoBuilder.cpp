@@ -2369,7 +2369,7 @@ bool FDragonArchipelagoBuilder::ImportDragonFulo()
 		{ TEXT("Mouth"),    MouthD, MouthN,  MouthC,  1.f, W,                                     1.0f, 0.2f, 0.6f, 0.9f, 0.25f, 0.2f, 1.f, 0.f, 0.5f, 0.6f, 0.f },
 		{ TEXT("Teeth"),    TeethD, MouthN,  MouthC,  1.f, W,                                     0.2f, 0.2f, 0.6f, 0.5f, 0.5f, 0.35f, 1.f, 0.f, 0.5f, 0.3f, 0.f },
 		{ TEXT("Tongue"),   nullptr, TongueN, TongueC, 0.f, FLinearColor(0.435f, 0.195f, 0.212f), 1.0f, 0.2f, 0.6f, 0.8f, 0.3f, 0.25f, 1.f, 0.f, 0.5f, 0.6f, 0.f },
-		{ TEXT("Eyes"),     EyeD,   nullptr, nullptr, 1.f, FLinearColor(0.82f, 0.9f, 0.62f),     0.0f, 0.f, 1.f, 0.05f, 0.05f, 0.04f, 1.f, 0.f, 0.7f, 0.f, 0.f },   // wet, glossy, lime-green (no red subsurface: it turned them cream)
+		{ TEXT("Eyes"),     EyeD,   nullptr, nullptr, 1.f, FLinearColor(0.82f, 0.9f, 0.62f),     0.0f, 0.f, 1.f, 0.16f, 0.16f, 0.14f, 1.f, 0.f, 0.45f, 0.f, 0.f },   // moist, softly glossy, lime-green (no red subsurface: it turned them cream; a mirror finish flashed the sun on every bob)
 		{ TEXT("EarBumps"), BodyD,  BodyN,   BodyC,   0.f, FLinearColor(0.012f, 0.012f, 0.014f), 0.3f, 0.207f, 0.44f, 1.f, 0.f, 0.6f, 1.f, 0.f, 0.4f, 0.1f, 0.1f },
 	};
 	int32 Assigned = 0;

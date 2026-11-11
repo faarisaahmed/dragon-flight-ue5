@@ -144,11 +144,9 @@ void ADragonPlayerController::SetScreen(int32 NewScreen, bool bPause)
 	bPanelOpen = bOpen;
 	bEnableClickEvents = bOpen;
 	UGameplayStatics::SetGamePaused(this, bOpen && bPause);
-	// The menu and chart use the game's own pointer, moved by the same mouse movement that
-	// steers him, so the system cursor stays captured and hidden. A freed system cursor got
-	// stuck at the screen edge (seen when playing over a remote/streamed screen). Only when
-	// another app has the focus is the system cursor handed back.
-	if (bOpen && !bWasForeground) ReleasePointer(); else CapturePointer();
+	// The menu and the chart use the real system cursor, freed from mid-screen (where it was kept
+	// parked while flying, so it never sits on the Dock edge); flying takes it back.
+	if (bOpen && !FParse::Param(FCommandLine::Get(), TEXT("GamePointer"))) ReleasePointer(); else CapturePointer();
 }
 
 void ADragonPlayerController::CapturePointer()
@@ -159,17 +157,37 @@ void ADragonPlayerController::CapturePointer()
 	{
 		FSlateApplication::Get().SetAllUserFocusToGameViewport();
 		if (UGameViewportClient* VC = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+		{
+			VC->SetMouseCaptureMode(EMouseCaptureMode::CapturePermanently);
 			if (FViewport* V = VC->Viewport) { V->CaptureMouse(true); V->LockMouseToViewport(true); }
+		}
 	}
 }
 
 void ADragonPlayerController::ReleasePointer()
 {
+	const bool bWasCaptured = !bShowMouseCursor;
 	bShowMouseCursor = true;
 	FInputModeGameAndUI Mode;
 	Mode.SetHideCursorDuringCapture(false);
 	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
 	SetInputMode(Mode);
+	if (UGameViewportClient* VC = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+	{
+		// clicks in the menu must not grab and hide the cursor again
+		VC->SetMouseCaptureMode(EMouseCaptureMode::NoCapture);
+		if (FViewport* V = VC->Viewport) { V->CaptureMouse(false); V->LockMouseToViewport(false); }
+	}
+#if PLATFORM_MAC
+	// undo the parking: the cursor follows the mouse again, starting mid-screen
+	CGAssociateMouseAndMouseCursorPosition(true);
+	if (bWasCaptured)
+	{
+		const CGRect B = CGDisplayBounds(CGMainDisplayID());
+		CGWarpMouseCursorPosition(CGPointMake(B.origin.x + B.size.width * 0.5, B.origin.y + B.size.height * 0.5));
+		CGAssociateMouseAndMouseCursorPosition(true);
+	}
+#endif
 }
 
 namespace { const TCHAR* ControlsSection = TEXT("/Script/DragonFlight.DragonControls"); }
@@ -310,8 +328,8 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 			MenuPage = 0;
 			SetScreen(1);
 		}
-		// Back in the game with the menu up: take the pointer again (the game draws its own).
-		if (!bWasForeground && bFg && Screen != 0) CapturePointer();
+		// Back in the game with the menu up: the menu keeps the system cursor.
+		if (!bWasForeground && bFg && Screen != 0) ReleasePointer();
 		bWasForeground = bFg;
 		if (bFg && !bShowMouseCursor && !FParse::Param(FCommandLine::Get(), TEXT("NoCursorPark"))) ParkSystemCursor();
 	}

@@ -1464,6 +1464,7 @@ float UDragonWebRigComponent::Animate(float Dt, const FDragonWebRigInput& In)
 	if (!bBound || !Mesh) return 0.f;
 	TimeS = FMath::Fmod(TimeS + Dt, 3600.f);
 	CompToWorld = Mesh->GetComponentTransform();
+	FuloGround = In.GroundAtM;
 
 	// The mode-change hooks, in case the owner did not call them (main.js land() /
 	// takeOff()). Before the reset, so a fold starts from last frame's pose.
@@ -1489,7 +1490,7 @@ float UDragonWebRigComponent::Animate(float Dt, const FDragonWebRigInput& In)
 			SFlightReady += (WantReady - SFlightReady) * Damp(2.5f, Dt);
 			FlightLegs(1.f, SFlightReady * 0.85f, Dt);
 		}
-		FuloAirK += ((1.f - SFlightReady) - FuloAirK) * Damp(3.f, Dt);
+		FuloAirK += (1.f - FuloAirK) * Damp(5.f, Dt);
 		if (bOpeningWings)
 		{
 			if (ApplyFold(Dt) <= 0.001f) bOpeningWings = false;

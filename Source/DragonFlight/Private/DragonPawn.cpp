@@ -606,6 +606,7 @@ void ADragonPawn::PhotoFire(const FVector& TargetM)
 		UClass* Cls = PlasmaClass ? PlasmaClass.Get() : ADragonPlasma::StaticClass();
 		if (ADragonPlasma* P = World->SpawnActor<ADragonPlasma>(Cls, Muzzle * M, Dir.Rotation(), SP)) P->Launch(Dir * Speed * M);
 	}
+	if (WebRig) WebRig->NotifyFire();
 }
 
 void ADragonPawn::PhotoGround(const FVector& NewPosM, float YawDeg)
@@ -1505,6 +1506,7 @@ void ADragonPawn::TickFire(float Dt, const FFrameInput& In)
 			P->Launch(Dir * Speed * M);
 		}
 	}
+	if (WebRig) WebRig->NotifyFire();
 	--Shots;
 	FireCooldown = FIRE_COOLDOWN;
 }

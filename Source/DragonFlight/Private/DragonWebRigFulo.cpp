@@ -128,6 +128,11 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 		}
 		if (F >= 0) { FuloToUE[F] = u; UEToFulo[u] = F; ++Matched; }
 	}
+	UENeutral = Ref.FindBoneIndex(TEXT("neutral_bone"));
+	{
+		const int32 H = R.Find(TEXT("Head.1"));
+		UEHead = H >= 0 ? FuloToUE[H] : INDEX_NONE;
+	}
 	if (Matched < NF * 9 / 10)
 	{
 		UE_LOG(LogDragon, Warning, TEXT("FuloRig: only %d of %d bones matched on the mesh"), Matched, NF);
@@ -199,6 +204,23 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 		const FVector HipsF = Hc >= 0 ? R.RestHead(Hc) : FVector::ZeroVector;
 		FuloOffW = HipsW - FW(HipsF) * FuloSW;
 		FuloOffW.Y = WebFoot - FootZ * FuloSW;
+		FuloFootZ = FootZ;
+	}
+	// The web rig's own model -> component map (the gait measures the world through it): web model
+	// point -> Fulo armature -> this mesh's component space. Without it the gait measured his hips
+	// at zero height, gave up, and the legs fell back to a swing that ignores the ground (sliding).
+	{
+		auto Lin = [&](const FVector& V) { return FuloC.TransformVector(FW(V) / FuloSW); };
+		const FVector C0 = Lin(FVector(1, 0, 0)), C1 = Lin(FVector(0, 1, 0)), C2 = Lin(FVector(0, 0, 1));
+		const double Det = FVector::DotProduct(C0, FVector::CrossProduct(C1, C2));
+		AScale = FMath::Pow(FMath::Abs(Det), 1.0 / 3.0);
+		// nearest rotation (Gram-Schmidt on the columns; the fit is a similarity up to noise)
+		FVector X = C0.GetSafeNormal(), Y = (C1 - X * FVector::DotProduct(C1, X)).GetSafeNormal();
+		FVector Z = FVector::CrossProduct(X, Y);
+		if (FVector::DotProduct(Z, C2) < 0) Z = -Z;
+		const FVector Cols[3] = { X, Y, Z };
+		for (int32 r = 0; r < 3; ++r) for (int32 c = 0; c < 3; ++c) An[r][c] = Cols[c][r];
+		AOffset = FuloC.TransformPosition(FW(-FuloOffW) / FuloSW);
 	}
 	// mesh placement in the pawn, as the web mesh is placed: pawn = 100 * Rwp * webPoint, Rwp: web (x,y,z) -> pawn (-z, x, y)
 	{
@@ -241,12 +263,14 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 	FuloWingFold[1] = R.Find(TEXT("WingFold.R"));
 	FuloWingRoot[0] = R.Find(TEXT("WingShoulder.L"));
 	FuloWingRoot[1] = R.Find(TEXT("WingShoulder.R"));
+	FuloWingElbow[0] = R.Find(TEXT("WElbow.L")); FuloWingElbow[1] = R.Find(TEXT("WElbow.R"));
+	FuloWingArm[0] = R.Find(TEXT("WArm.L")); FuloWingArm[1] = R.Find(TEXT("WArm.R"));
 	{
 		FString T;
 		if (FParse::Value(FCommandLine::Get(), TEXT("FuloDroop="), T, false))
 		{
 			TArray<FString> P; T.ParseIntoArray(P, TEXT(","));
-			for (int32 i = 0; i < P.Num() && i < 2; ++i) FuloDroop[i] = FCString::Atof(*P[i]);
+			for (int32 i = 0; i < P.Num() && i < 4; ++i) FuloDroop[i] = FCString::Atof(*P[i]);
 		}
 	}
 
@@ -499,6 +523,12 @@ void UDragonWebRigComponent::WriteFulo()
 			R.Scale[BlinkC] = FVector(1.f, 1.f, 1.f + 0.5f * FMath::Clamp(Closed, 0.f, 1.f));
 		}
 	}
+	{
+		// eyeball size (test switch -FuloEyeScale=)
+		static const int32 E[2] = { R.Find(TEXT("Eye.L")), R.Find(TEXT("Eye.R")) };
+		static const float S = [] { float V = 1.f; FParse::Value(FCommandLine::Get(), TEXT("FuloEyeScale="), V); return V; }();
+		for (int32 e : E) if (e >= 0) R.Scale[e] = FVector(S);
+	}
 	const float FoldK = FMath::Clamp(Fold, 0.f, 1.f);
 	if (FuloWingFold[0] >= 0) R.Loc[FuloWingFold[0]] = FVector(-FoldK, 0, 0);
 	if (FuloWingFold[1] >= 0) R.Loc[FuloWingFold[1]] = FVector(FoldK, 0, 0);
@@ -517,36 +547,67 @@ void UDragonWebRigComponent::WriteFulo()
 		const FQuat Q = (WebDelta(F.WebRot) * R.RestMat(F.Bone).Rot()).GetNormalized();
 		Want.Add(F.Bone, FFuloM4::FromLRS(P, Q, FVector::OneVector));
 	}
-	// In flight the legs tuck the Night Fury's own way, set in his chest and hips frames: forelegs
-	// folded close under the chest with the paws hanging relaxed, hind legs trailing back toward the
-	// tail. (Following the web dragon's curled-up flight paws lifted these longer legs over his back.)
-	// Slow, hovering or landing, AirK falls and the legs reach down with the web pose again.
-	if (FuloAirK > 0.001f)
+	// On the ground the feet stand where the gait put them down, in the world: the gait plants each
+	// foot and keeps it fixed while the body walks over it, and that planted point is carried across
+	// as a displacement from the foot's home (so no rest-pose lever swings it about and nothing
+	// slides). In the air the legs take the Night Fury's own poses, set in his chest and hips
+	// frames: tucked at speed (forelegs folded under the chest, paws relaxed; hind legs trailing
+	// toward the tail), hanging ready below him when slow, hovering or coming in to land.
+	// (Following the web dragon's curled flight paws lifted these longer legs over his back.)
 	{
 		static const int32 FChest = R.Find(TEXT("ChestControl.1")), FHips = R.Find(TEXT("HipsControl.1"));
+		if (bGaitOK && FuloAirK < 0.999f)
+			for (int32 i = 0; i < 4; ++i)
+			{
+				const FGaitLeg& L = Legs[i];
+				if (!L.bPlant) continue;
+				const TCHAR* Sd = L.Home.X < 0 ? TEXT("L") : TEXT("R");   // web .L is on -X
+				const int32 Bone = R.Find(FString(L.bFore ? TEXT("FFootIK.") : TEXT("BFootIK.")) + Sd);
+				FFuloM4* W = Want.Find(Bone);
+				if (Bone < 0 || !W) continue;
+				FVector P = R.RestHead(Bone) + FW(WebToModel(L.Foot) - L.Home) / FuloSW;
+				if (FuloGround)
+				{
+					// height from the ground itself (the gait's own toe height was measured in the air,
+					// tilted, and stood him crouched): the real ground under the foot, plus the swing's lift,
+					// plus this foot control's own height above the claws
+					const double G = FuloGround((float)L.Foot.X, (float)L.Foot.Z);
+					const double Lift = FMath::Max(0.0, L.Foot.Y - L.ToeH - G);
+					const FVector OnGround = FW((WebToModel(FVector(L.Foot.X, G + Lift, L.Foot.Z)) - FuloOffW) / FuloSW);
+					P.Z = OnGround.Z + (R.RestHead(Bone).Z - FuloFootZ);
+				}
+				*W = FFuloM4::FromLRS(P, W->Rot(), FVector::OneVector);
+			}
 		const FFuloM4* WC = Want.Find(FChest);
 		const FFuloM4* WH = Want.Find(FHips);
-		if (WC && WH)
+		if (FuloAirK > 0.001f && WC && WH)
 		{
 			const FFuloM4 MC = *WC * R.RestMat(FChest).Inverse(), MH = *WH * R.RestMat(FHips).Inverse();
 			const FQuat QC = MC.Rot(), QH = MH.Rot();
-			auto Tuck = [&](int32 Bone, const FFuloM4& M, const FQuat& Qm, const FVector& RestTarget, float PitchDeg)
+			const float Ready = FMath::Clamp(SFlightReady, 0.f, 1.f);
+			auto Air = [&](int32 Bone, const FFuloM4& M, const FQuat& Qm, const FVector& TuckAt, float TuckPitch, const FVector& HangAt, float HangPitch)
 			{
 				FFuloM4* W = Want.Find(Bone);
 				if (Bone < 0 || !W) return;
-				const FVector P = FMath::Lerp(W->Loc(), M.TransformPosition(RestTarget), (double)FuloAirK);
-				const FQuat Qt = (Qm * FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(PitchDeg)) * R.RestMat(Bone).Rot()).GetNormalized();
-				*W = FFuloM4::FromLRS(P, FQuat::Slerp(W->Rot(), Qt, FuloAirK).GetNormalized(), FVector::OneVector);
+				const FVector At = M.TransformPosition(FMath::Lerp(TuckAt, HangAt, (double)Ready));
+				const float Pitch = FMath::Lerp(TuckPitch, HangPitch, Ready);
+				const FQuat Qt = (Qm * FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(Pitch)) * R.RestMat(Bone).Rot()).GetNormalized();
+				*W = FFuloM4::FromLRS(FMath::Lerp(W->Loc(), At, (double)FuloAirK), FQuat::Slerp(W->Rot(), Qt, FuloAirK).GetNormalized(), FVector::OneVector);
 			};
 			for (int32 s = 0; s < 2; ++s)
 			{
 				const TCHAR* Sd = s == 0 ? TEXT("L") : TEXT("R");
 				const int32 Sh = R.Find(FString::Printf(TEXT("Shoulder.%s"), Sd)), Th = R.Find(FString::Printf(TEXT("Thigh.%s"), Sd));
-				if (Sh < 0 || Th < 0) continue;
+				const int32 FF = R.Find(FString::Printf(TEXT("FFootIK.%s"), Sd)), BF = R.Find(FString::Printf(TEXT("BFootIK.%s"), Sd));
+				const int32 SP = R.Find(FString::Printf(TEXT("ShoulderPoint.%s"), Sd)), KP = R.Find(FString::Printf(TEXT("KneePoint.%s"), Sd));
+				if (Sh < 0 || Th < 0 || FF < 0 || BF < 0) continue;
 				const FVector S0 = R.RestHead(Sh), T0 = R.RestHead(Th);
-				Tuck(R.Find(FString::Printf(TEXT("FFootIK.%s"), Sd)), MC, QC, S0 + FVector(0, FuloTuck[0], FuloTuck[1]), FuloTuck[2]);
-				Tuck(R.Find(FString::Printf(TEXT("ShoulderPoint.%s"), Sd)), MC, QC, S0 + FVector(0, 0.6, -0.25), 0.f);
-				Tuck(R.Find(FString::Printf(TEXT("BFootIK.%s"), Sd)), MH, QH, T0 + FVector(0, FuloTuck[3], FuloTuck[4]), FuloTuck[5]);
+				// hanging: the rest stance lifted a little and eased forward, paws dropped
+				const FVector FHang = R.RestHead(FF) + FVector(0, -0.04, 0.10), BHang = R.RestHead(BF) + FVector(0, -0.02, 0.12);
+				Air(FF, MC, QC, S0 + FVector(0, FuloTuck[0], FuloTuck[1]), FuloTuck[2], FHang, 35.f);
+				if (SP >= 0) Air(SP, MC, QC, S0 + FVector(0, 0.6, -0.25), 0.f, R.RestHead(SP), 0.f);
+				Air(BF, MH, QH, T0 + FVector(0, FuloTuck[3], FuloTuck[4]), FuloTuck[5], BHang, 45.f);
+				if (KP >= 0) Air(KP, MH, QH, R.RestHead(KP), 0.f, R.RestHead(KP), 0.f);
 			}
 		}
 	}
@@ -633,13 +694,19 @@ void UDragonWebRigComponent::WriteFulo()
 		// resting Night Fury lets them drape down over his flanks. Roll the folded wing down about
 		// the body's long axis at the wing root.
 		FQuat Droop = FQuat::Identity;
-		if (FoldK > 0.f && (i == FuloWingRoot[0] || i == FuloWingRoot[1]))
+		const int32 Seg = (i == FuloWingRoot[0] || i == FuloWingRoot[1]) ? 0 : (i == FuloWingElbow[0] || i == FuloWingElbow[1]) ? 1 : (i == FuloWingArm[0] || i == FuloWingArm[1]) ? 2 : -1;
+		if (FoldK > 0.f && Seg >= 0)
 		{
-			const int32 Par = R.Parent(i);
-			const FQuat QCh = Par >= 0 ? (R.PoseMat(Par).Rot() * R.RestMat(Par).Rot().Inverse()).GetNormalized() : FQuat::Identity;
-			const float Side = i == FuloWingRoot[0] ? 1.f : -1.f;   // .L is on +X
-			const FQuat Local = FQuat(FVector(0, 1, 0), Side * FMath::DegreesToRadians(FuloDroop[0]) * FoldK)
-				* FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(FuloDroop[1]) * FoldK);
+			// about the body's long axis (the chest's, carried down the wing): root, then a little more
+			// at the elbow and the forearm, so the folded wing curves round his side, not one flat plane
+			static const int32 FChest = R.Find(TEXT("ChestControl.1"));
+			const FQuat QCh = FChest >= 0 ? (R.PoseMat(FChest).Rot() * R.RestMat(FChest).Rot().Inverse()).GetNormalized() : FQuat::Identity;
+			const float Side = (i == FuloWingRoot[0] || i == FuloWingElbow[0] || i == FuloWingArm[0]) ? 1.f : -1.f;   // .L is on +X
+			const float Roll = Seg == 0 ? FuloDroop[0] : Seg == 1 ? FuloDroop[2] : FuloDroop[3];
+			// a slow breath of movement in the folded wings as he walks and stands
+			const float Sway = Seg == 0 ? 0.f : 2.5f * FMath::Sin(TimeS * 1.7f + Seg * 0.9f + Side);
+			const FQuat Local = FQuat(FVector(0, 1, 0), Side * FMath::DegreesToRadians(Roll + Sway) * FoldK)
+				* FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(Seg == 0 ? FuloDroop[1] : 0.f) * FoldK);
 			Droop = QCh * Local * QCh.Inverse();
 		}
 		FQuat Sw = FQuat::Identity;
@@ -654,7 +721,7 @@ void UDragonWebRigComponent::WriteFulo()
 	// the jaw: the model rests with the mouth a little open; closed, plus whatever the web jaw does
 	{
 		static const int32 FJaw = R.Find(TEXT("Jaw.1"));
-		static const float Close = [] { float V = -13.f; FParse::Value(FCommandLine::Get(), TEXT("FuloJawClose="), V); return V; }();   // the model rests mouth open: about -13 deg shuts it (positive opens)
+		static const float Close = [] { float V = -16.5f; FParse::Value(FCommandLine::Get(), TEXT("FuloJawClose="), V); return V; }();   // the model rests mouth open: about -13 deg shuts it (positive opens)
 		const int32 WJ = Find(TEXT("Jaw"));
 		if (FJaw >= 0)
 		{
@@ -669,6 +736,16 @@ void UDragonWebRigComponent::WriteFulo()
 				FVector Ax; float Ang; Open.ToAxisAndAngle(Ax, Ang);
 				Q = FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(Close) + FMath::Abs(Ang));
 			}
+			// a plasma shot: the jaw drops fast as the blast leaves, holds, then closes
+			const float Age = TimeS - FuloFireAt;
+			static const float GapeDeg = [] { float V = 34.f; FParse::Value(FCommandLine::Get(), TEXT("FuloGape="), V); return V; }();
+			float Gape = 0.f;
+			if (Age >= 0.f && Age < 0.7f) Gape = FMath::Min(1.f, Age / 0.06f) * (Age < 0.22f ? 1.f : FMath::SmoothStep(0.7f, 0.22f, Age));
+			if (FParse::Param(FCommandLine::Get(), TEXT("FuloGapeTest"))) Gape = 1.f;
+			Q = FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(GapeDeg * Gape)) * Q;
+			static const int32 Snarl = R.Find(TEXT("Snarl.1")), Flare = R.Find(TEXT("Flare.1"));
+			if (Snarl >= 0) R.Scale[Snarl] = FVector(1.f, 1.f, 1.f + 0.25f * Gape);
+			if (Flare >= 0) R.Scale[Flare] = FVector(1.f, 1.f, 1.f + 0.5f * Gape);
 			R.Rot[FJaw] = Q;
 		}
 	}
@@ -691,6 +768,25 @@ void UDragonWebRigComponent::WriteFulo()
 		}
 	}
 
+	if (FParse::Param(FCommandLine::Get(), TEXT("FuloFeet")))
+	{
+		// world positions of the four feet, each frame, for checking that planted feet stay put
+		static FString Log; static int32 N = 0;
+		static const int32 FB[4] = { R.Find(TEXT("FFootIK.L")), R.Find(TEXT("FFootIK.R")), R.Find(TEXT("BFootIK.L")), R.Find(TEXT("BFootIK.R")) };
+		if (N < 3000)
+		{
+			Log += FString::Printf(TEXT("%.3f %d"), TimeS, bGaitOK ? 1 : 0);
+			for (int32 k = 0; k < 4; ++k)
+			{
+				const FVector Wp = FB[k] >= 0 ? CompToWorld.TransformPosition(ToUE(FuloC * R.PoseMat(FB[k])).GetLocation()) : FVector::ZeroVector;
+				Log += FString::Printf(TEXT(" %.1f %.1f %.1f"), Wp.X, Wp.Y, Wp.Z);
+			}
+			for (int32 k = 0; k < 4; ++k) Log += FString::Printf(TEXT(" %d"), Legs[k].bDown ? 1 : 0);
+			Log += TEXT("\n");
+			if (++N % 100 == 0) FFileHelper::SaveStringToFile(Log, *(FPaths::ProjectSavedDir() / TEXT("FuloFeet.txt")));
+		}
+	}
+
 	// out to the mesh
 	const int32 NU = UEParent.Num();
 	if (Mesh->BoneSpaceTransforms.Num() != NU) return;
@@ -699,6 +795,14 @@ void UDragonWebRigComponent::WriteFulo()
 		const int32 F = UEToFulo[u], Par = UEParent[u];
 		if (F >= 0) UEAnimCS[u] = ToUE(FuloC * R.PoseMat(F) * FuloK[F]);
 		else UEAnimCS[u] = Par == INDEX_NONE ? UERefLocal[u] : UERefLocal[u] * UEAnimCS[Par];
+		Mesh->BoneSpaceTransforms[u] = Par == INDEX_NONE ? UEAnimCS[u] : UEAnimCS[u].GetRelativeTransform(UEAnimCS[Par]);
+	}
+	// glTF's "neutral_bone" holds part of each eyeball (vertices Blender had no group for): left at
+	// rest it stretched the eyes out under the mouth whenever the head moved. It rides the head.
+	if (UENeutral != INDEX_NONE && UEHead != INDEX_NONE)
+	{
+		const int32 u = UENeutral, Par = UEParent[u];
+		UEAnimCS[u] = UERefCS[u].GetRelativeTransform(UERefCS[UEHead]) * UEAnimCS[UEHead];
 		Mesh->BoneSpaceTransforms[u] = Par == INDEX_NONE ? UEAnimCS[u] : UEAnimCS[u].GetRelativeTransform(UEAnimCS[Par]);
 	}
 	Mesh->MarkRefreshTransformDirty();
