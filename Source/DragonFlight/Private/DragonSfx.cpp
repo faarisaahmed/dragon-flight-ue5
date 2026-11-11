@@ -44,40 +44,45 @@ namespace
 	}
 
 	// ---- Plasma shot -------------------------------------------------------------
+	// A short, hard blast, under half a second: the "thoom" of the charge leaving the throat
+	// (a falling sub thump and a puff of air), a white electric crack on top of it, and the
+	// bolt tearing away (a bright whoosh that closes down fast). No long whistle.
 	TArray<int16> MakeShot(uint32 Seed)
 	{
 		FRng R(Seed);
-		const float Len = 1.5f;
+		const float Len = 0.55f;
 		const int32 N = (int32)(Len * RATE);
 		TArray<float> X; X.SetNumZeroed(N);
-		double Ph = 0.0;
-		float Lp = 0.f, Lp2 = 0.f, Hp = 0.f, Body = 0.f, BodyPh = 0.f, BN = 0.f;
-		const float Top = 2500.f + 400.f * R.N(), Bottom = 650.f + 120.f * R.N();
+		float ThPh = 0.f, PuffLp = 0.f, PuffLp2 = 0.f, ZapPh = 0.f, CrHp = 0.f, CrLp = 0.f, WhLp = 0.f, WhLp2 = 0.f, WhHp = 0.f, Spark = 0.f;
+		const float ThTop = 150.f + 20.f * R.N(), ZapTop = 3400.f + 500.f * R.N();
 		for (int32 i = 0; i < N; ++i)
 		{
 			const float t = (float)i / RATE;
-			// pitch: up in the first 0.1 s (the charge leaving), then a long fall as it flies away
-			const float F = t < 0.10f ? FMath::Lerp(1300.f, Top, t / 0.10f) : Bottom + (Top - Bottom) * FMath::Exp(-(t - 0.10f) * 2.8f);
-			const float Vib = 1.f + 0.018f * FMath::Sin(t * 2.f * PI * 9.f) + 0.006f * R.N();
-			Ph += 2.0 * PI * F * Vib / RATE;
-			const float Tone = (float)(FMath::Sin(Ph) + 0.4 * FMath::Sin(2.0 * Ph + 0.3) + 0.18 * FMath::Sin(3.0 * Ph + 1.1));
-			// breath: noise ring-modulated onto the pitch, so the shriek is airy, not a pure whistle
-			const float Wn = R.N();
-			Lp += (Wn - Lp) * LpK(F * 0.6f);
-			const float Breath = Lp * (float)FMath::Sin(Ph) * 2.4f;
-			const float Env = FMath::Clamp(t / 0.035f, 0.f, 1.f) * FMath::Exp(-t * 2.1f);
-			float S = (Tone * 0.55f + Breath * 0.6f) * Env;
-			// charge crackle in the first 80 ms
-			if (t < 0.09f && R.U() < 0.02f) S += R.N() * 0.9f * (1.f - t / 0.09f);
-			// the body: a low whoomp of displaced air
-			BodyPh += 2.f * PI * FMath::Lerp(120.f, 55.f, FMath::Min(1.f, t / 0.18f)) / RATE;
-			BN += (R.N() - BN) * LpK(700.f);
-			Body = (FMath::Sin(BodyPh) * 0.9f + BN * 1.6f) * FMath::Exp(-t * 14.f) * FMath::Clamp(t / 0.004f, 0.f, 1.f);
-			// fizz: high crackle trailing the bolt
-			const float Hn = R.N(); Hp += (Hn - Hp) * LpK(3000.f); Lp2 += ((Hn - Hp) - Lp2) * LpK(9000.f);
-			const float Fizz = Lp2 * 0.35f * FMath::Exp(-t * 3.5f) * (R.U() < 0.25f ? 1.f : 0.3f);
-			X[i] = S + Body + Fizz;
+			const float W = R.N();
+			// thump: a sub tone falling 150 -> 45 Hz, gone in a tenth of a second
+			ThPh += 2.f * PI * FMath::Lerp(ThTop, 45.f, FMath::Min(1.f, t / 0.09f)) / RATE;
+			const float Thump = FMath::Sin(ThPh) * FMath::Exp(-t * 26.f) * FMath::Clamp(t / 0.002f, 0.f, 1.f) * 1.3f;
+			// puff: low noise, the air shoved out with it
+			PuffLp += (W - PuffLp) * LpK(900.f); PuffLp2 += (PuffLp - PuffLp2) * LpK(600.f);
+			const float Puff = PuffLp2 * 7.f * FMath::Exp(-t / 0.035f) * FMath::Clamp(t / 0.003f, 0.f, 1.f);
+			// crack: a bright electric snap, a chirp diving fast with crackle riding on it
+			ZapPh += 2.f * PI * FMath::Lerp(ZapTop, 700.f, FMath::Min(1.f, t / 0.07f)) / RATE;
+			CrHp += (W - CrHp) * LpK(2500.f); CrLp += ((W - CrHp) - CrLp) * LpK(9000.f);
+			const float ZapEnv = FMath::Exp(-t / 0.028f) * FMath::Clamp(t / 0.0015f, 0.f, 1.f);
+			const float Zap = (FMath::Sin(ZapPh) * 0.45f + FMath::Sign(FMath::Sin(ZapPh * 0.5f)) * 0.12f) * ZapEnv + CrLp * 1.4f * FMath::Exp(-t / 0.018f);
+			// whoosh: the bolt ripping away, a noise band closing from bright to dull
+			WhHp += (W - WhHp) * LpK(350.f);
+			const float Cut = FMath::Lerp(5200.f, 600.f, FMath::Min(1.f, t / 0.32f));
+			WhLp += ((W - WhHp) - WhLp) * LpK(Cut); WhLp2 += (WhLp - WhLp2) * LpK(Cut * 1.4f);
+			const float Whoosh = WhLp2 * 2.6f * FMath::Clamp((t - 0.005f) / 0.03f, 0.f, 1.f) * FMath::Exp(-FMath::Max(0.f, t - 0.035f) * 8.5f);
+			// sparks: a few ticks in the first 150 ms
+			if (t < 0.15f && R.U() < 0.0025f) Spark = 0.6f * (1.f - t / 0.15f);
+			Spark *= 0.93f;
+			X[i] = Thump + Puff + Zap * 0.8f + Whoosh + Spark * R.N();
 		}
+		// fade the last 30 ms so it never clicks off
+		const int32 F0 = N - (int32)(0.03f * RATE);
+		for (int32 i = F0; i < N; ++i) X[i] *= (float)(N - i) / (N - F0);
 		Normalise(X, 0.95f);
 		return ToPCM(X);
 	}
@@ -86,12 +91,12 @@ namespace
 	TArray<int16> MakeBlast(uint32 Seed, bool bWater)
 	{
 		FRng R(Seed);
-		const float Len = bWater ? 3.5f : 4.5f;
+		const float Len = bWater ? 3.0f : 3.2f;
 		const int32 N = (int32)(Len * RATE);
 		TArray<float> X; X.SetNumZeroed(N);
 		float Brown = 0.f, RLp = 0.f, RLp2 = 0.f, BoomPh = 0.f, CrackLp = 0.f, Hiss = 0.f, HissLp = 0.f, Swell = 1.f, SwellT = 1.f;
 		int32 SwellTimer = 0;
-		float Click = 0.f;
+		float Click = 0.f, SizHp = 0.f, SizAmp = 0.35f;
 		for (int32 i = 0; i < N; ++i)
 		{
 			const float t = (float)i / RATE;
@@ -108,7 +113,7 @@ namespace
 			RLp += (Brown - RLp) * LpK(Cut); RLp2 += (RLp - RLp2) * LpK(Cut * 1.3f);
 			if (--SwellTimer <= 0) { SwellT = 0.55f + 0.6f * R.U(); SwellTimer = (int32)(RATE * (0.15f + 0.35f * R.U())); }
 			Swell += (SwellT - Swell) * 0.0004f;
-			const float Rumble = RLp2 * 9.f * FMath::Exp(-t * 0.95f) * Swell * FMath::Clamp(t / 0.02f, 0.f, 1.f);
+			const float Rumble = RLp2 * 9.f * FMath::Exp(-t * 1.35f) * Swell * FMath::Clamp(t / 0.02f, 0.f, 1.f);
 			float S = Crack + Boom + Rumble;
 			if (!bWater)
 			{
@@ -124,6 +129,11 @@ namespace
 				Hiss += (W - Hiss) * LpK(5000.f); HissLp += (Hiss - HissLp) * LpK(700.f);
 				const float Env = FMath::SmoothStep(0.05f, 0.5f, t) * FMath::Exp(-FMath::Max(0.f, t - 0.8f) * 1.6f);
 				S += (Hiss - HissLp) * 1.3f * Env;
+				// and the plasma boiling the water off: a crackling steam sizzle from the first instant
+				SizHp += (W - SizHp) * LpK(3800.f);
+				if (R.U() < 0.004f) SizAmp = 0.5f + R.U();
+				SizAmp += (0.35f - SizAmp) * 0.002f;
+				S += (W - SizHp) * SizAmp * 1.1f * FMath::Clamp(t / 0.015f, 0.f, 1.f) * FMath::Exp(-t * 1.4f);
 			}
 			X[i] = S;
 		}

@@ -159,6 +159,7 @@ void ADragonPlayerController::CapturePointer()
 		if (UGameViewportClient* VC = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
 		{
 			VC->SetMouseCaptureMode(EMouseCaptureMode::CapturePermanently);
+			VC->SetMouseLockMode(EMouseLockMode::LockOnCapture);
 			if (FViewport* V = VC->Viewport) { V->CaptureMouse(true); V->LockMouseToViewport(true); }
 		}
 	}
@@ -174,8 +175,11 @@ void ADragonPlayerController::ReleasePointer()
 	SetInputMode(Mode);
 	if (UGameViewportClient* VC = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
 	{
-		// clicks in the menu must not grab and hide the cursor again
+		// clicks in the menu must not grab and hide the cursor again, and nothing may clip it: the
+		// engine's keep-it-in-the-window rectangle comes out wrong on the mini's Retina screen and
+		// pinned the cursor to the bottom edge (only left-right moved; the menu couldn't be clicked)
 		VC->SetMouseCaptureMode(EMouseCaptureMode::NoCapture);
+		VC->SetMouseLockMode(EMouseLockMode::DoNotLock);
 		if (FViewport* V = VC->Viewport) { V->CaptureMouse(false); V->LockMouseToViewport(false); }
 	}
 #if PLATFORM_MAC
@@ -187,6 +191,22 @@ void ADragonPlayerController::ReleasePointer()
 		CGWarpMouseCursorPosition(CGPointMake(B.origin.x + B.size.width * 0.5, B.origin.y + B.size.height * 0.5));
 		CGAssociateMouseAndMouseCursorPosition(true);
 	}
+#endif
+}
+
+bool ADragonPlayerController::GetOsPointer(FVector2D& OutUV, bool& bOutLeft)
+{
+#if PLATFORM_MAC
+	const CGRect B = CGDisplayBounds(CGMainDisplayID());
+	CGEventRef E = CGEventCreate(nullptr);
+	if (!E || B.size.width < 1 || B.size.height < 1) { if (E) CFRelease(E); return false; }
+	const CGPoint At = CGEventGetLocation(E);   // points, top-left origin
+	CFRelease(E);
+	OutUV = FVector2D((At.x - B.origin.x) / B.size.width, (At.y - B.origin.y) / B.size.height);
+	bOutLeft = CGEventSourceButtonState(kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft);
+	return true;
+#else
+	return false;
 #endif
 }
 
@@ -330,6 +350,16 @@ void ADragonPlayerController::PlayerTick(float DeltaTime)
 		}
 		// Back in the game with the menu up: the menu keeps the system cursor.
 		if (!bWasForeground && bFg && Screen != 0) ReleasePointer();
+		// And whatever else took it (a settings change, a click that the viewport captured): a
+		// menu always has the free system cursor.
+		if (bFg && Screen != 0 && !FParse::Param(FCommandLine::Get(), TEXT("GamePointer")))
+		{
+			const UGameViewportClient* VC = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
+			const bool bCaptured = VC && VC->Viewport && (VC->Viewport->HasMouseCapture() || VC->GetMouseCaptureMode() != EMouseCaptureMode::NoCapture);
+			if (!bShowMouseCursor || bCaptured) ReleasePointer();
+			if (FSlateApplication::IsInitialized())
+				if (TSharedPtr<ICursor> Cur = FSlateApplication::Get().GetPlatformCursor()) Cur->Lock(nullptr);
+		}
 		bWasForeground = bFg;
 		if (bFg && !bShowMouseCursor && !FParse::Param(FCommandLine::Get(), TEXT("NoCursorPark"))) ParkSystemCursor();
 	}
@@ -384,6 +414,8 @@ void ADragonPlayerController::Quality(int32 Level)
 		ApplyRenderScale();
 		S->SaveSettings();
 	}
+	// Applying the settings can hand the mouse back to the game viewport: free it again for the menu.
+	if (Screen != 0 && !FParse::Param(FCommandLine::Get(), TEXT("GamePointer"))) ReleasePointer();
 }
 
 void ADragonPlayerController::TimeOfDay(float Hours)

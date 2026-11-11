@@ -76,6 +76,8 @@ private:
 	bool bClick = false;      // left button went down this frame
 	bool bHeld = false;
 	bool bPointerWasUI = false;
+	bool bSlateLeftWas = false;
+	FVector2D SlateMouse = FVector2D::ZeroVector;
 	/** Screen pixels (at 1080p) per unit of raw mouse movement for the game's own pointer. */
 	float PointerSpeed = 1.2f;
 	void DrawPointer();

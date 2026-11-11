@@ -120,6 +120,10 @@ public:
 		float Move = 0.f, Vertical = 0.f, Turn = 0.f, WalkFwd = 0.f, WalkSide = 0.f;
 		int32 Knife = 0;
 		bool bLand = false, bSprint = false, bUpPressed = false;
+		bool bAim = false;          // hold the aim button
+		float AimPitch = -99.f;     // and hold the camera at this pitch (rad; -99: leave it)
+		float AimYaw = -99.f;       // and this far right of his heading (rad; -99: leave it)
+		float FireAt = -1.f;        // press fire at this script time (s)
 	};
 	void SetScript(const FDragonScript& In) { Script = In; ScriptTime = 0.f; }
 	/** Seconds the dragon itself has lived since SetScript (his own clock, for timing test shots). */
@@ -131,6 +135,8 @@ public:
 	float SolidAtM(float X, float Y) const;
 	/** The sea surface (m) at a point in metres: sea level plus the waves M_Sea is drawing there now. */
 	float SeaAtM(float X, float Y) const;
+	/** The water surface that counts here: a lake's where he is over one, else sea level (m). */
+	float WaterLevelAtM(float X, float Y) const;
 
 private:
 	// --- Input ---------------------------------------------------------------
@@ -175,6 +181,12 @@ private:
 
 	// --- Fire ----------------------------------------------------------------
 	void TickFire(float Dt, const FFrameInput& In);
+	/** A queued shot leaves the mouth once the jaw is open (after this frame's pose). */
+	void ReleaseShot(float Dt);
+	bool bShotPending = false;
+	bool bShotAtTarget = false;   // a photo shot: at ShotTargetM, not the aim
+	FVector ShotTargetM = FVector::ZeroVector;
+	float ShotDelay = 0.f;
 	FVector AimPointM() const;
 
 	// --- Visuals -------------------------------------------------------------

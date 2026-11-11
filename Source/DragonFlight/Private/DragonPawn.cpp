@@ -315,6 +315,10 @@ ADragonPawn::FFrameInput ADragonPawn::GatherInput(float Dt)
 		In.WalkFwd = Script.WalkFwd; In.WalkSide = Script.WalkSide; In.Knife = Script.Knife;
 		In.bLand = Script.bLand; In.bSprint = Script.bSprint; In.bUpPressed = Script.bUpPressed;
 		Script.bUpPressed = false;
+		In.bAim = Script.bAim;
+		if (Script.AimPitch > -90.f) { CamPitch = Script.AimPitch; In.LookPitch = 0.f; }
+		if (Script.AimYaw > -90.f) { CamYaw = (bGrounded ? WalkYaw : Flight.Heading) + PI + Script.AimYaw; In.LookYaw = 0.f; }
+		In.bFirePressed = In.bFire = Script.FireAt >= 0.f && ScriptTime >= Script.FireAt && ScriptTime - Dt < Script.FireAt;
 	}
 	return In;
 }
@@ -355,12 +359,15 @@ void ADragonPawn::Tick(float DeltaSeconds)
 		WI.GroundSpeed = FMath::Abs(WalkSpeed) / FMath::Max(DragonScale, 0.01f);
 		WI.MaxGroundSpeed = RUN_SPEED / FMath::Max(DragonScale, 0.01f);
 		// aim.js setTarget: the head turns toward the crosshair's point, off his heading and flight path.
-		WI.bAimActive = In.bAim && !bGrounded;
+		// Aiming (in the air or on his feet) his head turns to look down the line the bolt will take.
+		WI.bAimActive = AimBlend > 0.3f && !bApproach;
 		if (WI.bAimActive)
 		{
+			const float Hd = bGrounded ? WalkYaw : Flight.Heading;
+			const float Ref = bGrounded ? GroundPitch : Flight.PathAngle;
 			const FVector D = (AimPointM() - (PosM + FVector(0, 0, 1.6f * DragonScale))).GetSafeNormal();
-			WI.AimYaw = FMath::Clamp(F::AngleDelta(Flight.Heading, FMath::Atan2(D.X, D.Y)), -1.20f, 1.20f);
-			WI.AimPitch = FMath::Clamp(FMath::Asin(FMath::Clamp(D.Z, -1.0, 1.0)) - Flight.PathAngle, -0.78f, 0.78f);
+			WI.AimYaw = FMath::Clamp(F::AngleDelta(Hd, FMath::Atan2(D.X, D.Y)), -1.20f, 1.20f);
+			WI.AimPitch = FMath::Clamp(FMath::Asin(FMath::Clamp(D.Z, -1.0, 1.0)) - Ref, -0.78f, 0.78f);
 		}
 		WI.GroundAtM = [this](float X, float Y) { return SolidAtM(X, Y); };
 		Heave = WebRig->Animate(Dt, WI);
@@ -369,6 +376,7 @@ void ADragonPawn::Tick(float DeltaSeconds)
 	MeshPivot->SetRelativeLocation(FVector(0, 0, (-BODY_CENTRE + Heave) * M));
 
 	TickCamera(Dt, In);
+	ReleaseShot(Dt);
 	WindAudio->SetFlight(bGrounded ? 0.f : Flight.GetSpeedRatio(), bGrounded ? 0.f : Flight.GetTurboT(), bGrounded);
 	if (bGrounded && Ambience && !bSwimming) Ambience->SetSkim(0.f);
 	// Wingbeats: a push of air at the start of each downstroke, loud in a hover or a hard
@@ -414,7 +422,7 @@ void ADragonPawn::TickFlight(float Dt, const FFrameInput& In)
 		}
 	}
 
-	const float Ground = FMath::Max(SolidAtM(PosM.X, PosM.Y), SEA_LEVEL);
+	const float Ground = FMath::Max(SolidAtM(PosM.X, PosM.Y), WaterLevelAtM(PosM.X, PosM.Y));
 	Agl = PosM.Z - Ground;
 	CheckLanding(Dt, In);
 }
@@ -496,7 +504,7 @@ void ADragonPawn::FlightFloor(float Dt)
 	const float Sp = Flight.ActiveSpeed;
 	const FVector V(Af.X * Sp, Af.Y * Sp, Flight.ClimbVel);
 
-	const float Hit = Impact(V, N, Under <= SEA_LEVEL);
+	const float Hit = Impact(V, N, Under <= WaterLevelAtM(PosM.X, PosM.Y));
 	if (Hit > 0.f)
 	{
 		Flight.BleedSpeed(1.f);
@@ -593,19 +601,11 @@ void ADragonPawn::PhotoPose(const FVector& NewPosM, float YawDeg)
 
 void ADragonPawn::PhotoFire(const FVector& TargetM)
 {
-	const FVector Fwd = F::Forward(Flight.Heading);
-	const FVector Muzzle = PosM + FVector(0, 0, 1.6f * DragonScale) + Fwd * (5.2f * DragonScale);
-	const FVector Dir = (TargetM - Muzzle).GetSafeNormal();
-	const float Speed = MUZZLE_SPEED + FMath::Max(0.f, (float)FVector::DotProduct(Flight.GetVelocity(), Dir));
-	if (UWorld* World = GetWorld())
-	{
-		FActorSpawnParameters SP;
-		SP.Owner = this;
-		SP.Instigator = this;
-		SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		UClass* Cls = PlasmaClass ? PlasmaClass.Get() : ADragonPlasma::StaticClass();
-		if (ADragonPlasma* P = World->SpawnActor<ADragonPlasma>(Cls, Muzzle * M, Dir.Rotation(), SP)) P->Launch(Dir * Speed * M);
-	}
+	// As a player's shot: the jaw snaps open, the bolt leaves the mouth a moment later.
+	bShotPending = true;
+	ShotDelay = WebRig && WebRig->IsFulo() ? 0.045f : 0.f;
+	bShotAtTarget = true;
+	ShotTargetM = TargetM;
 	if (WebRig) WebRig->NotifyFire();
 }
 
@@ -648,9 +648,10 @@ void ADragonPawn::GroundAttitude(float X, float Y, float H, float& OutPitch, flo
 void ADragonPawn::CheckLanding(float Dt, const FFrameInput& In)
 {
 	const float GroundY = SolidAtM(PosM.X, PosM.Y);
-	const bool bOverLand = GroundY > SEA_LEVEL + 0.5f;
+	const float WaterY = WaterLevelAtM(PosM.X, PosM.Y);   // the sea, or a lake's surface
+	const bool bOverLand = GroundY > WaterY + 0.5f;
 	const float AglLand = PosM.Z - GroundY;
-	const float AglSea = PosM.Z - SEA_LEVEL;
+	const float AglSea = PosM.Z - WaterY;
 	const bool bSlow = Flight.GetSpeedRatio() < LAND_SPEED_T;
 	bool bTooSteep = false;
 	if (bOverLand && AglLand < LAND_AGL)
@@ -975,6 +976,14 @@ void ADragonPawn::TickGround(float Dt, const FFrameInput& In)
 			Align = FMath::Max(0.f, FMath::Cos(F::AngleDelta(WalkYaw, WishYaw)));
 		}
 	}
+	else if (AimBlend > 0.5f && !bApproach)
+	{
+		// Standing and aiming: when the aim swings well off his nose his body follows it round
+		// (the head covers the first ~35 degrees by itself).
+		const float Off = F::AngleDelta(WalkYaw, CamYaw + PI);
+		const float Slack = 0.6f;
+		if (FMath::Abs(Off) > Slack) WantYawRate = FMath::Clamp((Off - FMath::Sign(Off) * Slack * 0.6f) * 4.f, -WALK_TURN * 0.6f, WALK_TURN * 0.6f);
+	}
 	// yaw has inertia too: it spins up and down
 	YawRateG += (WantYawRate * Grip - YawRateG) * F::Damp(9.f, Dt);
 	WalkYaw += YawRateG * Dt;
@@ -1162,8 +1171,9 @@ void ADragonPawn::TickWaterFlight(float Dt)
 	const FVector V = Flight.GetVelocity();
 	const float Speed = (float)V.Size();
 	const FVector Centre = PosM + FVector(0, 0, BODY_CENTRE * S);
-	if (Centre.Z - SEA_LEVEL > 40.f * S) { if (Ambience) Ambience->SetSkim(0.f); return; }
-	if (SolidAtM(PosM.X, PosM.Y) > SEA_LEVEL - 0.3f) { if (Ambience) Ambience->SetSkim(0.f); return; }
+	const float WaterZ = WaterLevelAtM(PosM.X, PosM.Y);
+	if (Centre.Z - WaterZ > 40.f * S) { if (Ambience) Ambience->SetSkim(0.f); return; }
+	if (SolidAtM(PosM.X, PosM.Y) > WaterZ - 0.3f) { if (Ambience) Ambience->SetSkim(0.f); return; }
 	Wk = ADragonWake::Get(this);
 
 	// The wingtips, from the body's roll (UE roll + = right wing down), a little behind the shoulders.
@@ -1177,7 +1187,7 @@ void ADragonPawn::TickWaterFlight(float Dt)
 		// the wave equation), a sheet of spray thrown up and back, and a drag on that wing.
 		const float D = FMath::Clamp(Depth + 0.25f, 0.f, 0.9f);
 		const float SpT = FMath::Clamp(Speed / 40.f, 0.2f, 1.6f);
-		if (Wk) Wk->Disturb(Tip * M, (50.f + 70.f * D) * S, -(0.08f + 0.25f * D) * FMath::Min(SpT, 1.f), 3.f + 6.f * D);
+		if (Wk) Wk->Disturb(Tip * M, (50.f + 70.f * D) * S, -(0.08f + 0.25f * D) * FMath::Min(SpT, 1.f), 0.9f + 1.8f * D);
 		Skim = FMath::Max(Skim, FMath::Clamp(0.35f + D * SpT, 0.f, 1.f));
 		if (SprayTimer <= 0.f)
 		{
@@ -1197,7 +1207,7 @@ void ADragonPawn::TickWaterFlight(float Dt)
 		{
 			const float D = FMath::Clamp(FeetDepth + 0.3f, 0.f, 1.f);
 			const float SpT = FMath::Clamp(Speed / 30.f, 0.2f, 1.6f);
-			if (Wk) { Wk->Disturb((PosM - Fw * 0.8f * S + Ri * 0.6f * S) * M, 60.f * S, -(0.08f + 0.2f * D), 3.f); Wk->Disturb((PosM - Fw * 0.8f * S - Ri * 0.6f * S) * M, 60.f * S, -(0.08f + 0.2f * D), 3.f); }
+			if (Wk) { Wk->Disturb((PosM - Fw * 0.8f * S + Ri * 0.6f * S) * M, 60.f * S, -(0.08f + 0.2f * D), 1.f); Wk->Disturb((PosM - Fw * 0.8f * S - Ri * 0.6f * S) * M, 60.f * S, -(0.08f + 0.2f * D), 1.f); }
 			if (SprayTimer <= 0.f) WaterSpray(FVector(PosM.X, PosM.Y, SeaHere + 0.1f) - Fw * S, -V * 0.15f + FVector(0, 0, 2.5f), 3, 0.6f + 0.6f * D);
 			Skim = FMath::Max(Skim, FMath::Clamp(0.3f + D, 0.f, 1.f));
 			Flight.ScrapeSpeed(FMath::Clamp(Dt * 0.25f * D, 0.f, 0.06f));
@@ -1213,33 +1223,55 @@ void ADragonPawn::TickWaterFlight(float Dt)
 
 	// Downwash: hovering or slow and low, the wings blow a ring of ripples and a skirt of spray
 	// off the sea, pulsing with each downstroke.
-	const float Alt = (float)(Centre.Z - SEA_LEVEL);
+	const float Alt = (float)(Centre.Z - WaterZ);
 	const float Wash = FMath::Square(FMath::Clamp(1.f - Alt / (18.f * S), 0.f, 1.f)) * (1.f - Smooth(Speed, 8.f, 30.f));
 	if (Wash > 0.02f && Wk)
 	{
 		const float Amp = WebRig && WebRig->IsBound() ? FMath::Clamp(WebRig->GetWingAmp() / 0.6f, 0.3f, 1.3f) : 1.f;
-		const FVector Under(PosM.X, PosM.Y, SEA_LEVEL);
-		Wk->Disturb(Under * M, 550.f * S, -0.05f * Wash * Amp, 0.15f * Wash);
+		const FVector Under(PosM.X, PosM.Y, WaterZ);
+		// The wings' downwash presses the water: rings of ripples running out, a dark rough
+		// patch, and a fine mist of spray blown outward along the surface on each downstroke.
+		// (Not foam: hovering never whips the sea white, and the old foam slab looked like it.)
+		Wk->Disturb(Under * M, 550.f * S, -0.05f * Wash * Amp, 0.f);
 		const float Ph = WebRig && WebRig->IsBound() ? WebRig->GetWingPhase01() : 0.f;
 		if (Ph < LastWashPhase - 0.5f)
 		{
-			Wk->Disturb(Under * M, 650.f * S, -0.22f * Wash * Amp, 0.8f * Wash);
+			Wk->Disturb(Under * M, 650.f * S, -0.22f * Wash * Amp, 0.06f * Wash);
 			if (ADragonFX* FX = ADragonFX::Get(this))
-				for (int32 k = 0; k < 8; ++k)
+			{
+				for (int32 k = 0; k < 14; ++k)
 				{
+					// droplets torn off the surface, skating outward
 					FDragonPuff P;
-					P.Kind = EDragonPuff::Smoke;
-					const float A = (k + FMath::FRand()) * PI / 4.f;
+					P.Kind = EDragonPuff::Spray;
+					const float A = (k + FMath::FRand()) * 2.f * PI / 14.f;
 					const FVector D(FMath::Cos(A), FMath::Sin(A), 0.f);
-					P.Pos = Under * M + D * 500.f * S + FVector(0, 0, 40.f);
-					P.Vel = D * (700.f + 500.f * FMath::FRand()) * Wash + FVector(0, 0, 60.f);
-					P.Drag = 1.6f; P.Buoyancy = 15.f;
-					P.Life = 1.5f + FMath::FRand();
-					P.Size0 = 150.f; P.Size1 = 500.f + 300.f * FMath::FRand();
-					P.Colour0 = FLinearColor(0.92f, 0.94f, 0.97f); P.Colour1 = FLinearColor(0.88f, 0.9f, 0.94f);
-					P.Intensity = 0.18f * Wash * Amp; P.FadeIn = 0.1f; P.Spin = FMath::FRand() - 0.5f;
+					P.Pos = Under * M + D * (350.f + 250.f * FMath::FRand()) * S + FVector(0, 0, 15.f);
+					P.Vel = D * (900.f + 700.f * FMath::FRand()) * Wash + FVector(0, 0, 120.f + 200.f * FMath::FRand());
+					P.Drag = 2.2f; P.Gravity = 500.f;
+					P.Life = 0.6f + 0.5f * FMath::FRand();
+					P.Size0 = 50.f; P.Size1 = 220.f; P.Stretch = 0.0025f;
+					P.Colour0 = FLinearColor(0.95f, 0.97f, 1.f); P.Colour1 = FLinearColor(0.9f, 0.92f, 0.95f);
+					P.Intensity = 0.35f * Wash * Amp; P.FadeIn = 0.05f;
 					FX->Spawn(P);
 				}
+				for (int32 k = 0; k < 6; ++k)
+				{
+					// and the thin mist it leaves, low and drifting outward
+					FDragonPuff P;
+					P.Kind = EDragonPuff::Smoke;
+					const float A = (k + FMath::FRand()) * 2.f * PI / 6.f;
+					const FVector D(FMath::Cos(A), FMath::Sin(A), 0.f);
+					P.Pos = Under * M + D * 600.f * S + FVector(0, 0, 60.f);
+					P.Vel = D * (500.f + 400.f * FMath::FRand()) * Wash + FVector(0, 0, 40.f);
+					P.Drag = 1.2f; P.Buoyancy = 10.f;
+					P.Life = 1.8f + FMath::FRand();
+					P.Size0 = 200.f; P.Size1 = 700.f + 300.f * FMath::FRand();
+					P.Colour0 = FLinearColor(0.9f, 0.92f, 0.95f); P.Colour1 = FLinearColor(0.88f, 0.9f, 0.94f);
+					P.Intensity = 0.07f * Wash * Amp; P.FadeIn = 0.2f; P.Spin = FMath::FRand() - 0.5f;
+					FX->Spawn(P);
+				}
+			}
 		}
 		LastWashPhase = Ph;
 		Skim = FMath::Max(Skim, Wash * 0.35f);
@@ -1250,8 +1282,24 @@ void ADragonPawn::TickWaterFlight(float Dt)
 
 float ADragonPawn::SeaAtM(float X, float Y) const
 {
+	// A lake's surface is flat; the sea's swell is M_Sea's.
+	const float Lake = WaterLevelAtM(X, Y);
+	if (Lake > SEA_LEVEL + 0.01f) return Lake;
 	if (!SeaActor.IsValid()) SeaActor = ADragonSea::Get(this);
 	return SEA_LEVEL + (SeaActor.IsValid() ? SeaActor->SurfaceM(X, Y) : 0.f);
+}
+
+float ADragonPawn::WaterLevelAtM(float X, float Y) const
+{
+	// The sea, or a lake where the ground lies under its surface (the lake mesh has no collision).
+	if (const UWorld* World = GetWorld())
+		if (const UGameInstance* GI = World->GetGameInstance())
+			if (const UDragonWorldSubsystem* WS = GI->GetSubsystem<UDragonWorldSubsystem>())
+			{
+				const double L = WS->LakeLevelAt(X * M, Y * M);
+				if (L > -1e8) return FMath::Max(SEA_LEVEL, (float)(L / M));
+			}
+	return SEA_LEVEL;
 }
 
 // ===========================================================================
@@ -1311,8 +1359,12 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 	// Look input belongs to the player.
 	if (In.bLooked) { LookIdle = 0.f; bRecentering = false; }
 	else LookIdle += Dt;
-	CamYaw += In.LookYaw;
-	CamPitch = FMath::Clamp(CamPitch + In.LookPitch, -PITCH_LIMIT, PITCH_LIMIT);
+	// Aiming zooms in: the look slows with the narrower view so the crosshair stays steady.
+	const float AimSlow = 1.f - 0.35f * AimBlend;
+	CamYaw += In.LookYaw * AimSlow;
+	// Aiming, the camera swings well below him (to shoot up) and over him (to shoot down).
+	const float PitchLo = FMath::Lerp(-PITCH_LIMIT, -1.15f, AimBlend);
+	CamPitch = FMath::Clamp(CamPitch + In.LookPitch * AimSlow, PitchLo, PITCH_LIMIT);
 	DistBase = FMath::Clamp(DistBase + In.BoomDelta * 22.f * Dt, 6.f, 46.f);
 	if (In.bRecenter) bRecentering = true;
 
@@ -1324,14 +1376,15 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 	}
 	else if (!bGrounded)
 	{
-		const float Ramp = FMath::Clamp(LookIdle - TRAIL_DELAY, 0.f, 1.f);
+		// (never while aiming: the crosshair stays where the player put it)
+		const float Ramp = FMath::Clamp(LookIdle - TRAIL_DELAY, 0.f, 1.f) * (1.f - AimBlend);
 		const float Lam = FMath::Lerp(0.8f, 3.6f, SpeedT);
 		CamYaw += F::AngleDelta(CamYaw, Heading + PI) * F::Damp(Lam * Ramp, Dt);
 		CamPitch += ((0.26f - CamPath * 0.55f) - CamPitch) * F::Damp(Lam * Ramp * 0.5f, Dt);
 	}
 	else
 	{
-		const float Ramp = FMath::Clamp(LookIdle - 1.5f, 0.f, 1.f);
+		const float Ramp = FMath::Clamp(LookIdle - 1.5f, 0.f, 1.f) * (1.f - AimBlend);
 		const float Away = FMath::Max(0.f, FMath::Cos(F::AngleDelta(CamYaw + PI, WalkYaw)));
 		const float Moving = FMath::Clamp(FMath::Abs(WalkSpeed) / WALK_SPEED, 0.f, 1.f);
 		CamYaw += F::AngleDelta(CamYaw, WalkYaw + PI) * F::Damp(0.9f * Ramp * Away * Away * Moving, Dt);
@@ -1339,7 +1392,7 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 	}
 
 	// Aim blend (air only)
-	const bool bAimWant = In.bAim && !bGrounded;
+	const bool bAimWant = In.bAim && !bApproach;
 	AimBlend += ((bAimWant ? 1.f : 0.f) - AimBlend) * F::Damp(9.f, Dt);
 
 	// Focus point
@@ -1379,7 +1432,7 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 	{
 		const float T = (float)i / OCCLUDE_STEPS;
 		const FVector P = FocusM + Boom * (Dist * T) + FVector(0, 0, Lift * T);
-		const float Margin = P.Z - (FMath::Max(SolidAtM(P.X, P.Y), SEA_LEVEL) + OCCLUDE_CLEAR);
+		const float Margin = P.Z - (FMath::Max(SolidAtM(P.X, P.Y), WaterLevelAtM(P.X, P.Y)) + OCCLUDE_CLEAR);
 		if (Margin < 0.f)
 		{
 			const float Frac = PrevMargin < 1e8f ? PrevMargin / (PrevMargin - Margin) : 0.f;
@@ -1400,7 +1453,7 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 	CamPosM = FocusM + CamRel;
 
 	// Keep the camera out of the ground and the sea.
-	const float MinZ = FMath::Max(SolidAtM(CamPosM.X, CamPosM.Y) + 3.f, SEA_LEVEL + 4.f);
+	const float MinZ = FMath::Max(SolidAtM(CamPosM.X, CamPosM.Y) + 3.f, WaterLevelAtM(CamPosM.X, CamPosM.Y) + 4.f);
 	if (CamPosM.Z < MinZ)
 	{
 		CamPosM.Z += (MinZ - CamPosM.Z) * F::Damp(18.f, Dt);
@@ -1410,7 +1463,13 @@ void ADragonPawn::TickCamera(float Dt, const FFrameInput& In)
 
 	// Look-at, with the aim shoulder offset
 	const FVector FlatFwd = FVector(-Boom.X, -Boom.Y, 0.f).GetSafeNormal();
-	LookAtM = FocusM + RightN * (AIM_SHOULDER * AimBlend) + FlatFwd * (30.f * AimBlend) + FVector(0, 0, AIM_RISE * AimBlend);
+	// Aiming, the view looks straight along the camera's yaw and pitch (a little above the boom's
+	// own slant, so the resting aim is about level): the crosshair goes wherever the mouse puts it,
+	// from far below him to high overhead. (It used to look at a point 30 m ahead at his height,
+	// so pitching the camera hardly moved the aim at all.)
+	const float AimPitch = -(CamPitch - 0.2f);
+	const FVector AimDir = FlatFwd * FMath::Cos(AimPitch) + FVector(0, 0, FMath::Sin(AimPitch));
+	LookAtM = FMath::Lerp(FocusM, CamPosM + AimDir * 80.f, AimBlend);
 	FRotator Rot = (LookAtM - CamPosM).Rotation();
 
 	// Horizon lean in a carve (subtle).
@@ -1461,14 +1520,24 @@ FVector ADragonPawn::AimPointM() const
 {
 	// March the screen-centre ray over terrain and sea, 20 m to 1500 m.
 	const FVector Dir = (LookAtM - CamPosM).GetSafeNormal();
+	float Far = 1500.f;
+	if (UWorld* World = GetWorld())
+	{
+		// Rocks, houses, anything with collision in front of the ground (not the dragon himself).
+		FCollisionQueryParams Q(SCENE_QUERY_STAT(DragonAim), false, this);
+		FHitResult Hit;
+		const FVector From = CamPosM + Dir * 12.f;
+		if (World->LineTraceSingleByChannel(Hit, From * M, (CamPosM + Dir * Far) * M, ECC_Visibility, Q))
+			Far = FMath::Min(Far, 12.f + (float)Hit.Distance / M);
+	}
 	float T = 20.f;
-	while (T < 1500.f)
+	while (T < Far)
 	{
 		const FVector P = CamPosM + Dir * T;
-		if (P.Z <= FMath::Max(SolidAtM(P.X, P.Y), SEA_LEVEL)) return P;
+		if (P.Z <= FMath::Max(SolidAtM(P.X, P.Y), WaterLevelAtM(P.X, P.Y))) return P;
 		T += T < 200.f ? 4.f : 12.f;
 	}
-	return CamPosM + Dir * 1500.f;
+	return CamPosM + Dir * Far;
 }
 
 void ADragonPawn::TickFire(float Dt, const FFrameInput& In)
@@ -1484,16 +1553,34 @@ void ADragonPawn::TickFire(float Dt, const FFrameInput& In)
 	if (!(In.bFirePressed || (In.bFire && FireCooldown <= 0.f))) return;
 	if (FireCooldown > 0.f || Shots <= 0) return;
 
+	// The jaw snaps open first; the bolt leaves between the lips 45 ms later (ReleaseShot).
+	bShotPending = true;
+	ShotDelay = WebRig && WebRig->IsFulo() ? 0.045f : 0.f;
+	if (WebRig) WebRig->NotifyFire();
+	--Shots;
+	FireCooldown = FIRE_COOLDOWN;
+}
+
+void ADragonPawn::ReleaseShot(float Dt)
+{
+	if (!bShotPending) return;
+	ShotDelay -= Dt;
+	if (ShotDelay > 0.f) return;
+	bShotPending = false;
+
 	const float H = bGrounded ? WalkYaw : Flight.Heading;
 	const float Path = bGrounded ? 0.f : Flight.PathAngle;
 	const FVector Fwd = F::Forward(H);
-	const FVector Muzzle = PosM + FVector(0, 0, 1.6f * DragonScale) + Fwd * (5.2f * DragonScale);
+	FVector Muzzle = PosM + FVector(0, 0, 1.6f * DragonScale) + Fwd * (5.2f * DragonScale);
+	FVector MouthCm;
+	if (WebRig && WebRig->GetMouthWorld(MouthCm)) Muzzle = MouthCm / M;
 	FVector Dir;
-	if (AimBlend > 0.5f) Dir = (AimPointM() - Muzzle).GetSafeNormal();
+	if (bShotAtTarget) Dir = (ShotTargetM - Muzzle).GetSafeNormal();
+	else if (AimBlend > 0.5f) Dir = (AimPointM() - Muzzle).GetSafeNormal();
 	else Dir = (Fwd * FMath::Cos(Path) + FVector(0, 0, FMath::Sin(Path))).GetSafeNormal();
+	bShotAtTarget = false;
 	const FVector Carry = bGrounded ? FVector::ZeroVector : Flight.GetVelocity();
 	const float Speed = MUZZLE_SPEED + FMath::Max(0.f, (float)FVector::DotProduct(Carry, Dir));
-
 	if (UWorld* World = GetWorld())
 	{
 		FActorSpawnParameters SP;
@@ -1501,14 +1588,8 @@ void ADragonPawn::TickFire(float Dt, const FFrameInput& In)
 		SP.Instigator = this;
 		SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		UClass* Cls = PlasmaClass ? PlasmaClass.Get() : ADragonPlasma::StaticClass();
-		if (ADragonPlasma* P = World->SpawnActor<ADragonPlasma>(Cls, Muzzle * M, Dir.Rotation(), SP))
-		{
-			P->Launch(Dir * Speed * M);
-		}
+		if (ADragonPlasma* P = World->SpawnActor<ADragonPlasma>(Cls, Muzzle * M, Dir.Rotation(), SP)) P->Launch(Dir * Speed * M);
 	}
-	if (WebRig) WebRig->NotifyFire();
-	--Shots;
-	FireCooldown = FIRE_COOLDOWN;
 }
 
 // ===========================================================================

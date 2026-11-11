@@ -132,6 +132,9 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 	{
 		const int32 H = R.Find(TEXT("Head.1"));
 		UEHead = H >= 0 ? FuloToUE[H] : INDEX_NONE;
+		const int32 LT = R.Find(TEXT("Lip.8")), LB = R.Find(TEXT("Lip.15"));
+		UELipTop = LT >= 0 ? FuloToUE[LT] : INDEX_NONE;
+		UELipBot = LB >= 0 ? FuloToUE[LB] : INDEX_NONE;
 	}
 	if (Matched < NF * 9 / 10)
 	{
@@ -270,7 +273,7 @@ bool UDragonWebRigComponent::BindFulo(const FReferenceSkeleton& Ref)
 		if (FParse::Value(FCommandLine::Get(), TEXT("FuloDroop="), T, false))
 		{
 			TArray<FString> P; T.ParseIntoArray(P, TEXT(","));
-			for (int32 i = 0; i < P.Num() && i < 4; ++i) FuloDroop[i] = FCString::Atof(*P[i]);
+			for (int32 i = 0; i < P.Num() && i < 5; ++i) FuloDroop[i] = FCString::Atof(*P[i]);
 		}
 	}
 
@@ -705,8 +708,11 @@ void UDragonWebRigComponent::WriteFulo()
 			const float Roll = Seg == 0 ? FuloDroop[0] : Seg == 1 ? FuloDroop[2] : FuloDroop[3];
 			// a slow breath of movement in the folded wings as he walks and stands
 			const float Sway = Seg == 0 ? 0.f : 2.5f * FMath::Sin(TimeS * 1.7f + Seg * 0.9f + Side);
+			// (at the root, first a sweep back about the up axis so the folded wing lies along his
+			// body toward the tail instead of jutting out sideways, then the roll down onto the flank)
 			const FQuat Local = FQuat(FVector(0, 1, 0), Side * FMath::DegreesToRadians(Roll + Sway) * FoldK)
-				* FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(Seg == 0 ? FuloDroop[1] : 0.f) * FoldK);
+				* FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(Seg == 0 ? FuloDroop[1] : 0.f) * FoldK)
+				* FQuat(FVector(0, 0, 1), Side * FMath::DegreesToRadians(Seg == 0 ? FuloDroop[4] : 0.f) * FoldK);
 			Droop = QCh * Local * QCh.Inverse();
 		}
 		FQuat Sw = FQuat::Identity;
@@ -738,14 +744,20 @@ void UDragonWebRigComponent::WriteFulo()
 			}
 			// a plasma shot: the jaw drops fast as the blast leaves, holds, then closes
 			const float Age = TimeS - FuloFireAt;
-			static const float GapeDeg = [] { float V = 34.f; FParse::Value(FCommandLine::Get(), TEXT("FuloGape="), V); return V; }();
+			// A short, hard snap: open in 40 ms (the bolt leaves between the lips at ~45 ms, see
+			// ADragonPawn::TickFire), held a moment, shut by 0.36 s. The lips stay relaxed (the
+			// snarl action pulled them back into a grin) and only the nostrils flare.
+			static const float GapeDeg = [] { float V = 17.f; FParse::Value(FCommandLine::Get(), TEXT("FuloGape="), V); return V; }();
 			float Gape = 0.f;
-			if (Age >= 0.f && Age < 0.7f) Gape = FMath::Min(1.f, Age / 0.06f) * (Age < 0.22f ? 1.f : FMath::SmoothStep(0.7f, 0.22f, Age));
+			if (Age >= 0.f && Age < 0.36f)
+			{
+				const float Up = FMath::Clamp(Age / 0.04f, 0.f, 1.f);
+				Gape = (1.f - FMath::Square(1.f - Up)) * (Age < 0.11f ? 1.f : FMath::SmoothStep(0.36f, 0.11f, Age));
+			}
 			if (FParse::Param(FCommandLine::Get(), TEXT("FuloGapeTest"))) Gape = 1.f;
 			Q = FQuat(FVector(1, 0, 0), FMath::DegreesToRadians(GapeDeg * Gape)) * Q;
-			static const int32 Snarl = R.Find(TEXT("Snarl.1")), Flare = R.Find(TEXT("Flare.1"));
-			if (Snarl >= 0) R.Scale[Snarl] = FVector(1.f, 1.f, 1.f + 0.25f * Gape);
-			if (Flare >= 0) R.Scale[Flare] = FVector(1.f, 1.f, 1.f + 0.5f * Gape);
+			static const int32 Flare = R.Find(TEXT("Flare.1"));
+			if (Flare >= 0) R.Scale[Flare] = FVector(1.f, 1.f, 1.f + 0.35f * Gape);
 			R.Rot[FJaw] = Q;
 		}
 	}
@@ -806,4 +818,13 @@ void UDragonWebRigComponent::WriteFulo()
 		Mesh->BoneSpaceTransforms[u] = Par == INDEX_NONE ? UEAnimCS[u] : UEAnimCS[u].GetRelativeTransform(UEAnimCS[Par]);
 	}
 	Mesh->MarkRefreshTransformDirty();
+}
+
+bool UDragonWebRigComponent::GetMouthWorld(FVector& OutCm) const
+{
+	// Between the front of the upper lip and the front of the lower one, as posed this frame.
+	if (!bFulo || !Mesh || UELipTop == INDEX_NONE || UELipBot == INDEX_NONE || !UEAnimCS.IsValidIndex(UELipTop) || !UEAnimCS.IsValidIndex(UELipBot)) return false;
+	const FVector Mid = (UEAnimCS[UELipTop].GetLocation() + UEAnimCS[UELipBot].GetLocation()) * 0.5;
+	OutCm = Mesh->GetComponentTransform().TransformPosition(Mid);
+	return true;
 }

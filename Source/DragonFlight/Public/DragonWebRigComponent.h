@@ -101,6 +101,8 @@ public:
 	float GetFold() const { return Fold; }
 	/** A plasma shot leaves now: the jaw gapes for it. */
 	void NotifyFire() { FuloFireAt = TimeS; }
+	/** Where a bolt leaves: between the lips, as posed this frame (the Night Fury only). */
+	bool GetMouthWorld(FVector& OutCm) const;
 
 	// --- Wing stowing (BONES_HD.md) ----------------------------------------------
 	/** Past StowFrom of the fold, hide the wing_membrane section and collapse Wing_Shoulder (scale inherits down the arm and digits). */
@@ -223,8 +225,8 @@ private:
 	// --- the Fulonimation Studios rig (DragonWebRigFulo.cpp) ---
 	bool bFulo = false;
 	int32 FuloWingRoot[2] = { INDEX_NONE, INDEX_NONE }, FuloWingElbow[2] = { INDEX_NONE, INDEX_NONE }, FuloWingArm[2] = { INDEX_NONE, INDEX_NONE };
-	float FuloDroop[4] = { 18.f, 0.f, 10.f, 8.f };   // folded wings: roll down over the flanks, pitch, then more roll at the elbow and the forearm so the folded wing curves round him (deg) (-FuloDroop=)
-	int32 UENeutral = INDEX_NONE, UEHead = INDEX_NONE;
+	float FuloDroop[5] = { 45.f, 0.f, 18.f, 15.f, -10.f };   // [4]: sweep back at the root (deg)   // folded wings: roll down over the flanks, pitch, then more roll at the elbow and the forearm so the folded wing curves round him (deg) (-FuloDroop=)
+	int32 UENeutral = INDEX_NONE, UEHead = INDEX_NONE, UELipTop = INDEX_NONE, UELipBot = INDEX_NONE;
 	double FuloFootZ = 0.0;   // the claws' height in the Fulo armature (its ground)
 	TFunction<float(float, float)> FuloGround;   // this frame's ground (web groundAt), for the feet
 	float FuloAirK = 0.f;   // 0 on the ground, 1 in the air (the Night Fury's own leg poses; SFlightReady picks tuck or hang)

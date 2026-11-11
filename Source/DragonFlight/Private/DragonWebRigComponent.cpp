@@ -962,14 +962,18 @@ void UDragonWebRigComponent::ApplyAim(float Dt, const FDragonWebRigInput& In)
 	const float K = Damp(AIM_HEAD_RATE, Dt);
 	AimYaw += (WantYaw - AimYaw) * K;
 	AimPitch += (WantPitch - AimPitch) * K;
-	if (In.bGrounded) return; // main.js applies it in the flight block only
+	// (on the ground too: standing or walking, aiming turns his neck and head to the target, like a
+	// shooter's gun; main.js only did it in flight)
+	// (the Night Fury's head follows this rig's neck with the nod the other way round: checked
+	// in shots, aiming down raised his head)
+	const float PitchSign = bFulo ? 1.f : -1.f;
 	for (int32 i = 0; i < 3; ++i)
 	{
 		AddE(NeckB[i], AZ, AimYaw * AIM_NECK_SHARE);
-		AddE(NeckB[i], AX, -AimPitch * AIM_NECK_SHARE);
+		AddE(NeckB[i], AX, PitchSign * AimPitch * AIM_NECK_SHARE);
 	}
 	AddE(HeadB, AZ, AimYaw * AIM_HEAD_SHARE);
-	AddE(HeadB, AX, -AimPitch * AIM_HEAD_SHARE);
+	AddE(HeadB, AX, PitchSign * AimPitch * AIM_HEAD_SHARE);
 }
 
 // ===========================================================================

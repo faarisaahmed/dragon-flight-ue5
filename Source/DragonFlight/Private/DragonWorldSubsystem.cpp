@@ -218,3 +218,23 @@ bool UDragonWorldSubsystem::IsInLake(double X, double Y, double GroundZ, double 
 	}
 	return false;
 }
+
+double UDragonWorldSubsystem::LakeLevelAt(double X, double Y) const
+{
+	for (const FDragonLake& L : Lakes)
+	{
+		if (L.Wet.Num() != L.W * L.H || L.W <= 0) continue;
+		if (X < L.Bounds.Min.X - L.Cell || X > L.Bounds.Max.X + L.Cell || Y < L.Bounds.Min.Y - L.Cell || Y > L.Bounds.Max.Y + L.Cell) continue;
+		// where the drawn surface is (a wet cell or the overhang next to one) and the ground is under it
+		const int32 cx = FMath::FloorToInt32((X - L.Bounds.Min.X) / L.Cell), cy = FMath::FloorToInt32((Y - L.Bounds.Min.Y) / L.Cell);
+		bool bWet = false;
+		for (int32 dy = -1; dy <= 1 && !bWet; ++dy)
+			for (int32 dx = -1; dx <= 1; ++dx)
+			{
+				const int32 x = cx + dx, y = cy + dy;
+				if (x >= 0 && y >= 0 && x < L.W && y < L.H && L.Wet[y * L.W + x]) { bWet = true; break; }
+			}
+		if (bWet && HeightAt(X, Y) < L.Level) return L.Level;
+	}
+	return -1e9;
+}

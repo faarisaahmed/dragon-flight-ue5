@@ -235,15 +235,49 @@ void ADragonFX::PlasmaMuzzle(const FVector& At, const FVector& Dir)
 	{
 		FDragonPuff P;
 		P.Kind = EDragonPuff::Glow;
-		P.Pos = At + Dir * (40.f + k * 70.f);
-		P.Vel = Dir * (900.f + k * 400.f) + RandDir() * 150.f;
-		P.Drag = 6.f; P.Life = 0.12f + 0.05f * k;
-		P.Size0 = 260.f - k * 50.f; P.Size1 = 420.f;
+		// a small, quick flash at the lips (it hid his whole head before)
+		P.Pos = At + Dir * (20.f + k * 45.f);
+		P.Vel = Dir * (900.f + k * 400.f) + RandDir() * 100.f;
+		P.Drag = 6.f; P.Life = 0.05f + 0.025f * k;
+		P.Size0 = 90.f - k * 15.f; P.Size1 = 160.f;
 		P.Colour0 = k == 0 ? PlasmaHot * 6.f : PlasmaBlue * 4.f; P.Colour1 = PlasmaViolet * 1.5f;
 		P.FadeIn = 0.f;
 		Spawn(P);
 	}
-	Flash(At + Dir * 100.f, 60000.f, 3000.f, 0.15f, PlasmaHot, PlasmaViolet);
+	Flash(At + Dir * 100.f, 30000.f, 2000.f, 0.08f, PlasmaHot, PlasmaViolet);
+}
+
+void ADragonFX::PlasmaSkim(const FVector& At, const FVector& Vel, float K)
+{
+	// Steam flashing off the surface in a line under the bolt, and a rooster tail of spray.
+	const FVector Fl = FVector(Vel.X, Vel.Y, 0.f).GetSafeNormal();
+	for (int32 k = 0; k < 2; ++k)
+	{
+		FDragonPuff P;
+		P.Kind = EDragonPuff::Smoke;
+		P.Pos = At - Fl * (Rand() * 600.f) + FVector(0, 0, 30.f);
+		P.Vel = Fl * (300.f + 500.f * Rand()) + FVector((Rand() - 0.5f) * 200.f, (Rand() - 0.5f) * 200.f, 150.f + 250.f * Rand());
+		P.Drag = 1.4f; P.Buoyancy = 120.f;
+		P.Life = 1.4f + Rand();
+		P.Size0 = 120.f; P.Size1 = 500.f + 300.f * Rand();
+		P.Colour0 = FLinearColor(0.9f, 0.92f, 0.96f); P.Colour1 = FLinearColor(0.85f, 0.87f, 0.9f);
+		P.Intensity = 0.35f * K; P.FadeIn = 0.04f; P.Spin = Rand() - 0.5f;
+		Spawn(P);
+	}
+	if (K > 0.4f)
+		for (int32 k = 0; k < 3; ++k)
+		{
+			FDragonPuff P;
+			P.Kind = EDragonPuff::Spray;
+			P.Pos = At - Fl * (Rand() * 400.f);
+			P.Vel = Fl * (600.f + 600.f * Rand()) + FVector((Rand() - 0.5f) * 400.f, (Rand() - 0.5f) * 400.f, 500.f + 600.f * Rand() * K);
+			P.Drag = 0.8f; P.Gravity = 980.f;
+			P.Life = 0.7f + 0.4f * Rand();
+			P.Size0 = 40.f; P.Size1 = 160.f; P.Stretch = 0.004f;
+			P.Colour0 = FLinearColor(0.95f, 0.97f, 1.f); P.Colour1 = FLinearColor(0.9f, 0.92f, 0.95f);
+			P.Intensity = 0.7f * K; P.FadeIn = 0.02f;
+			Spawn(P);
+		}
 }
 
 void ADragonFX::PlasmaTrail(const FVector& From, const FVector& To, const FVector& Vel)
@@ -262,13 +296,13 @@ void ADragonFX::PlasmaTrail(const FVector& From, const FVector& To, const FVecto
 		P.Kind = EDragonPuff::Glow;
 		P.Pos = FMath::Lerp(From, To, (A0 + A1) * 0.5f);
 		P.Axis = Dir; P.LengthCm = Len / N * 1.6f;
-		P.Life = 0.09f + Rand() * 0.04f;          // a comet's tail of ~60 m, not a beam
-		P.Size0 = 130.f; P.Size1 = 40.f; P.GrowPow = 0.8f;
+		P.Life = 0.028f + Rand() * 0.012f;        // a short comet's tail (~15-20 m): a quick blast, not a beam
+		P.Size0 = 110.f; P.Size1 = 30.f; P.GrowPow = 0.8f;
 		P.Colour0 = FMath::Lerp(PlasmaBlue, PlasmaViolet, 0.35f + 0.3f * Rand()) * 3.f; P.Colour1 = PlasmaViolet * 0.5f;
 		P.FadeIn = 0.f;
 		Spawn(P);
 		FDragonPuff H = P;
-		H.Size0 = 360.f; H.Size1 = 200.f; H.Life = 0.16f; H.LengthCm = Len / N * 1.8f;
+		H.Size0 = 170.f; H.Size1 = 90.f; H.Life = 0.05f; H.LengthCm = Len / N * 1.8f;
 		H.Colour0 = PlasmaViolet * 0.7f; H.Colour1 = PlasmaViolet * 0.1f;
 		Spawn(H);
 	}
@@ -324,32 +358,62 @@ void ADragonFX::PlasmaBlast(const FVector& At, const FVector& Normal, bool bWate
 
 	if (bWater)
 	{
-		// Spray thrown up and falling back, and a cloud of steam that drifts away.
-		for (int32 k = 0; k < 26; ++k)
+		// Plasma into water: it flashes the water to steam. A white column bursts up and falls
+		// back as rain, a ring of spray races out across the surface, a cloud of steam boils up
+		// lit blue from inside for a moment, and the water churns where it went in.
+		Flash(At + FVector(0, 0, 150.f), 1.2e6f, R * 7.f, 0.5f, FLinearColor(0.6f, 0.7f, 1.f), FLinearColor(0.75f, 0.8f, 0.9f));
+		for (int32 k = 0; k < 30; ++k)   // the column
 		{
 			FDragonPuff P;
 			P.Kind = EDragonPuff::Spray;
-			const FVector D = (FVector(FMath::Cos(Rand() * 6.28f), FMath::Sin(Rand() * 6.28f), 0.f) * (0.2f + 0.5f * Rand()) + FVector(0, 0, 1)).GetSafeNormal();
-			P.Pos = At + D * R * 0.1f;
-			P.Vel = D * R * (1.6f + 1.6f * Rand());
-			P.Drag = 0.6f; P.Gravity = 980.f;
-			P.Life = 1.2f + 1.0f * Rand();
-			P.Size0 = R * 0.2f; P.Size1 = R * 0.7f; P.Stretch = 0.004f;
-			P.Colour0 = FLinearColor(0.95f, 0.97f, 1.f); P.Colour1 = FLinearColor(0.9f, 0.92f, 0.95f);
-			P.Intensity = 0.8f; P.FadeIn = 0.02f;
+			const float A = Rand() * 6.2832f, Sp = 0.05f + 0.22f * Rand();
+			const FVector D = FVector(FMath::Cos(A) * Sp, FMath::Sin(A) * Sp, 1.f).GetSafeNormal();
+			P.Pos = At + FVector(FMath::Cos(A), FMath::Sin(A), 0.f) * R * 0.15f * Rand();
+			P.Vel = D * R * (2.0f + 2.2f * Rand());
+			P.Drag = 0.5f; P.Gravity = 980.f;
+			P.Life = 1.6f + 1.0f * Rand();
+			P.Size0 = R * 0.25f; P.Size1 = R * (0.8f + 0.5f * Rand()); P.Stretch = 0.003f;
+			P.Colour0 = FLinearColor(0.96f, 0.98f, 1.f); P.Colour1 = FLinearColor(0.9f, 0.92f, 0.95f);
+			P.Intensity = 0.85f; P.FadeIn = 0.02f;
 			Spawn(P);
 		}
-		for (int32 k = 0; k < 10; ++k)
+		for (int32 k = 0; k < 20; ++k)   // the ring racing out over the water
+		{
+			FDragonPuff P;
+			P.Kind = EDragonPuff::Spray;
+			const float A = (k + Rand() * 0.6f) * 6.2832f / 20.f;
+			const FVector D(FMath::Cos(A), FMath::Sin(A), 0.f);
+			P.Pos = At + D * R * 0.2f + FVector(0, 0, 40.f);
+			P.Vel = D * R * (2.2f + 0.8f * Rand()) + FVector(0, 0, R * (0.3f + 0.3f * Rand()));
+			P.Drag = 1.6f; P.Gravity = 600.f;
+			P.Life = 0.9f + 0.4f * Rand();
+			P.Size0 = R * 0.15f; P.Size1 = R * 0.6f; P.Stretch = 0.002f;
+			P.Colour0 = FLinearColor(0.95f, 0.97f, 1.f); P.Colour1 = FLinearColor(0.9f, 0.92f, 0.95f);
+			P.Intensity = 0.6f; P.FadeIn = 0.02f;
+			Spawn(P);
+		}
+		for (int32 k = 0; k < 16; ++k)   // steam boiling up, lit by the plasma at first
 		{
 			FDragonPuff P;
 			P.Kind = EDragonPuff::Smoke;
-			P.Pos = At + FVector(RandDir().X, RandDir().Y, 0.2f) * R * 0.3f;
-			P.Vel = FVector(0, 0, 300.f + 300.f * Rand()) + RandDir() * 200.f;
-			P.Drag = 0.8f; P.Buoyancy = 120.f;
-			P.Life = 3.f + 2.f * Rand();
-			P.Size0 = R * 0.5f; P.Size1 = R * (1.6f + Rand());
-			P.Colour0 = FLinearColor(0.85f, 0.87f, 0.9f); P.Colour1 = FLinearColor(0.8f, 0.82f, 0.86f);
-			P.Intensity = 0.45f; P.FadeIn = 0.1f; P.Spin = Rand() - 0.5f;
+			P.Pos = At + FVector(RandDir().X, RandDir().Y, 0.3f) * R * 0.35f;
+			P.Vel = FVector(0, 0, 450.f + 500.f * Rand()) + FVector(RandDir().X, RandDir().Y, 0.f) * 350.f;
+			P.Drag = 0.9f; P.Buoyancy = 160.f;
+			P.Life = 3.5f + 2.5f * Rand();
+			P.Size0 = R * 0.5f; P.Size1 = R * (1.8f + 1.2f * Rand());
+			P.Colour0 = FLinearColor(0.78f, 0.84f, 1.f); P.Colour1 = FLinearColor(0.86f, 0.88f, 0.92f);
+			P.Intensity = 0.55f; P.FadeIn = 0.06f; P.Spin = Rand() - 0.5f;
+			Spawn(P);
+		}
+		for (int32 k = 0; k < 5; ++k)   // the plasma itself, going out under the surface
+		{
+			FDragonPuff P;
+			P.Kind = EDragonPuff::Glow;
+			P.Pos = At + FVector(RandDir().X, RandDir().Y, 0.f) * R * 0.15f + FVector(0, 0, 20.f);
+			P.Life = 0.35f + 0.2f * Rand();
+			P.Size0 = R * 0.6f; P.Size1 = R * 1.1f; P.GrowPow = 0.4f;
+			P.Colour0 = FMath::Lerp(PlasmaBlue, PlasmaViolet, Rand()) * 2.5f; P.Colour1 = PlasmaBlue * 0.1f;
+			P.FadeIn = 0.f;
 			Spawn(P);
 		}
 		return;

@@ -12,12 +12,16 @@
 #include "Engine/GameInstance.h"
 #include "Engine/GameViewportClient.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Widgets/SViewport.h"
 #include "Fonts/FontMeasure.h"
 #include "GameFramework/GameUserSettings.h"
 #include "ImageUtils.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/App.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
+#include "HAL/FileManager.h"
+#include "Misc/CommandLine.h"
 #include "Rendering/SlateRenderer.h"
 #include "Styling/CoreStyle.h"
 #include "RenderUtils.h"
@@ -782,10 +786,46 @@ void ADragonHUD::DrawHUD()
 	if (PC)
 	{
 		const bool bUI = PC->Screen != 0;
+		bool bSlateLeft = false, bOsPointer = false;
 		if (PC->bShowMouseCursor)
 		{
+			// The system cursor, read from Slate (in the window's pixels): unlike the player
+			// controller's own reading this keeps working after a graphics change re-creates the
+			// viewport, or while the viewport widget doesn't have focus.
+			bool bHave = false;
+			if (FSlateApplication::IsInitialized() && GEngine && GEngine->GameViewport)
+			{
+				FSlateApplication& App = FSlateApplication::Get();
+				bSlateLeft = App.GetPressedMouseButtons().Contains(EKeys::LeftMouseButton);
+				if (TSharedPtr<SViewport> VW = GEngine->GameViewport->GetGameViewportWidget())
+				{
+					const FGeometry& G = VW->GetTickSpaceGeometry();
+					const FVector2D LocalSize = FVector2D(G.GetLocalSize());
+					if (LocalSize.X > 1.0 && LocalSize.Y > 1.0)
+					{
+						const FVector2D L = FVector2D(G.AbsoluteToLocal(App.GetCursorPos()));
+						Mouse = FVector2D(L.X / LocalSize.X * Canvas->ClipX, L.Y / LocalSize.Y * Canvas->ClipY);
+						bHave = Mouse.X >= 0.0 && Mouse.Y >= 0.0 && Mouse.X <= Canvas->ClipX && Mouse.Y <= Canvas->ClipY;
+					}
+				}
+			}
+			// The controller's reading is in the viewport's own pixels and is right whenever it has
+			// one; Slate's (mapped through the widget's geometry) only stands in when it doesn't.
 			float X = 0, Y = 0;
+			SlateMouse = Mouse;
 			if (PC->GetMousePosition(X, Y)) Mouse = FVector2D(X, Y);
+			else if (!bHave) Mouse = LastMouse;
+			// On the Mac the engine's own cursor reading goes stale in a full-screen window (it kept the
+			// position from start-up, its height pinned to the top: the menus couldn't be clicked).
+			// Full screen, the window is the display: ask the OS where the pointer is and whether the
+			// button is down.
+			FVector2D UV; bool bOsLeft = false;
+			if (GEngine && GEngine->GameViewport && GEngine->GameViewport->IsFullScreenViewport() && ADragonPlayerController::GetOsPointer(UV, bOsLeft))
+			{
+				Mouse = FVector2D(UV.X * Canvas->ClipX, UV.Y * Canvas->ClipY);
+				bSlateLeft = bOsLeft;
+				bOsPointer = true;
+			}
 		}
 		else if (bUI)
 		{
@@ -798,8 +838,19 @@ void ADragonHUD::DrawHUD()
 			Mouse.Y = FMath::Clamp(Mouse.Y - DY * K, 0.f, Canvas->ClipY - 1.f);
 		}
 		bPointerWasUI = bUI;
-		bClick = bUI && PC->WasInputKeyJustPressed(EKeys::LeftMouseButton);
-		bHeld = bUI && PC->IsInputKeyDown(EKeys::LeftMouseButton);
+		// A press either the game's input or Slate saw (Slate sees it even when the click went to
+		// the window rather than the game viewport).
+		// (one source only, so a press is never counted twice on neighbouring frames)
+		bClick = bUI && (bOsPointer ? (bSlateLeft && !bSlateLeftWas) : (PC->WasInputKeyJustPressed(EKeys::LeftMouseButton) || (bSlateLeft && !bSlateLeftWas)));
+		bHeld = bUI && (bOsPointer ? bSlateLeft : (PC->IsInputKeyDown(EKeys::LeftMouseButton) || bSlateLeft));
+		bSlateLeftWas = bSlateLeft;
+		// -UiTrace: every click in a menu, where it landed and what the menu shows (cursor tests).
+		if (bClick && FParse::Param(FCommandLine::Get(), TEXT("UiTrace")))
+		{
+			const FString Line = FString::Printf(TEXT("%.2f click %.0f,%.0f (slate %.0f,%.0f) of %.0fx%.0f screen %d page %d quality %d cursor %d\n"), Clock, Mouse.X, Mouse.Y, SlateMouse.X, SlateMouse.Y, Canvas->ClipX, Canvas->ClipY,
+				PC->Screen, PC->MenuPage, GEngine && GEngine->GetGameUserSettings() ? GEngine->GetGameUserSettings()->GetOverallScalabilityLevel() : -1, PC->bShowMouseCursor ? 1 : 0);
+			FFileHelper::SaveStringToFile(Line, *(FPaths::ProjectSavedDir() / TEXT("UiTrace.txt")), FFileHelper::EEncodingOptions::AutoDetect, &IFileManager::Get(), FILEWRITE_Append);
+		}
 		if (PC->Screen != 2) bMapWasOpen = false;
 	}
 

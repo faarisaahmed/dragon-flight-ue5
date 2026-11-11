@@ -16,6 +16,7 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/CommandLine.h"
 #include "Scalability.h"
+#include "Misc/ScopeExit.h"
 #include "Materials/MaterialInterface.h"
 
 namespace
@@ -391,6 +392,42 @@ float ADragonScatter::QualityScale() const
 	return ByLevel[FMath::Clamp(Q.FoliageQuality, 0, 4)] * DistanceScale;
 }
 
+bool ADragonScatter::IsBanded(const FDragonScatterLayer& L)
+{
+	return L.Kind == EDragonScatterKind::Tree || L.Kind == EDragonScatterKind::Sapling;
+}
+
+void ADragonScatter::Reach(const FDragonScatterLayer& L, float AltBoost, float& OutNear, float& OutFar) const
+{
+	OutNear = L.RadiusM * QualityScale() * AltBoost;
+	OutFar = OutNear;
+	if (!IsBanded(L)) return;
+	// The forest is seen from far off: past the full-density ring the trees go on, thinning by
+	// half each time the distance doubles (and a little bigger, so a far hillside still reads as
+	// wooded), out to a reach set by the graphics preset. Nanite keeps far trees cheap to draw;
+	// what they cost is instances, which the thinning keeps in check.
+	static const float FarByLevel[5] = { 2200.f, 3500.f, 6000.f, 9000.f, 16000.f };
+	const int32 Q = FMath::Clamp(Scalability::GetQualityLevels().FoliageQuality, 0, 4);
+	const float Far = FarByLevel[Q] * (L.Kind == EDragonScatterKind::Sapling ? 0.5f : 1.f) * DistanceScale * AltBoost;
+	OutFar = FMath::Max(OutNear, Far);
+}
+
+int32 ADragonScatter::BandFor(const FDragonScatterLayer& L, double DistM, float Near) const
+{
+	if (!IsBanded(L) || DistM <= Near) return 0;
+	return FMath::Clamp(FMath::CeilToInt(FMath::Log2(DistM / FMath::Max(Near, 1.f))), 1, 3);
+}
+
+bool ADragonScatter::TileMaybeLand(const FDragonScatterLayer& L, int32 TX, int32 TY) const
+{
+	// Most of the world is sea: a 5x5 look at the ground finds the empty tiles without testing
+	// every candidate tree in them.
+	for (int32 j = 0; j <= 4; ++j)
+		for (int32 i = 0; i <= 4; ++i)
+			if (GroundM((TX + i * 0.25) * L.TileM, (TY + j * 0.25) * L.TileM) > -2.f) return true;
+	return false;
+}
+
 FVector ADragonScatter::ViewPointM() const
 {
 	if (const APlayerController* PC = GetWorld()->GetFirstPlayerController())
@@ -415,14 +452,17 @@ void ADragonScatter::Tick(float DeltaSeconds)
 		const float QS = QualityScale();
 		// Altitude pushes the radius out a little: from 1 km up you see much further.
 		const float AltBoost = 1.f + FMath::Clamp((float)View.Z / 2000.f, 0.f, 0.5f);
+		CurAltBoost = AltBoost;
+		(void)QS;
 
 		// Drop far tiles.
 		TArray<FTileKey> ToDrop;
 		for (const TPair<FTileKey, FTile>& T : Tiles)
 		{
 			const FDragonScatterLayer& L = ScatterLayers[T.Key.Layer];
+			float Near, Far; Reach(L, AltBoost, Near, Far);
 			const FVector2D C((T.Key.X + 0.5) * L.TileM, (T.Key.Y + 0.5) * L.TileM);
-			if (FVector2D::Distance(C, FVector2D(View)) > L.RadiusM * QS * AltBoost * 1.15f + L.TileM) ToDrop.Add(T.Key);
+			if (FVector2D::Distance(C, FVector2D(View)) > Far * 1.15f + L.TileM) ToDrop.Add(T.Key);
 		}
 		for (const FTileKey& K : ToDrop) DropTile(K);
 
@@ -432,7 +472,7 @@ void ADragonScatter::Tick(float DeltaSeconds)
 		{
 			const FDragonScatterLayer& L = ScatterLayers[Li];
 			if (LayerMeshes[Li].Num() == 0) continue;
-			const float R = L.RadiusM * QS * AltBoost;
+			float Near, R; Reach(L, AltBoost, Near, R);
 			const int32 X0 = FMath::FloorToInt((View.X - R) / L.TileM), X1 = FMath::FloorToInt((View.X + R) / L.TileM);
 			const int32 Y0 = FMath::FloorToInt((View.Y - R) / L.TileM), Y1 = FMath::FloorToInt((View.Y + R) / L.TileM);
 			for (int32 Y = Y0; Y <= Y1; ++Y)
@@ -443,7 +483,10 @@ void ADragonScatter::Tick(float DeltaSeconds)
 					if (FVector2D::Distance(C, FVector2D(View)) > R + L.TileM * 0.7f) continue;
 					if (FMath::Abs(C.X) > WorldSizeM * 0.5 || FMath::Abs(C.Y) > WorldSizeM * 0.5) continue;
 					const FTileKey K{ Li, X, Y };
-					if (!Tiles.Contains(K)) Queue.Add(K);
+					const FTile* Have = Tiles.Find(K);
+					// missing, or built for a sparser band than it now needs (coming closer); a tile
+					// left denser than needed as he flies away just stays until it is dropped
+					if (!Have || Have->Band > BandFor(L, FVector2D::Distance(C, FVector2D(View)), Near)) Queue.Add(K);
 				}
 			}
 		}
@@ -451,6 +494,7 @@ void ADragonScatter::Tick(float DeltaSeconds)
 		{
 			const FDragonScatterLayer& LA = ScatterLayers[A.Layer];
 			const FDragonScatterLayer& LB = ScatterLayers[B.Layer];
+			// nearest first, by each layer's own full-density radius: what is close fills in first
 			const double DA = FVector2D::Distance(FVector2D((A.X + 0.5) * LA.TileM, (A.Y + 0.5) * LA.TileM), FVector2D(View)) / LA.RadiusM;
 			const double DB = FVector2D::Distance(FVector2D((B.X + 0.5) * LB.TileM, (B.Y + 0.5) * LB.TileM), FVector2D(View)) / LB.RadiusM;
 			return DA < DB;
@@ -463,11 +507,24 @@ void ADragonScatter::Tick(float DeltaSeconds)
 	// Each tile adds components the render thread must set up; a handful at once was a 20 ms
 	// render-thread stall (visible stutter crossing into an island). Two a frame, unless a
 	// loading screen or a photo has asked for a big budget.
-	const int32 MaxTiles = BudgetMs > 10.f ? 1000 : 2;
-	while (Done < Queue.Num() && Done < MaxTiles && (FPlatformTime::Seconds() - Start) * 1000.0 < BudgetMs)
+	// On the Cinematic preset everything is loaded up front (it is for pictures: no bare
+	// hillsides filling in), at the cost of a heavier first few seconds.
+	const bool bAllAtOnce = Scalability::GetQualityLevels().FoliageQuality >= 4;
+	const float Budget = bAllAtOnce ? FMath::Max(BudgetMs, 14.f) : BudgetMs;
+	const int32 MaxTiles = Budget > 10.f ? 1000 : 2;
+	int32 Built = 0;
+	while (Done < Queue.Num() && Built < MaxTiles && (FPlatformTime::Seconds() - Start) * 1000.0 < Budget)
 	{
 		const FTileKey K = Queue[Done++];
-		if (!Tiles.Contains(K)) BuildTile(K.Layer, K.X, K.Y);
+		const FDragonScatterLayer& L = ScatterLayers[K.Layer];
+		float Near, Far; Reach(L, CurAltBoost, Near, Far);
+		const int32 Band = BandFor(L, FVector2D::Distance(FVector2D((K.X + 0.5) * L.TileM, (K.Y + 0.5) * L.TileM), FVector2D(View)), Near);
+		const FTile* Have = Tiles.Find(K);
+		if (Have && Have->Band <= Band) continue;
+		// open sea: an empty tile, no work (and it doesn't count against the frame's tiles)
+		if (!Have && L.Kind != EDragonScatterKind::Iceberg && !TileMaybeLand(L, K.X, K.Y)) { Tiles.Add(K).Band = 0; continue; }
+		BuildTile(K.Layer, K.X, K.Y, Band);
+		++Built;
 	}
 	if (Done > 0) Queue.RemoveAt(0, Done, EAllowShrinking::No);
 
@@ -493,12 +550,21 @@ bool ADragonScatter::IsBusy() const
 	return Queue.Num() > 0;
 }
 
-void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
+void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY, int32 Band)
 {
 	const FDragonScatterLayer& L = ScatterLayers[Li];
 	const TArray<UStaticMesh*>& Meshes = LayerMeshes[Li];
+	// Rebuilt for a denser band: the new instances go in before the old ones go, so nothing blinks.
+	TArray<TObjectPtr<UInstancedStaticMeshComponent>> Old;
+	if (FTile* Prev = Tiles.Find(FTileKey{ Li, TX, TY })) Old = MoveTemp(Prev->Components);
 	FTile& Tile = Tiles.Add(FTileKey{ Li, TX, TY });
+	Tile.Band = Band;
+	ON_SCOPE_EXIT { for (UInstancedStaticMeshComponent* C : Old) if (C) C->DestroyComponent(); };
 	if (Meshes.Num() == 0) return;
+	// A far band keeps one candidate in 2^Band (the same ones at every band, so coming closer
+	// only adds trees), each a little larger to keep the canopy closed.
+	const float Keep = 1.f / float(1 << Band);
+	const float BandScale = 1.f + 0.12f * Band;
 
 	TArray<TArray<FTransform>> PerMesh;
 	PerMesh.SetNum(Meshes.Num());
@@ -517,10 +583,17 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 		{
 			const double X = OX + (i + Rng.Next()) * Cell;
 			const double Y = OY + (j + Rng.Next()) * Cell;
-			const float Pick = Rng.Next(), Keep = Rng.Next(), S01 = Rng.Next(), Yaw = Rng.Next() * 360.f;
+			const float Pick = Rng.Next(), KeepR = Rng.Next(), S01 = Rng.Next(), Yaw = Rng.Next() * 360.f;
+			if (Band > 0)
+			{
+				uint32 Hh = (uint32)(TX * 73856093) ^ (uint32)(TY * 19349663) ^ (uint32)((j * 131 + i) * 83492791u) ^ (uint32)L.Seed;
+				Hh ^= Hh >> 13; Hh *= 0x5bd1e995u; Hh ^= Hh >> 15;
+				if ((Hh & 0xFFFF) / 65535.f >= Keep) continue;
+			}
 			const float H = GroundM(X, Y);
 			float ScaleMul = 1.f;
-			if (!Accept(L, X, Y, H, Keep, ScaleMul)) continue;
+			if (!Accept(L, X, Y, H, KeepR, ScaleMul)) continue;
+			ScaleMul *= BandScale;
 
 			int32 MeshIdx = FMath::Min(Meshes.Num() - 1, (int32)(Pick * Meshes.Num()));
 			// Wave-worn coast pieces belong on the shore; mossy boulders and crag faces inland.
@@ -586,11 +659,15 @@ void ADragonScatter::BuildTile(int32 Li, int32 TX, int32 TY)
 			for (int32 k = 0; k < Meshes[m]->GetStaticMaterials().Num(); ++k) C->SetMaterial(k, IceMaterial);
 		C->SetMobility(EComponentMobility::Movable); // created at runtime under a movable root
 		C->SetCollisionEnabled(L.bCollide ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
-		C->SetCastShadow(L.bCastShadow);
+		// (the far thinned forest casts no shadow: at that range it can't be seen, and it is most of the trees)
+		C->SetCastShadow(L.bCastShadow && Band <= 1);
 		// Only rocks and cliffs go into Lumen's distance fields: 50k trees in the SDF atlas cost
 		// more GPU than their bounce light is worth.
 		C->bAffectDistanceFieldLighting = L.Kind == EDragonScatterKind::Rock || L.Kind == EDragonScatterKind::Cliff || L.Kind == EDragonScatterKind::Iceberg;
-		C->SetCullDistances(0, FMath::RoundToInt(L.RadiusM * 1.1f * M));
+		{
+			float Near, Far; Reach(L, 1.5f, Near, Far);
+			C->SetCullDistances(0, FMath::RoundToInt(FMath::Max(L.RadiusM * 1.1f, Far * 1.1f) * M));
+		}
 		// Wind sway only near the camera. Swaying (WPO) geometry can't use the virtual shadow
 		// map cache, so every swaying tree in view had its shadow redrawn every frame (~11 ms
 		// on the mini for the forests). Past 120 m nobody sees the sway; the shadows cache.

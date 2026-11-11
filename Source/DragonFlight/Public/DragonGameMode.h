@@ -65,6 +65,8 @@ public:
 	void SetScreen(int32 NewScreen, bool bPause = true);
 	void CapturePointer();
 	void ReleasePointer();
+	/** The system pointer over the main display (0..1, top-left) and the left button, from the OS. */
+	static bool GetOsPointer(FVector2D& OutUV, bool& bOutLeft);
 
 	/** Saved controls: mouse sensitivity as a multiple of the default (0.25..3), invert Y. */
 	static float GetMouseScale();

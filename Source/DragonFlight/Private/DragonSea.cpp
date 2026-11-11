@@ -131,7 +131,8 @@ float ADragonSea::SurfaceM(double Xm, double Ym) const
 	for (int32 i = 0; i < 12; ++i)
 	{
 		const double Dx = Wv[i][0], Dy = Wv[i][1], L = Wv[i][2];
-		const double Group = 0.65 + 0.35 * FMath::Sin((Xm * Dy - Ym * Dx) * (UE_DOUBLE_TWO_PI / (L * 7.3)) + i * 1.7) * FMath::Sin((Xm * Dx + Ym * Dy) * (UE_DOUBLE_TWO_PI / (L * 11.0)) + i * 2.3);
+		const double Ox = 0.766 * Dx - 0.643 * Dy, Oy = 0.643 * Dx + 0.766 * Dy;
+		const double Group = 0.62 + 0.2 * FMath::Sin((Xm * Dy - Ym * Dx) * (UE_DOUBLE_TWO_PI / (L * 7.3)) + i * 1.7) + 0.18 * FMath::Sin((Xm * Ox + Ym * Oy) * (UE_DOUBLE_TWO_PI / (L * 11.0)) + i * 2.3);
 		const double K = UE_DOUBLE_TWO_PI / L, C = FMath::Sqrt(9.81 / K);
 		H += Wv[i][3] * Fade * Group * FMath::Sin(K * (Dx * Xm + Dy * Ym - C * T) + i * 0.9);
 	}

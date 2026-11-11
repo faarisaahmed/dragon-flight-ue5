@@ -49,6 +49,9 @@ private:
 
 	FVector Velocity = FVector::ZeroVector;
 	float Travelled = 0.f;
+	float SkimT = 0.f;
+	/** The water surface under a point (cm): a lake's, or the sea's 0. */
+	float WaterAt(const FVector& Cm) const;
 	bool bExploded = false;
 	float FlashT = 0.f;
 };

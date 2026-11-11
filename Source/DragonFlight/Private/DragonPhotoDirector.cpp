@@ -267,6 +267,41 @@ void ADragonPhotoDirector::PlanShots()
 			Shots.Add(Rv);
 		}
 	}
+	// Lakes: the biggest, from its shore 40 m up; and the dragon coming down on it (he should swim).
+	{
+		const FDragonLake* Big = nullptr; int32 BigN = 0;
+		for (const FDragonLake& L : W->GetLakes())
+		{
+			int32 NW = 0; for (uint8 B : L.Wet) NW += B;
+			if (NW > BigN) { BigN = NW; Big = &L; }
+		}
+		if (Big)
+		{
+			FVector2D C(0, 0); int32 NC = 0;
+			for (int32 y = 0; y < Big->H; ++y) for (int32 x = 0; x < Big->W; ++x)
+				if (Big->Wet[y * Big->W + x]) { C += FVector2D(Big->Bounds.Min.X + (x + 0.5) * Big->Cell, Big->Bounds.Min.Y + (y + 0.5) * Big->Cell); ++NC; }
+			C /= FMath::Max(NC, 1);
+			const double Rad = FMath::Sqrt(NC * Big->Cell * Big->Cell / PI);
+			FShot Lk; Lk.Name = TEXT("47_lake"); Lk.Hours = 15.f;
+			Lk.Location = FVector(C.X + Rad * 1.3, C.Y + Rad * 0.6, Big->Level + 4000.0);
+			Lk.Location.Z = FMath::Max(Lk.Location.Z, W->HeightAt(Lk.Location.X, Lk.Location.Y) + 3000.0);
+			Lk.Rotation = Look(Lk.Location, FVector(C.X, C.Y, Big->Level));
+			Shots.Add(Lk);
+			FShot Ll; Ll.Name = TEXT("47b_lake_land"); Ll.bChase = true; Ll.bPose = true; Ll.Hours = 15.f;
+			// over its deepest water
+			FVector2D Deep = C; double DeepZ = 1e12;
+			for (int32 y = 0; y < Big->H; ++y) for (int32 x = 0; x < Big->W; ++x)
+				if (Big->Wet[y * Big->W + x])
+				{
+					const FVector2D P(Big->Bounds.Min.X + (x + 0.5) * Big->Cell, Big->Bounds.Min.Y + (y + 0.5) * Big->Cell);
+					const double Z = W->HeightAt(P.X, P.Y);
+					if (Z < DeepZ) { DeepZ = Z; Deep = P; }
+				}
+			Ll.PoseM = FVector(Deep.X, Deep.Y, Big->Level + 600.0) / 100.0; Ll.PoseYaw = 30.f; Ll.PoseSpeed = 0.f;
+			Ll.Script.bOn = true; Ll.Script.bLand = true; Ll.SettleS = 8.f;
+			Shots.Add(Ll);
+		}
+	}
 	// Plasma: a bolt bursting on a hillside above the home bay (late afternoon and dusk), and
 	// one in flight, from about where the chase camera would be.
 	{
@@ -432,6 +467,27 @@ void ADragonPhotoDirector::PlanShots()
 				Shots.Add(Sb);
 				FShot Hv = Sk; Hv.Name = TEXT("41_hover_water"); Hv.PoseM.Z = 4.0; Hv.PoseSpeed = 0.f; Hv.Script.Move = 0.f; Hv.Script.Knife = 0; Hv.Script.Vertical = 0.f; Hv.SettleS = 4.5f;
 				Shots.Add(Hv);
+				// The shore up close from just off it: the surf and the foam along the waterline.
+				{
+					FShot Sh = Hv; Sh.Name = TEXT("41b_shore_low");
+					const FVector Off = Coast + D * 7000.0;
+					Sh.PoseM = FVector(Off.X, Off.Y, 1800.0) / 100.0; Sh.PoseYaw = (-D).Rotation().Yaw + 25.f; Sh.SettleS = 4.f;
+					Shots.Add(Sh);
+				}
+				// Aiming from a hover 30 m over the sea: level, steeply down (the bolt into the water)
+				// and steeply up, with the HUD's crosshair, the bolt in the air at the shutter.
+				{
+					FShot Am = Hv; Am.bPanel = true; Am.PoseM.Z = 30.0; Am.SettleS = 3.25f;
+					Am.Script.bAim = true; Am.Script.FireAt = 3.1f;
+					Am.Name = TEXT("53_aim_level"); Am.Script.AimPitch = 0.2f; Shots.Add(Am);
+					Am.Name = TEXT("53_aim_down"); Am.Script.AimPitch = 1.15f; Shots.Add(Am);
+					Am.Name = TEXT("53_aim_up"); Am.Script.AimPitch = -0.95f; Shots.Add(Am);
+					// and the water's answer, half a second and a second and a half after the bolt goes in
+					Am.Name = TEXT("53b_water_hit_0"); Am.Script.AimPitch = 1.15f; Am.SettleS = 3.65f; Am.bPanel = false; Shots.Add(Am);
+					Am.Name = TEXT("53b_water_hit_1"); Am.SettleS = 4.6f; Shots.Add(Am);
+					// skimming: aimed a few degrees down, the bolt runs low over the water
+					Am.Name = TEXT("53c_skim_bolt"); Am.Script.AimPitch = 0.42f; Am.PoseM.Z = 6.0; Am.SettleS = 3.4f; Shots.Add(Am);
+				}
 				// A gentle patch of turf inland for the landing and the walk.
 				FVector Turf = Coast - D * 45000.0;
 				for (int32 Ring = 0; Ring < 30; ++Ring)
@@ -473,6 +529,8 @@ void ADragonPhotoDirector::PlanShots()
 					{
 						FShot Fc = Sd; Fc.Name = TEXT("51g_face_3q"); Fc.SettleS = 4.5f; Fc.SideOffset = FVector(760.0, 330.0, 120.0); Fc.SideAim = FVector(270.0, 0.0, 95.0); Fc.SideFov = 20.f; Shots.Add(Fc);
 						FShot Ff = Fc; Ff.Name = TEXT("51g_face_front"); Ff.SideOffset = FVector(800.0, 0.0, 110.0); Shots.Add(Ff);
+						FShot Ag = Fc; Ag.Name = TEXT("54b_aim_stand_down"); Ag.Script.bOn = true; Ag.Script.bAim = true; Ag.Script.AimPitch = 1.1f; Shots.Add(Ag);
+						Ag.Name = TEXT("54b_aim_stand_up"); Ag.Script.AimPitch = -0.7f; Shots.Add(Ag);
 						FShot Rr = Fc; Rr.Name = TEXT("51h_rear_stand"); Rr.SideOffset = FVector(-1100.0, 450.0, 380.0); Rr.SideAim = FVector(0.0, 0.0, 60.0); Rr.SideFov = 34.f; Shots.Add(Rr);
 					}
 					FShot Fr = Sd; Fr.Name = TEXT("51d_front_walk"); Fr.Script.WalkFwd = 1.f; Fr.SettleS = 5.f; Fr.SideOffset = FVector(1300.0, 700.0, 120.0); Shots.Add(Fr);
@@ -504,6 +562,29 @@ void ADragonPhotoDirector::PlanShots()
 					{
 						FShot Hf = Hv2; Hf.Name = FString::Printf(TEXT("50k_hover_face_%d"), i); Hf.SettleS = 3.f + 0.2f * i;
 						Hf.SideOffset = FVector(650.0, 700.0, 180.0); Hf.SideAim = FVector(250.0, 0.0, 100.0); Hf.SideFov = 30.f; Shots.Add(Hf);
+					}
+					// Firing, close on the face: the jaw snapping open as the bolt leaves it.
+					{
+						const FVector Fw = FRotator(0.f, Hv2.PoseYaw, 0.f).Vector();
+						for (int32 i = 0; i < 3; ++i)
+						{
+							static const float AtS[3] = { 0.035f, 0.065f, 0.16f };   // after the press
+							FShot Fm = Hv2; Fm.Name = FString::Printf(TEXT("52_fire_mouth_%d"), i); Fm.SettleS = 3.f;
+							Fm.SideOffset = FVector(650.0, 700.0, 180.0); Fm.SideAim = FVector(250.0, 0.0, 100.0); Fm.SideFov = 30.f;
+							Fm.bDragonFires = true; Fm.Target = (Hv2.PoseM + Fw * 300.0 + FVector(0, 0, -20.0)) * 100.0;
+							Fm.PlasmaLead = -(300.67f / 600.f - AtS[i]);
+							Shots.Add(Fm);
+						}
+					}
+					// Aiming: his head turns to the crosshair, down at the water and up at the sky.
+					{
+						FShot Ah = Hv2; Ah.SettleS = 3.f; Ah.Script.bAim = true;
+						Ah.SideOffset = FVector(650.0, 700.0, 180.0); Ah.SideAim = FVector(250.0, 0.0, 100.0); Ah.SideFov = 30.f;
+						Ah.Name = TEXT("54_aim_head_down"); Ah.Script.AimPitch = 1.15f; Shots.Add(Ah);
+						Ah.Name = TEXT("54_aim_head_up"); Ah.Script.AimPitch = -0.9f; Shots.Add(Ah);
+						// and to the side the camera is on (the right): he should look toward it
+						Ah.Name = TEXT("54_aim_head_side"); Ah.Script.AimPitch = 0.2f; Ah.Script.AimYaw = 0.9f; Shots.Add(Ah);
+						Ah.Name = TEXT("54_aim_head_side2"); Ah.Script.AimYaw = -0.9f; Shots.Add(Ah);
 					}
 					FShot Hl = Hv2; Hl.Name = TEXT("50l_hover_legs"); Hl.SideOffset = FVector(200.0, 1100.0, -250.0); Hl.SideAim = FVector(50.0, 0.0, -50.0); Hl.SideFov = 36.f; Shots.Add(Hl);
 					FShot Ha = Hv2; Ha.Name = TEXT("50m_hover_above"); Ha.SideOffset = FVector(-700.0, 250.0, 800.0); Ha.SideAim = FVector(80.0, 0.0, 0.0); Ha.SideFov = 36.f; Shots.Add(Ha);

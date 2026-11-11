@@ -94,7 +94,15 @@ private:
 	{
 		// One HISM per mesh variant in the layer.
 		TArray<TObjectPtr<UInstancedStaticMeshComponent>> Components;
+		int32 Band = 0;   // distance band it was built for: 0 full density, b keeps 1 in 2^b (thinned far forest)
 	};
+	/** Trees and saplings reach far, thinning with distance; other layers stop at their radius. */
+	static bool IsBanded(const FDragonScatterLayer& L);
+	/** Full-density radius and the furthest reach for a layer, metres, at this view height. */
+	void Reach(const FDragonScatterLayer& L, float AltBoost, float& OutNear, float& OutFar) const;
+	int32 BandFor(const FDragonScatterLayer& L, double DistM, float Near) const;
+	bool TileMaybeLand(const FDragonScatterLayer& L, int32 TX, int32 TY) const;
+	float CurAltBoost = 1.f;
 
 	bool LoadMasks();
 	FVector4f SampleMask(double XM, double YM) const;      // R forest, G veg, B ice, A water
@@ -103,7 +111,7 @@ private:
 	float GroundM(double XM, double YM) const;
 	FVector GroundNormal(double XM, double YM) const;
 	bool Accept(const FDragonScatterLayer& L, double XM, double YM, float H, float Rand, float& OutScaleMul) const;
-	void BuildTile(int32 LayerIndex, int32 TX, int32 TY);
+	void BuildTile(int32 LayerIndex, int32 TX, int32 TY, int32 Band = 0);
 	void DropTile(const FTileKey& Key);
 	FVector ViewPointM() const;
 	float QualityScale() const;

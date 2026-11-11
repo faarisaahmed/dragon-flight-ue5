@@ -2,6 +2,8 @@
 #include "DragonWake.h"
 #include "DragonFX.h"
 #include "DragonSfx.h"
+#include "DragonWorldSubsystem.h"
+#include "Engine/GameInstance.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Engine/StaticMesh.h"
@@ -107,10 +109,11 @@ void ADragonPlasma::Tick(float DeltaSeconds)
 			Explode(Hit.ImpactPoint, Hit.ImpactNormal, false);
 			return;
 		}
-		// The sea surface (z = 0) counts even where there is no collision.
-		if (Next.Z <= 0.f && At.Z > 0.f)
+		// The sea surface (z = 0), or a lake's, counts even where there is no collision.
+		const float WaterZ = WaterAt(Next);
+		if (Next.Z <= WaterZ && At.Z > WaterZ)
 		{
-			const float T = At.Z / (At.Z - Next.Z);
+			const float T = (At.Z - WaterZ) / (At.Z - Next.Z);
 			const FVector W = FMath::Lerp(At, Next, T);
 			if (ADragonFX* FX = ADragonFX::Get(this)) FX->PlasmaTrail(Start, W, Velocity);
 			Explode(W, FVector::UpVector, true);
@@ -119,9 +122,38 @@ void ADragonPlasma::Tick(float DeltaSeconds)
 		At = Next;
 	}
 	SetActorLocation(At);
-	if (ADragonFX* FX = ADragonFX::Get(this)) FX->PlasmaTrail(Start, At, Velocity);
+	if (ADragonFX* FX = ADragonFX::Get(this))
+	{
+		FX->PlasmaTrail(Start, At, Velocity);
+		// Low over water the heat tears a furrow of steam and spray along the surface under it.
+		const float WaterZ = WaterAt(At);
+		const float Height = At.Z - WaterZ;
+		if (Height < 9.f * M && Height > 0.f)
+		{
+			SkimT -= DeltaSeconds;
+			const float K = 1.f - Height / (9.f * M);
+			if (SkimT <= 0.f)
+			{
+				SkimT = 0.02f;
+				FX->PlasmaSkim(FVector(At.X, At.Y, WaterZ), Velocity, K);
+				if (ADragonWake* Wk = ADragonWake::Get(this)) Wk->Disturb(FVector(At.X, At.Y, WaterZ), 220.f, -0.25f * K, 6.f * K);
+			}
+		}
+	}
 	Travelled += Len;
 	if (Travelled > RangeM * M) Explode(At, FVector::UpVector, false);
+}
+
+float ADragonPlasma::WaterAt(const FVector& Cm) const
+{
+	if (const UWorld* W = GetWorld())
+		if (const UGameInstance* GI = W->GetGameInstance())
+			if (const UDragonWorldSubsystem* WS = GI->GetSubsystem<UDragonWorldSubsystem>())
+			{
+				const double L = WS->LakeLevelAt(Cm.X, Cm.Y);
+				if (L > 0.0) return (float)L;
+			}
+	return 0.f;
 }
 
 void ADragonPlasma::Explode(const FVector& AtCm, const FVector& Normal, bool bWater)
@@ -138,7 +170,7 @@ void ADragonPlasma::Explode(const FVector& AtCm, const FVector& Normal, bool bWa
 	}
 	DragonSfx::PlasmaBlast(this, AtCm, bWater || bAir);
 	if (bWater)
-		if (ADragonWake* Wk = ADragonWake::Get(this)) Wk->Disturb(AtCm, BlastRadiusM * M * 0.35f, -1.4f, 25.f);   // a crater in the sea, rings running out from it
+		if (ADragonWake* Wk = ADragonWake::Get(this)) Wk->Disturb(AtCm, BlastRadiusM * M * 0.45f, -2.2f, 12.f);   // a crater in the water, rings running out from it, a boiling patch of foam
 	// Anything physics-simulating in the blast gets pushed (crates, debris, later: targets).
 	TArray<FOverlapResult> Overlaps;
 	FCollisionShape Shape = FCollisionShape::MakeSphere(BlastRadiusM * M);

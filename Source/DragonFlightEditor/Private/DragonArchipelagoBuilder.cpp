@@ -945,7 +945,9 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		"  float4( 0.993, -0.122,   3.4, 0.014),\n"
 		"  float4(-0.309,  0.951,   2.4, 0.010) };\n"
 		// group modulation: wave packets, not endless crests
-		"#define GROUP(i, p) (0.65 + 0.35 * sin(dot(p, float2(Wv[i].y, -Wv[i].x)) * (6.2832 / (Wv[i].z * 7.3)) + i * 1.7) * sin(dot(p, Wv[i].xy) * (6.2832 / (Wv[i].z * 11.0)) + i * 2.3))\n");
+		// (a sum of two oblique sines: their product made every train a checkerboard, and the
+		// sea read as a grid from the air)
+		"#define GROUP(i, p) (0.62 + 0.2 * sin(dot(p, float2(Wv[i].y, -Wv[i].x)) * (6.2832 / (Wv[i].z * 7.3)) + i * 1.7) + 0.18 * sin(dot(p, float2(0.766 * Wv[i].x - 0.643 * Wv[i].y, 0.643 * Wv[i].x + 0.766 * Wv[i].y)) * (6.2832 / (Wv[i].z * 11.0)) + i * 2.3))\n");
 	auto MakeWater = [&](const TCHAR* Name, bool bSea, bool bRiver = false)
 	{
 		UMaterial* M = NewMaterial(Name);
@@ -1023,7 +1025,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 		Surf->Description = TEXT("Sea surface");
 		Surf->OutputType = CMOT_Float3;
 		In(Surf, { TEXT("P"), TEXT("O"), TEXT("Cam"), TEXT("T"), TEXT("Amp"), TEXT("Half"), TEXT("DS"), TEXT("FoamAmt"), TEXT("WS"),
-			TEXT("Tex"), TEXT("FoamT"), TEXT("H"), TEXT("SS"), TEXT("SD"), TEXT("UV"), TEXT("VC"), TEXT("Flow"), TEXT("Cst"), TEXT("WakeT"), TEXT("WakeC"), TEXT("WakeS") });
+			TEXT("Tex"), TEXT("FoamT"), TEXT("H"), TEXT("SS"), TEXT("SD"), TEXT("UV"), TEXT("VC"), TEXT("Flow"), TEXT("Cst"), TEXT("WakeT"), TEXT("WakeC"), TEXT("WakeS"), TEXT("RS") });
 		Surf->AdditionalOutputs.Reset();
 		for (const TCHAR* N : { TEXT("FoamOut"), TEXT("Rough") }) { FCustomOutput O; O.OutputName = N; O.OutputType = CMOT_Float1; Surf->AdditionalOutputs.Add(O); }
 		{ FCustomOutput O; O.OutputName = TEXT("Scatter"); O.OutputType = CMOT_Float3; Surf->AdditionalOutputs.Add(O); }
@@ -1058,12 +1060,26 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			// rivers: ripples ride the current (UV = metres across, metres along the channel)
 			"float2 c = Flow > 0.0 ? float2(UV.x, UV.y - T * Flow) : p.xy;\n"
 			"float2 q = 0;\n"
+			// Every layer is turned to its own angle and scaled off any common multiple, and two
+			// differently turned copies of the main layer cross-fade by a slow, broad noise: no
+			// tile's pattern lines up with another's, so the sea shows no grid from any height.
+			// (Rivers keep their axes: their ripples run with the current.)
+			"float rr = Flow > 0.0 ? 0.0 : 1.0;\n"
+			"float2 c1 = lerp(c, float2(0.829 * c.x - 0.559 * c.y, 0.559 * c.x + 0.829 * c.y), rr);\n"
+			"float2 c2 = lerp(c, float2(0.391 * c.x + 0.921 * c.y, -0.921 * c.x + 0.391 * c.y), rr);\n"
+			"float2 c3 = lerp(c, float2(0.966 * c.x + 0.259 * c.y, -0.259 * c.x + 0.966 * c.y), rr);\n"
+			"float2 c4 = lerp(c, float2(-0.454 * c.x - 0.891 * c.y, 0.891 * c.x - 0.454 * c.y), rr);\n"
+			"float vA = Texture2DSample(FoamT, FoamTSampler, c / 530.0 + T * float2(0.0011, 0.0007)).r;\n"
+			"float vB = Texture2DSample(FoamT, FoamTSampler, c4 / 211.0 - T * float2(0.0017, 0.0009)).r;\n"
+			"float mixw = smoothstep(0.3, 0.7, vA);\n"
 			// macro ripples (cat's paws) the size of a field, so the far sea has gusty patches
-			"q += (Texture2DSample(Tex, TexSampler, c / (173.0 * DS) + T * float2(0.0031, 0.0019)).xy * 2 - 1) * 0.35 * Amp;\n"
-			"q += (Texture2DSample(Tex, TexSampler, c / (31.0 * DS) + T * float2(0.010, 0.006)).xy * 2 - 1) * 0.55;\n"
-			"q += (Texture2DSample(Tex, TexSampler, c / (11.0 * DS) + T * float2(-0.019, 0.023)).xy * 2 - 1) * 0.45 * near;\n"
-			"q += (Texture2DSample(Tex, TexSampler, c / (3.7 * DS) + T * float2(0.047, -0.033)).xy * 2 - 1) * 0.35 * near * near;\n"
-			"float3 N = normalize(float3(n.xy / max(n.z, 0.2) + q * 0.32, 1.0));\n"
+			"q += (Texture2DSample(Tex, TexSampler, c1 / (167.0 * DS) + T * float2(0.0031, 0.0019)).xy * 2 - 1) * 0.35 * Amp * (0.5 + vB);\n"
+			"float2 mA = Texture2DSample(Tex, TexSampler, c2 / (29.3 * DS) + T * float2(0.010, 0.006)).xy * 2 - 1;\n"
+			"float2 mB = Texture2DSample(Tex, TexSampler, c3 / (37.9 * DS) + T * float2(-0.007, 0.009)).xy * 2 - 1;\n"
+			"q += lerp(mA, mB, mixw) * 0.62 * (0.6 + 0.7 * vB);\n"
+			"q += (Texture2DSample(Tex, TexSampler, c4 / (10.7 * DS) + T * float2(-0.019, 0.023)).xy * 2 - 1) * 0.45 * near * (0.55 + 0.8 * vA);\n"
+			"q += (Texture2DSample(Tex, TexSampler, c1 / (3.3 * DS) + T * float2(0.047, -0.033)).xy * 2 - 1) * 0.35 * near * near;\n"
+			"float3 N = normalize(float3(n.xy / max(n.z, 0.2) + q * 0.32 * RS, 1.0));\n"
 			// ripples and wakes from ADragonWake's wave-equation field
 			"float wakeFoam = 0.0;\n"
 			"{ float2 wuv = (P.xy - WakeC.xy) / WakeS + 0.5;\n"
@@ -1079,9 +1095,12 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float depth = max(0.0, hz - ground);\n"
 			"if (!inWorld) depth = 400.0;\n"
 			// ---- The shore, laid out by metres from the coastline (coast.py), not by depth ----
-			"float ft = Texture2DSample(FoamT, FoamTSampler, p.xy / 7.0 + T * float2(0.013, 0.009)).r;\n"
-			"float ft2 = Texture2DSample(FoamT, FoamTSampler, p.xy / 23.0 - T * float2(0.006, 0.011)).r;\n"
-			"float ft3 = Texture2DSample(FoamT, FoamTSampler, p.xy / 61.0 + T * float2(0.003, -0.004)).r;\n"
+			// Foam is fine lace: small turned samples (the foam texture's cells read as big blotches,
+			// like browning butter, when sampled at 7-60 m).
+			"float2 pr = float2(0.829 * p.x - 0.559 * p.y, 0.559 * p.x + 0.829 * p.y);\n"
+			"float ft = Texture2DSample(FoamT, FoamTSampler, pr / 3.1 + T * float2(0.013, 0.009)).r;\n"
+			"float ft2 = Texture2DSample(FoamT, FoamTSampler, p.xy / 8.3 - T * float2(0.006, 0.011)).r;\n"
+			"float ft3 = Texture2DSample(FoamT, FoamTSampler, pr / 61.0 + T * float2(0.003, -0.004)).r;\n"
 			"float surf = 0.0; float sd = 400.0; float cliff = 0.0; float turbid = 0.0;\n"
 			"if (inWorld && Flow <= 0.0) {\n"
 			"  float e = 6.0 / WS;\n"
@@ -1089,7 +1108,7 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"  float sx = Texture2DSample(Cst, CstSampler, muv + float2(e, 0)).r * 127.5 - 24.0;\n"
 			"  float sy = Texture2DSample(Cst, CstSampler, muv + float2(0, e)).r * 127.5 - 24.0;\n"
 			"  float2 g = float2(sx - sd, sy - sd); float2 toSea = g / max(length(g), 1e-3);\n"
-			"  if (sd < 100.0 && sd > -3.0) {\n"
+			"  if (sd < 80.0 && sd > -3.0) {\n"
 			// what kind of shore: high ground 15 m behind the line and deep water 20 m off it make a cliff
 			"    float2 lp = (p.xy - toSea * (sd + 15.0)) / WS + 0.5; float2 sp = (p.xy - toSea * (sd - 20.0)) / WS + 0.5;\n"
 			"    float hl = (Texture2DSample(H, HSampler, lp).r * 65535.0 - 32768.0) / 32.0;\n"
@@ -1099,30 +1118,34 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			// each stretch of coast has its own surf: wider here, calmer there
 			"    float vary = Texture2DSample(FoamT, FoamTSampler, p.xy / 410.0 + 0.37).r;\n"
 			"    float aa = saturate(dist / 900.0);\n"
-			// breakers: lines parallel to the shore rolling in, white at the front, a bore of foam behind that thins to lace as it ages
-			"    float zone = lerp(lerp(9.0, 26.0, vary), 5.0, cliff) * (0.35 + 0.65 * sea);\n"
+			// coordinates along the shore and out from it: foam is drawn out along the waterline
+			"    float2 tang = float2(-toSea.y, toSea.x);\n"
+			"    float along = dot(p.xy, tang);\n"
+			"    float lineN = Texture2DSample(FoamT, FoamTSampler, float2(along / 23.0, sd / 2.2) + T * float2(0.004, 0.0)).r;\n"
+			// breakers: lines parallel to the shore rolling in, a bright crest and a fading lace behind
+			"    float zone = lerp(lerp(8.0, 20.0, vary), 4.0, cliff) * (0.35 + 0.65 * sea);\n"
 			"    float Lb = lerp(13.0, 9.0, cliff);\n"
-			"    float ph = sd / Lb + T * (4.2 / Lb) + ft3 * 0.9 + vary * 3.0;\n"
+			"    float ph = sd / Lb + T * (4.2 / Lb) + ft3 * 0.7 + vary * 3.0;\n"
 			"    float age = frac(ph);\n"
 			"    float lw = fwidth(ph);\n"
-			"    float front = smoothstep(0.0, max(lw, 0.02), age) * exp(-age * 3.2);\n"
-			"    front = lerp(front, 0.18, saturate(lw * 2.5));\n"
-			"    float lace = smoothstep(0.34 + age * 0.5, 0.50 + age * 0.5, ft * 0.65 + ft2 * 0.5);\n"
-			"    float inZone = smoothstep(zone, zone * 0.55, sd) * smoothstep(-0.5, 1.5, sd);\n"
-			"    float brk = front * lerp(lace, 0.35, aa) * inZone * (0.30 + 0.55 * sea);\n"
+			"    float front = smoothstep(0.0, max(lw, 0.03), age) * exp(-age * 5.0);\n"
+			"    front = lerp(front, 0.12, saturate(lw * 2.5));\n"
+			"    float lace = smoothstep(0.30 + age * 0.45, 0.62 + age * 0.45, ft * 0.55 + lineN * 0.55);\n"
+			"    float inZone = smoothstep(zone, zone * 0.5, sd) * smoothstep(-0.5, 1.5, sd);\n"
+			"    float brk = front * lerp(lace, 0.3, aa) * inZone * (0.30 + 0.5 * sea);\n"
 			// some stretches spill, some don't
 			"    brk *= smoothstep(0.25, 0.6, ft3 + 0.25 * sin(ph * 0.37 + vary * 9.0));\n"
-			// swash: the last metres are churned white, reaching further as each wave runs up
-			"    float run = lerp(1.5, 4.0, pow(saturate(0.5 + 0.5 * sin(T * 0.75 + vary * 12.0 + ft3 * 3.0)), 2.0)) * (0.5 + 0.5 * sea);\n"
-			"    float swash = smoothstep(run, run * 0.25, sd) * smoothstep(0.42, 0.62, ft * 0.6 + ft2 * 0.6 + (1.0 - sd / run) * 0.3);\n"
+			// swash: a soft white edge at the waterline, reaching further as each wave runs up
+			"    float run = lerp(1.2, 3.2, pow(saturate(0.5 + 0.5 * sin(T * 0.75 + vary * 12.0 + ft3 * 3.0)), 2.0)) * (0.5 + 0.5 * sea);\n"
+			"    float swash = smoothstep(run, run * 0.2, sd) * (0.55 + 0.45 * smoothstep(0.3, 0.7, ft * 0.5 + lineN * 0.6));\n"
 			// at the foot of a cliff the swell bursts and falls back: a pulsing collar of white water
 			"    float surge = pow(saturate(0.5 + 0.5 * sin(T * 0.62 + vary * 17.0 + ft3 * 2.0)), 3.0);\n"
-			"    float collarW = lerp(2.0, 7.0, surge) * (0.5 + 0.6 * sea);\n"
-			"    float collar = cliff * smoothstep(collarW, collarW * 0.2, sd) * smoothstep(0.36, 0.6, ft * 0.7 + ft2 * 0.5 + surge * 0.2);\n"
-			// and the foam it leaves drifts off in lacy streaks for tens of metres
-			"    float streak = smoothstep(0.68, 0.88, ft2 * 0.55 + ft3 * 0.6 + ft * 0.15) * exp(-sd / lerp(8.0, 20.0, cliff * sea)) * (0.18 + 0.35 * cliff) * (0.25 + 0.75 * sea);\n"
-			"    streak *= 1.0 - aa * 0.5;\n"
-			"    surf = max(max(brk, swash * (0.6 + 0.3 * sea)), max(collar * (0.4 + 0.45 * sea), streak));\n"
+			"    float collarW = lerp(1.5, 5.0, surge) * (0.5 + 0.6 * sea);\n"
+			"    float collar = cliff * smoothstep(collarW, collarW * 0.2, sd) * smoothstep(0.35, 0.65, ft * 0.6 + lineN * 0.5 + surge * 0.2);\n"
+			// and the foam it leaves drifts off as thin streaks along the shore, not a sheet
+			"    float streak = smoothstep(0.62, 0.8, lineN * 0.8 + ft * 0.3) * exp(-sd / lerp(6.0, 14.0, cliff * sea)) * (0.10 + 0.2 * cliff) * (0.25 + 0.75 * sea);\n"
+			"    streak *= 1.0 - aa * 0.6;\n"
+			"    surf = max(max(brk, swash * (0.55 + 0.25 * sea)), max(collar * (0.35 + 0.4 * sea), streak));\n"
 			// stirred-up water near beaches is milkier and greener; it clears away from the shore
 			"    turbid = exp(-sd / 45.0) * (1.0 - 0.6 * cliff) * (0.4 + 0.6 * sea);\n"
 			"  }\n"
@@ -1137,7 +1160,8 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			"float rap = 0.0;\n"
 			"if (Flow > 0.0) { float rf = Texture2DSample(FoamT, FoamTSampler, float2(UV.x, UV.y - T * Flow * 1.3) / 5.0).r;\n"
 			"  rap = VC * 0.7 * smoothstep(0.45, 0.85, rf + VC * 0.2); }\n"
-			"FoamOut = saturate((surf + crest) * FoamAmt + rap + wakeFoam * smoothstep(0.25, 0.65, ft * 0.6 + ft2 * 0.5 + wakeFoam * 0.4));\n"
+			"float wf = saturate(wakeFoam);\n"
+			"FoamOut = saturate((surf + crest) * FoamAmt + rap + 0.75 * wf * smoothstep(0.5, 0.8, ft * 0.6 + ft2 * 0.45 + wf * 0.25));\n"
 			"Rough = lerp(0.035, 0.6, FoamOut);\n"
 			"Scatter = lerp(SS, SD, saturate(sd / 35.0)) + float3(0.003, 0.007, 0.005) * turbid;\n"
 			"return N;\n");
@@ -1176,6 +1200,10 @@ void FDragonArchipelagoBuilder::CreateMasterMaterials()
 			UMaterialExpressionTextureCoordinate* TC = Expr<UMaterialExpressionTextureCoordinate>(M, -1100, 900);
 			UMaterialExpressionVertexColor* VCx = Expr<UMaterialExpressionVertexColor>(M, -1100, 980);
 			auto* FlowP = Scalar(TEXT("FlowSpeed"), bRiver ? 1.4f : 0.f, 1060);
+			// A lake in the lee of its hills is calm: faint ripples, long reflections (the sea's
+			// ripples on it read as a ruled pattern).
+			auto* RSP = Scalar(TEXT("RippleStrength"), bSea || bRiver ? 1.f : 0.4f, 1380);
+			UMaterialEditingLibrary::ConnectMaterialExpressions(RSP, TEXT(""), Surf, TEXT("RS"));
 			UMaterialEditingLibrary::ConnectMaterialExpressions(TC, TEXT(""), Surf, TEXT("UV"));
 			UMaterialEditingLibrary::ConnectMaterialExpressions(VCx, TEXT("R"), Surf, TEXT("VC"));
 			UMaterialEditingLibrary::ConnectMaterialExpressions(FlowP, TEXT(""), Surf, TEXT("Flow"));

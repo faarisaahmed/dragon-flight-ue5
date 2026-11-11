@@ -73,6 +73,8 @@ public:
 	void PlasmaBlast(const FVector& At, const FVector& Normal, bool bWater, float RadiusCm);
 
 	/** Glowing trail behind a bolt between two points (called each frame by the bolt). */
+	/** A bolt passing low over water: steam and spray torn up along the surface under it (K: 1 at the surface, 0 at 9 m up). */
+	void PlasmaSkim(const FVector& SurfaceCm, const FVector& Vel, float K);
 	void PlasmaTrail(const FVector& From, const FVector& To, const FVector& Vel);
 
 	/** A lightning stroke from the cloud base down to the ground or sea at To. */
